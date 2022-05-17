@@ -1,2 +1,2 @@
 # upMonitor
-CPU/process monitor for macOS
+Simple CPU/process monitor
