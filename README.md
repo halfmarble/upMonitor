@@ -2,7 +2,13 @@
 
 A lightweight, highly customizable CPU monitoring tool designed specifically for the macOS menu bar. Keep a pulse on your system performance without cluttering your workspace.
 
-![upMonitor Screenshot](Screenshot.png)
+* **hiding in the menu bar:**
+
+![upMonitor Screenshot](Screenshot1.png)
+
+* **showing preferences and processes:**
+
+![upMonitor Screenshot](Screenshot2.png)
 
 ## 🚀 Features
 
