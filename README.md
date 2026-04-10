@@ -1,3 +1,5 @@
+[![License](https://img.shields.io/badge/Open%20Source-MIT-brightgreen.svg)](https://opensource.org/licenses/MIT)
+
 # upMonitor
 
 A lightweight, highly customizable CPU monitoring tool designed specifically for the macOS menu bar. Keep a pulse on your system performance without cluttering your workspace.
