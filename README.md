@@ -24,8 +24,7 @@ A lightweight, highly customizable CPU monitoring tool designed specifically for
     * **Visual Styles:** Switch between Bar and Dot styles to match your preference.
     * **Appearance:** Choose from various color themes (including vibrant gradients) or a classic grey look.
     * **Line Weights:** Adjust thickness and choose between solid or dashed lines.
-* **System Integration:** * One-click access to the macOS native **Activity Monitor**.
-    * **Launch on Startup** support to keep it running whenever you use your Mac.
+* **System Integration:** One-click access to the macOS native **Activity Monitor**.
 
 ## 🛠 Installation
 
@@ -37,7 +36,7 @@ A lightweight, highly customizable CPU monitoring tool designed specifically for
 
 To customize your experience:
 1.  Click on the `upMonitor` icon in the menu bar.
-2.  Select **Open uMonitor Preferences...**
+2.  Select **Open upMonitor Preferences...**
 3.  Adjust the settings to fit your workflow.
 
 ## 🤝 Contributing
