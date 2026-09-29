@@ -152,7 +152,7 @@
 			isa = PBXProject;
 			attributes = {
 				LastUpgradeCheck = 1220;
-				ORGANIZATIONNAME = gerard;
+				ORGANIZATIONNAME = "Halfmarble LLC";
 				TargetAttributes = {
 					D540B2A523FA2F5400752C7F = {
 						CreatedOnToolsVersion = 11.3.1;

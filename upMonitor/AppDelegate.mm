@@ -827,7 +827,7 @@ static BOOL spaces_init = NO;
       [newRep setSize:[image size]];
       NSData *pngData = [newRep representationUsingType:NSBitmapImageFileTypePNG properties:@{NSImageCompressionFactor:@1.0}];
       NSError* error = nil;
-      BOOL written = [pngData writeToFile:@"/Users/gerard/Downloads/img.png" options:NSDataWritingAtomic error:&error];
+      BOOL written = [pngData writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Downloads/img.png"] options:NSDataWritingAtomic error:&error];
       if (!written)
       {
         NSLog(@"%@", error);
