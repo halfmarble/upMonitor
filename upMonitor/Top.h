@@ -40,14 +40,14 @@ struct TopProcessSample
   uint32_t status;
   uint32_t flags;
   char     name[TOP_MAX_SAMPLE_NAME_SIZE+1];
-  double   cpu;
+  double   cpu;          // % of one core since the previous read, 0 when there is no baseline
+  int      cpu_known;    // 1 when the CPU time can be read: the user's own processes only
 
   uint32_t sequence;
-  uint32_t sequence_last;
-  double   usage_last;
-  
-  uint64_t total_timens;
-  uint64_t p_total_timens;
+
+  uint64_t start_us;     // process start time, a change means the pid was reused
+  uint64_t total_timens; // CPU time at the last read
+  uint64_t last_timens;  // wall time of the last read, 0 = no baseline yet
 };
 
 typedef struct TopProcessInfo TopProcessInfo_t;

@@ -27,6 +27,7 @@
 
 #include <sys/param.h>
 #include <sys/sysctl.h>
+#include <sys/time.h>
 
 #include <mach/mach.h>
 #include <mach/task.h>
@@ -67,7 +68,10 @@ static uint32_t _top_sequence;
 static uint32_t _top_process_count;
 static mach_port_t _top_port;
 static uint64_t _timens;
-static uint64_t _p_timens;
+static uint64_t _top_wall_us;
+static uint64_t _top_prev_timens;
+static uint64_t _top_prev_wall_us;
+static mach_timebase_info_data_t _top_timebase;
 
 /* Buffer that is large enough to hold the entire argument area of a process. */
 static char *_top_arg_buffer;
@@ -163,11 +167,31 @@ static int __attribute__((noinline)) _top_kinfo_for_pid(struct kinfo_proc* kinfo
   mib[2] = KERN_PROC_PID;
   mib[3] = pid;
   size_t len = sizeof(struct kinfo_proc);
-  return sysctl(mib, (u_int)miblen, kinfo, &len, NULL, 0);
+  // for a pid that has already exited, sysctl succeeds but returns no data (len 0)
+  if ((sysctl(mib, (u_int)miblen, kinfo, &len, NULL, 0) != 0) || (len != sizeof(struct kinfo_proc)))
+  {
+    return (-1);
+  }
+  return (0);
 }
 
-static int __attribute__((noinline)) _top_update_for_pid(pid_t pid, double system)
+// Identity (name, uid, ppid, status) comes from proc_pidinfo(PROC_PIDT_SHORTBSDINFO), which works for
+// every process. CPU time and start time come from proc_pidinfo(PROC_PIDTASKALLINFO), which works only
+// for the user's own processes: for other users' processes (root daemons, WindowServer...) cpu_known
+// stays 0. Both are much cheaper than sysctl(KERN_PROC_PID).
+static int __attribute__((noinline)) _top_update_for_pid(pid_t pid)
 {
+  struct proc_bsdshortinfo bsdinfo;
+  if (proc_pidinfo(pid, PROC_PIDT_SHORTBSDINFO, 0, &bsdinfo, PROC_PIDT_SHORTBSDINFO_SIZE) != PROC_PIDT_SHORTBSDINFO_SIZE)
+  {
+    return (-2);
+  }
+  
+  if (bsdinfo.pbsi_status == SZOMB)
+  {
+    return (-3);
+  }
+  
   _TopProcessInfo_t* pinfo = _top_search((pid_t)pid);
   if (pinfo == NULL)
   {
@@ -179,114 +203,78 @@ static int __attribute__((noinline)) _top_update_for_pid(pid_t pid, double syste
     pinfo->sample.pid = (pid_t)pid;
     _top_insert(pinfo);
   }
+  TopProcessSample_t* sample = &pinfo->sample;
   
-#if 1
+  sample->sequence = _top_sequence;
+  sample->uid = bsdinfo.pbsi_uid;
+  sample->ppid = bsdinfo.pbsi_ppid;
+  sample->status = bsdinfo.pbsi_status;
+  sample->flags = bsdinfo.pbsi_flags;
+  sample->tprio = 0;
+  snprintf(sample->name, sizeof(sample->name), "%.*s", (int)sizeof(bsdinfo.pbsi_comm), bsdinfo.pbsi_comm);
+  
   struct proc_taskallinfo pidinfo;
-  memset(&pidinfo, 0, sizeof(pidinfo));
-  proc_pidinfo(pid, PROC_PIDTASKALLINFO, 0, &pidinfo, PROC_PIDTASKALLINFO_SIZE);
-  if (pinfo->sample.name[0] == 0)
+  if (proc_pidinfo(pid, PROC_PIDTASKALLINFO, 0, &pidinfo, PROC_PIDTASKALLINFO_SIZE) != PROC_PIDTASKALLINFO_SIZE)
   {
-    pinfo->sample.tprio = pidinfo.ptinfo.pti_priority;
-    pinfo->sample.status = pidinfo.pbsd.pbi_status;
-    pinfo->sample.flags = pidinfo.pbsd.pbi_flags;
-    pinfo->sample.ppid = pidinfo.pbsd.pbi_ppid;
-    strncpy(pinfo->sample.name, pidinfo.pbsd.pbi_name, TOP_MAX_SAMPLE_NAME_SIZE);
+    // another user's process: macOS gives an unprivileged app no CPU time for it
+    sample->cpu_known = 0;
+    sample->cpu = 0.0;
+    sample->start_us = 0;
+    sample->last_timens = 0;
+    return (0);
   }
-#else
-  res = _top_parse_args(pinfo, &kinfo);
-  if (res != 0)
+  
+  uint64_t start_us = (pidinfo.pbsd.pbi_start_tvsec * USEC_PER_SEC) + pidinfo.pbsd.pbi_start_tvusec;
+  if (sample->start_us != start_us)
   {
-    _top_destroy(pinfo);
-    return -6;
+    // first sight, or the pid now belongs to a new process
+    sample->start_us = start_us;
+    if ((_top_prev_timens != 0) && (start_us >= _top_prev_wall_us))
+    {
+      // started after the previous sample: all of its CPU time was used since then
+      sample->total_timens = 0;
+      sample->last_timens = _top_prev_timens;
+    }
+    else
+    {
+      // older than the previous sample (or this is the first sample): no baseline yet
+      sample->last_timens = 0;
+    }
   }
-#endif
   
-  struct kinfo_proc kinfo;
-  int res = _top_kinfo_for_pid(&kinfo, pid);
-  if (res != 0)
+  if (pidinfo.pbsd.pbi_name[0] != '\0')
   {
-    return (-2);
+    snprintf(sample->name, sizeof(sample->name), "%.*s", (int)sizeof(pidinfo.pbsd.pbi_name), pidinfo.pbsd.pbi_name);
   }
+  sample->tprio = pidinfo.ptinfo.pti_priority;
+  sample->status = pidinfo.pbsd.pbi_status;
+  sample->flags = pidinfo.pbsd.pbi_flags;
   
-  if (kinfo.kp_proc.p_stat == SZOMB)
+  // live and terminated threads in one read, in mach_absolute_time units, so it cannot go backwards
+  uint64_t total_timens = ((pidinfo.ptinfo.pti_total_user + pidinfo.ptinfo.pti_total_system) * _top_timebase.numer) / _top_timebase.denom;
+  if ((sample->last_timens != 0) && (_timens > sample->last_timens) && (total_timens >= sample->total_timens))
   {
-    return (-3);
+    sample->cpu = (double)(total_timens - sample->total_timens) * 100.0 / (double)(_timens - sample->last_timens);
   }
-  
-  pinfo->sample.uid = kinfo.kp_eproc.e_ucred.cr_uid;
-  pinfo->sample.sequence_last = pinfo->sample.sequence;
-  pinfo->sample.sequence = _top_sequence;
-  
-  task_name_t task;
-  kern_return_t kr = task_name_for_pid(mach_task_self(), pid, &task);
-  if (kr != KERN_SUCCESS) {
-    return (-4);
-  }
-  
-  struct task_basic_info_64 ti;
-  mach_msg_type_number_t count = TASK_BASIC_INFO_64_COUNT;
-  kr = task_info(task, TASK_BASIC_INFO_64, (task_info_t)&ti, &count);
-  if (kr != KERN_SUCCESS) {
-    mach_port_deallocate(mach_task_self(), task);
-    _top_destroy(pinfo);
-    return (-5);
-  }
-  pinfo->sample.total_timens = TIME_VALUE_TO_NS(&ti.user_time) + TIME_VALUE_TO_NS(&ti.system_time);
-  
-#if 0
-  struct rusage_info_v5 ri;
-  proc_pid_rusage(pid, RUSAGE_INFO_V5, (rusage_info_t)&ri);
-  pinfo->sample.total_timens += (ri.ri_user_time + ri.ri_system_time);
-#else
-  struct task_thread_times_info tti;
-  count = TASK_THREAD_TIMES_INFO_COUNT;
-  kr = task_info(task, TASK_THREAD_TIMES_INFO, (task_info_t)&tti, &count);
-  if (kr != KERN_SUCCESS)
+  else
   {
-    fprintf(stderr, "ERROR: task_info(TASK_THREAD_TIMES_INFO)\n");
+    sample->cpu = 0.0;
   }
-  uint64_t process_total_timens = TIME_VALUE_TO_NS(&tti.user_time)+TIME_VALUE_TO_NS(&tti.system_time);
-  pinfo->sample.total_timens += process_total_timens;
-#endif
-  
-  uint64_t last_timens = _p_timens;
-  uint64_t last_total_timens = pinfo->sample.p_total_timens;
-  unsigned long long elapsed_us = (_timens - last_timens) / NSEC_PER_USEC;
-  unsigned long long used_us = (pinfo->sample.total_timens - last_total_timens) / NSEC_PER_USEC;
-  pinfo->sample.cpu = (double)used_us*100.0/(double)elapsed_us;
-  pinfo->sample.p_total_timens = pinfo->sample.total_timens;
-  
-  mach_port_deallocate(mach_task_self(), task);
+  sample->cpu_known = 1;
+  sample->total_timens = total_timens;
+  sample->last_timens = _timens;
   
   return (0);
 }
 
-static double _top_nanos(void)
-{
-  static mach_timebase_info_data_t mtid = {0, 0};
-  if (mtid.numer == 0)
-  {
-    if (mach_timebase_info(&mtid) != KERN_SUCCESS)
-    {
-      return -1.0;
-    }
-  }
-  
-  static long numProcessors = 0;
-  if (numProcessors <= 0)
-  {
-    numProcessors = sysconf(_SC_NPROCESSORS_ONLN);
-    if (numProcessors <= 0)
-    {
-      return -2.0;
-    }
-  }
-  
-  return (mach_absolute_time() * (double)mtid.numer) / (double)mtid.denom;
-}
-
 int TopInit()
 {
+  if ((mach_timebase_info(&_top_timebase) != KERN_SUCCESS) || (_top_timebase.denom == 0))
+  {
+    _top_timebase.numer = 1;
+    _top_timebase.denom = 1;
+  }
+  
   _top_port = MACH_PORT_NULL;
     
   _top_sequence = 0;
@@ -319,7 +307,7 @@ int TopInit()
 //  _top_hash_table = CFDictionaryCreateMutable(NULL, 0, NULL, &table2Callbacks);
   
   memset(&_top_process_info, 0, sizeof(TopProcessInfo_t));
-  
+
   return TopSample();
 }
 
@@ -355,27 +343,22 @@ void TopSort(void)
 
 int TopSample(void)
 {
-  static double _top_cpu_system_last = 0.0;
-
   _top_sequence++;
-  
+
   _top_iterator = NULL;
-  
+
   _top_is_sorted = 0;
-  
-  double system = 0.0;
-  double top_cpu_system = _top_nanos();
-  if (top_cpu_system > _top_cpu_system_last)
+
+  _top_prev_timens = _timens;
+  _top_prev_wall_us = _top_wall_us;
+  _timens = clock_gettime_nsec_np(CLOCK_MONOTONIC_RAW);
   {
-    system = top_cpu_system - _top_cpu_system_last;
+    // wall clock, to compare with the process start times (pbi_start_tvsec)
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    _top_wall_us = ((uint64_t)tv.tv_sec * USEC_PER_SEC) + (uint64_t)tv.tv_usec;
   }
-  
-  if (_top_sequence != 1)
-  {
-    _p_timens = _timens;
-    _timens = clock_gettime_nsec_np(CLOCK_MONOTONIC_RAW);
-  }
-  
+
   static pid_t* pids = NULL;
   int num_pids = proc_listallpids(NULL, 0);
   if (num_pids > 0)
@@ -386,8 +369,9 @@ int TopSample(void)
       num_pids = proc_listallpids(pids, size);
       for (int i=0; i<num_pids; i++)
       {
-        int err = _top_update_for_pid(pids[i], system);
-        if (err != 0)
+        int err = _top_update_for_pid(pids[i]);
+        // -2 (exited since the list was taken) and -3 (zombie) are expected
+        if ((err != 0) && (err != -2) && (err != -3))
         {
           fprintf(stderr, "_top_update_for_pid(%d) returned %d\n", pids[i], err);
         }
@@ -395,8 +379,6 @@ int TopSample(void)
     }
   }
 
-  _top_cpu_system_last = top_cpu_system;
-  
   TopSort();
   
   return _top_process_count;
@@ -457,7 +439,7 @@ const TopProcessSample_t* TopIterate(void)
     while (dead);
   }
 
-  return &_top_iterator->sample;
+  return (_top_iterator != NULL) ? &_top_iterator->sample : NULL;
 }
 
 const char* TopGetUsername(uid_t uid)

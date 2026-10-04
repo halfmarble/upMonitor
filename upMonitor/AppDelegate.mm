@@ -132,6 +132,10 @@ static CFMutableDictionaryRef topCpuHashTable;
 static CFMutableDictionaryRef topIconHashTable;
 
 static bool refreshTop = false;
+static bool topListValid = false;
+static int topCount = 0;
+static NSTimeInterval lastTopSample = 0.0;
+#define TOP_MIN_INTERVAL (0.25)
 
 static CGFloat tickHeight = 16.0;
 static CGFloat tickWidth = 3.0;
@@ -161,26 +165,78 @@ static double spaceWidth = 0.0;
 static NSNumber *current_process_pid = nil;
 static NSString *current_process_path = nil;
 
-volatile static BOOL fillLsofForProcessInProgress = NO;
-volatile static BOOL fillNmForProcessInProgress = NO;
-volatile static BOOL fillThreadsForProcessInProgress = NO;
+// The inspector's tools (man, lsof, nm, sample) run on a background queue. Every selection bumps
+// inspectGeneration, and a result that belongs to an older selection is dropped. The *Job values
+// hold the generation of a tool still running for that tab (0 = none). Main thread only.
+static NSUInteger inspectGeneration = 0;
+static NSUInteger lsofJob = 0;
+static NSUInteger nmJob = 0;
+static NSUInteger threadsJob = 0;
+static NSUInteger threadsRun = 0;
+static NSMutableSet<NSTask*>* runningTasks = nil;
+#define TOOL_OUTPUT_MAX (1024*1024) // characters shown; laying out tens of MB blocks the main thread for seconds
 
-- (NSFileHandle*)launch:(NSTask *)task
+- (void)runTool:(NSString*)tool arguments:(NSArray<NSString*>*)arguments withStderr:(BOOL)withStderr done:(void (^)(NSString* output))done
 {
-  NSPipe *oPipe = [NSPipe pipe];
-  [task setStandardOutput:oPipe];
+  NSUInteger generation = inspectGeneration;
+  dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+    NSTask *task = [[NSTask alloc] init];
+    [task setExecutableURL:[NSURL fileURLWithPath:tool]];
+    [task setArguments:arguments];
+    NSPipe *pipe = [NSPipe pipe];
+    [task setStandardOutput:pipe];
+    [task setStandardError:(withStderr ? pipe : [NSFileHandle fileHandleWithNullDevice])];
 
-  //[task setStandardError:ePipe];
-  //NSPipe *ePipe = [[NSPipe alloc] init];
+    NSString *output = nil;
+    if ([task launchAndReturnError:nil])
+    {
+      @synchronized (runningTasks)
+      {
+        [runningTasks addObject:task];
+      }
+      // read everything BEFORE waiting: a tool whose output fills the pipe never exits while nobody reads
+      NSData *data = [[pipe fileHandleForReading] readDataToEndOfFileAndReturnError:nil];
+      [task waitUntilExit];
+      if (data == nil)
+      {
+        data = [NSData data];
+      }
+      @synchronized (runningTasks)
+      {
+        [runningTasks removeObject:task];
+      }
+      output = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+      if (output == nil)
+      {
+        output = [[NSString alloc] initWithData:data encoding:NSISOLatin1StringEncoding];
+      }
+      if ([output length] > TOOL_OUTPUT_MAX)
+      {
+        NSRange cut = [output rangeOfComposedCharacterSequenceAtIndex:TOOL_OUTPUT_MAX];
+        output = [[output substringToIndex:cut.location] stringByAppendingFormat:@"\n\n... (truncated: %lu characters in total)\n", (unsigned long)[output length]];
+      }
+    }
 
-  //NSError *error = nil;
-  if ([task launchAndReturnError:nil])
+    dispatch_async(dispatch_get_main_queue(), ^{
+      if (generation == inspectGeneration)
+      {
+        done(output);
+      }
+    });
+  });
+}
+
+- (void)stopInspectorTools
+{
+  @synchronized (runningTasks)
   {
-    return [oPipe fileHandleForReading];
-  }
-  else
-  {
-    return nil;
+    for (NSTask *task in runningTasks)
+    {
+      if ([task isRunning])
+      {
+        [task terminate];
+      }
+    }
   }
 }
 
@@ -559,9 +615,15 @@ static BOOL spaces_init = NO;
     //NSString *fullPath = [ws fullPathForApplication:[path lastPathComponent]];
     //NSImage *appIcon = [ws iconForFileType:NSFileTypeForHFSTypeCode(kGenericApplicationIcon)];
     
+    if (i >= topCount)
+    {
+      [topMenus[i] setHidden:YES];
+      continue;
+    }
     TopProcessSample_t* sample = &topProcceses[i];
     [self updateMenuTopFor:topMenus[i] name:sample->name pid:sample->pid path:NULL cpu:sample->cpu width:NAME_STR_SPACE_TARGET];
     [topMenus[i] setTag:sample->pid];
+    [topMenus[i] setHidden:NO];
   }
   
   [menu update];
@@ -613,7 +675,7 @@ static BOOL spaces_init = NO;
   {
     NSMenuItem* item = [menu addItemWithTitle:@" " action:nil keyEquivalent:@""];
     [item setAttributedTitle:[[NSAttributedString alloc] initWithString:[item title] attributes:attributesThin]];
-    item = [menu addItemWithTitle:@"TOP CPU PROCESSES" action:nil keyEquivalent:@""];
+    item = [menu addItemWithTitle:@"YOUR TOP CPU PROCESSES" action:nil keyEquivalent:@""];
     [item setAttributedTitle:[[NSAttributedString alloc] initWithString:[item title] attributes:attributesStandardCenter]];
     for (int i=0; i<TOP_COUNT; i++)
     {
@@ -860,28 +922,30 @@ static BOOL spaces_init = NO;
 //  return 0;
 //}
 
+// Samples on every tick, with the menu closed too (about 1-2 ms), so that the CPU% always covers the
+// last interval and the list is current the moment the menu opens.
 - (void)updateTop:(id)sender
 {
+  TopSample();
+  lastTopSample = [[NSProcessInfo processInfo] systemUptime];
+  topListValid = true;
+
+  int counter = 0;
+  const TopProcessSample_t *psample = TopIterate();
+  while ((psample != NULL) && (counter < TOP_COUNT))
+  {
+    // other users' processes have no readable CPU time, so they cannot be ranked
+    if (psample->cpu_known)
+    {
+      topProcceses[counter++] = *psample;
+    }
+    psample = TopIterate();
+  }
+  topCount = counter;
+
   if (refreshTop)
   {
-    TopSample();
-    int counter = 0;
-    const TopProcessSample_t *psample = TopIterate();
-    while (psample != NULL)
-    {
-      //if (psample->pid > 1)
-      {
-        topProcceses[counter] = *psample;
-        //printf("   %6d %30s %5.1f%% %20s\n", psample->pid, psample->name, psample->cpu, TopGetUsername(psample->uid));
-        if (++counter >= TOP_COUNT)
-        {
-          break;
-        }
-      }
-      psample = TopIterate();
-    }
-    //printf("\n");
-    [self performSelectorOnMainThread:@selector(updateMenuTop) withObject:nil waitUntilDone:YES];
+    [self updateMenuTop];
   }
 }
 
@@ -944,30 +1008,21 @@ static BOOL spaces_init = NO;
   [[NSRunLoop currentRunLoop] addTimer:timerTop forMode:NSModalPanelRunLoopMode];
 }
 
-- (BOOL)fillDescForProcess:(NSString*)name
+- (void)fillDescForProcess:(NSString*)name tab:(NSTabViewItem*)descriptionTab
 {
-  BOOL found = NO;
-  {
-    // https://developer.apple.com/documentation/foundation/nstask
-    NSTask *task = [[NSTask alloc] init];
-    [task setLaunchPath:@"/usr/bin/man"];
-    [task setArguments:[NSArray arrayWithObjects:@"-P", @"col -bx", name, nil]];
-    NSPipe *pipe = [NSPipe pipe];
-    [task setStandardOutput:pipe];
-    [task launch];
-    if ([task isRunning])
+  // "--": a process name starting with '-' must not be read as an option
+  [self runTool:@"/usr/bin/man" arguments:@[@"-P", @"col -bx", @"--", name] withStderr:NO done:^(NSString* output) {
+    if ([output length] > 0)
     {
-      [task waitUntilExit];
+      [self.procDescTextView setString:[NSString stringWithFormat:@"\n%@", output]];
+      [self.procAppView removeTabViewItem:descriptionTab];
+      [self.procAppView insertTabViewItem:descriptionTab atIndex:0];
     }
-    NSData *data = [[pipe fileHandleForReading] availableData];
-    if ([data length] > 0)
+    else
     {
-      NSString *output = [NSString stringWithFormat:@"\n%@", [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding]];
-      [self.procDescTextView setString:output];
-      found = YES;
+      [self.procAppView removeTabViewItem:descriptionTab];
     }
-  }
-  return found;
+  }];
 }
 
 - (BOOL)fillArgsEnvForProcess:(TopProcessInfo_t*) info
@@ -993,43 +1048,20 @@ static BOOL spaces_init = NO;
 
 - (void)fillLsofForProcess:(NSNumber*)pid_number
 {
-//  if (fillLsofForProcessInProgress)
-//  {
-//    return;
-//  }
-  fillLsofForProcessInProgress = YES;
-
-  NSString *appPath = @"/usr/sbin/lsof";
-  pid_t pid = [pid_number intValue];
-  NSArray<NSString *> *arguments = [NSArray arrayWithObjects:@"-p", [NSString stringWithFormat:@"%d", pid], nil];
-  //NSArray<NSString *> *arguments = @[];
-
+  if ((pid_number == nil) || (lsofJob == inspectGeneration))
   {
-    // https://developer.apple.com/documentation/foundation/nstask
-    NSTask *task = [[NSTask alloc] init];
-    [task setLaunchPath:appPath];
-    [task setArguments:arguments];
-    
-    NSFileHandle *outputFileHandle = [self launch:task];
-    if (outputFileHandle != nil)
-    {
-      if ([task isRunning])
-      {
-        [task waitUntilExit];
-      }
-      NSData *outputData = [outputFileHandle readDataToEndOfFile];
-      NSString *output = [[NSString alloc] initWithData:outputData encoding:NSUTF8StringEncoding];
-      [self.procLsofTextView performSelectorOnMainThread:@selector(setString:) withObject:output waitUntilDone:NO];
-    }
-    else
-    {
-      [self.procLsofTextView performSelectorOnMainThread:@selector(setString:) withObject:@"N/A (error)" waitUntilDone:NO];
-    }
-    
-    [task terminate];
+    return;
   }
-  
-  fillLsofForProcessInProgress = NO;
+  NSUInteger generation = inspectGeneration;
+  lsofJob = generation;
+
+  [self runTool:@"/usr/sbin/lsof" arguments:@[@"-p", [pid_number stringValue]] withStderr:YES done:^(NSString* output) {
+    if (lsofJob == generation)
+    {
+      lsofJob = 0;
+    }
+    [self.procLsofTextView setString:(output != nil) ? output : @"N/A (error)"];
+  }];
 }
 
 - (void)demangleString:(NSString*)string
@@ -1090,93 +1122,51 @@ static BOOL spaces_init = NO;
 
 - (void)fillNmForProcess:(NSString*)path
 {
-  if (fillNmForProcessInProgress)
+  if (nmJob == inspectGeneration)
   {
     return;
   }
-  fillNmForProcessInProgress = YES;
+  NSUInteger generation = inspectGeneration;
+  nmJob = generation;
 
-  NSString *appPath = @"/usr/bin/nm";
-  NSArray<NSString *> *arguments = [NSArray arrayWithObjects:path, nil];
-  //NSArray<NSString *> *arguments = @[];
-
-  {
-    NSTask *task = [[NSTask alloc] init];
-    [task setLaunchPath:appPath];
-    [task setArguments:arguments];
-    
-    NSFileHandle *outputFileHandle = [self launch:task];
-    if (outputFileHandle != nil)
+  // "--": a path starting with '-' must not be read as an option
+  [self runTool:@"/usr/bin/nm" arguments:@[@"--", (path != nil) ? path : @""] withStderr:YES done:^(NSString* output) {
+    if (nmJob == generation)
     {
-      if ([task isRunning])
-      {
-        [task waitUntilExit];
-      }
-      NSData *outputData = [outputFileHandle readDataToEndOfFile];
-      NSString *output = [[NSString alloc] initWithData:outputData encoding:NSUTF8StringEncoding];
-      [self.procNmTextView performSelectorOnMainThread:@selector(setString:) withObject:output waitUntilDone:NO];
-      //[self performSelectorOnMainThread:@selector(demangleString:) withObject:output waitUntilDone:NO];
+      nmJob = 0;
     }
-    else
-    {
-      [self.procNmTextView performSelectorOnMainThread:@selector(setString:) withObject:@"N/A (error)" waitUntilDone:NO];
-    }
-
-    [task terminate];
-  }
-  
-  fillNmForProcessInProgress = NO;
+    [self.procNmTextView setString:(output != nil) ? output : @"N/A (error)"];
+  }];
 }
 
 - (void)fillThreadsForProcess:(NSNumber*)pid_number
 {
-  if (fillThreadsForProcessInProgress)
+  if ((pid_number == nil) || (threadsJob == inspectGeneration))
   {
     return;
   }
-  fillThreadsForProcessInProgress = YES;
-  
-  NSString *appPath = @"/usr/bin/sample";
-  pid_t pid = [pid_number intValue];
-  NSArray<NSString *> *arguments = [NSArray arrayWithObjects:[NSString stringWithFormat:@"%d", pid], nil];
-  //NSArray<NSString *> *arguments = @[];
+  NSUInteger generation = inspectGeneration;
+  threadsJob = generation;
+  NSUInteger run = ++threadsRun;
 
+  // sample runs for 10 seconds by default: count down until its report arrives
+  for (int i=0; i<=10; i++)
   {
-    NSTask *task = [[NSTask alloc] init];
-    [task setLaunchPath:appPath];
-    [task setArguments:arguments];
-    
-    NSFileHandle *outputFileHandle = [self launch:task];
-    if (outputFileHandle != nil)
-    {
-      int wait = 10;
-      for (int i=0; i<=wait; i++)
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)i * (int64_t)NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+      if ((threadsRun == run) && (threadsJob == generation) && (inspectGeneration == generation))
       {
-        [NSThread sleepForTimeInterval:1];
-        NSString *string = [NSString stringWithFormat:@"\nsampling ends in %d seconds ...", (10-i)];
-        [self.procThreadsTextView performSelectorOnMainThread:@selector(setString:) withObject:string waitUntilDone:NO];
+        [self.procThreadsTextView setString:[NSString stringWithFormat:@"\nsampling ends in %d seconds ...", (10-i)]];
       }
-      
-//      while ([task isRunning])
-//      {
-//        [NSThread sleepForTimeInterval:1];
-//        NSString *string = [NSString stringWithFormat:@"\nstill sampling ..."];
-//        [self.procThreadsTextView performSelectorOnMainThread:@selector(setString:) withObject:string waitUntilDone:NO];
-//      }
-      
-      NSData *outputData = [outputFileHandle readDataToEndOfFile];
-      NSString *output = [[NSString alloc] initWithData:outputData encoding:NSUTF8StringEncoding];
-      [self.procThreadsTextView performSelectorOnMainThread:@selector(setString:) withObject:output waitUntilDone:NO];
-    }
-    else
-    {
-      [self.procThreadsTextView performSelectorOnMainThread:@selector(setString:) withObject:@"N/A (error)" waitUntilDone:NO];
-    }
-    
-    [task terminate];
+    });
   }
-  
-  fillThreadsForProcessInProgress = NO;
+
+  [self runTool:@"/usr/bin/sample" arguments:@[[pid_number stringValue]] withStderr:YES done:^(NSString* output) {
+    if (threadsJob == generation)
+    {
+      threadsJob = 0;
+    }
+    [self.procThreadsTextView setString:(output != nil) ? output : @"N/A (error)"];
+  }];
 }
 
 #pragma mark - Public APIs
@@ -1184,7 +1174,9 @@ static BOOL spaces_init = NO;
 - (void)applicationDidFinishLaunching:(NSNotification *)aNotification
 {
   srandom((int)time(NULL)^getpid());
-  
+
+  runningTasks = [NSMutableSet set];
+
   {
     {
       CFDictionaryValueCallBacks tableCallbacks = { 0, stringRetain, stringFree, NULL, stringEqual };
@@ -1201,18 +1193,13 @@ static BOOL spaces_init = NO;
     CpuSamplerInit(&cpu_info);
     CpuSamplerSineDemoInit(&cpu_sine_demo_info);
     CpuSamplerSineDemoInit(&cpu_flat_demo_info);
-    TopInit();
-    
+    TopInit(); // takes the first sample: the CPU baseline
+    lastTopSample = [[NSProcessInfo processInfo] systemUptime];
+
     [self setupPreferences];
     [self setupStatusItem];
     [self setupMenus];
     [self setupTimers];
-    
-    refreshTop = true;
-    {
-      [timerTop fire];
-    }
-    refreshTop = false;
   }
 }
 
@@ -1235,17 +1222,6 @@ static BOOL spaces_init = NO;
   NSLog(@"processExplorer");
 }
 
-+ (void)runBlock:(void (^)())block
-{
-    block();
-}
-
-+ (void)runAfterDelay:(CGFloat)delay block:(void (^)())block
-{
-    void (^block_)() = [block copy];
-    [self performSelector:@selector(runBlock:) withObject:block_ afterDelay:delay];
-}
-
 - (void)selectPid:(id)sender
 {
   static NSTabViewItem* descriptionTab = nil;
@@ -1255,16 +1231,24 @@ static BOOL spaces_init = NO;
   }
     
   NSMenuItem* menu = sender;
-  
+
   pid_t pid = (pid_t)[menu tag];
+  TopProcessSample_t* sample = TopGetSample(pid);
+  if (sample == NULL)
+  {
+    // the process exited after the menu was filled
+    return;
+  }
+
+  inspectGeneration++;
+  [self stopInspectorTools];
   current_process_pid = [NSNumber numberWithInt:pid];
-    
+
   NSImage *icon = [[NSImage alloc] initWithData:[[self getIconForPid:pid size:NSMakeSize(MENU_ICON_SIZE, MENU_ICON_SIZE)] TIFFRepresentation]];
   [icon setSize:NSMakeSize(TOP_ICON_SIZE, TOP_ICON_SIZE)];
   [self.procAppIcon setImage:icon];
-  
+
   TopProcessInfo_t* info = TopGetArgs(pid);
-  TopProcessSample_t* sample = TopGetSample(pid);
   current_process_path = [NSString stringWithFormat:@"%s", info->command];
   NSString* name = [NSString stringWithFormat:@"%s", info->name];
   
@@ -1314,11 +1298,11 @@ static BOOL spaces_init = NO;
   [self.procAppName setStringValue:[NSString stringWithFormat:@"%s, pid:%d, ppid:%d, prio:%d, stat:%d (%s), flags:%d (%s)",
                                     sample->name, sample->pid, sample->ppid, sample->tprio, sample->status, status_str, sample->flags, bits_str]];
 
-  [self.procDescTextView performSelectorOnMainThread:@selector(setString:) withObject:@"\npreparing..." waitUntilDone:NO];
-  [self.procArgsEnvTextView performSelectorOnMainThread:@selector(setString:) withObject:@"\npreparing..." waitUntilDone:NO];
-  [self.procLsofTextView performSelectorOnMainThread:@selector(setString:) withObject:@"\npreparing..." waitUntilDone:NO];
-  [self.procNmTextView performSelectorOnMainThread:@selector(setString:) withObject:@"\npreparing..." waitUntilDone:NO];
-  [self.procThreadsTextView performSelectorOnMainThread:@selector(setString:) withObject:@"\npreparing..." waitUntilDone:NO];
+  [self.procDescTextView setString:@"\npreparing..."];
+  [self.procArgsEnvTextView setString:@"\npreparing..."];
+  [self.procLsofTextView setString:@"\npreparing..."];
+  [self.procNmTextView setString:@"\npreparing..."];
+  [self.procThreadsTextView setString:@"\npreparing..."];
 
   //if ([self.top isVisible] == NO)
   {
@@ -1329,20 +1313,9 @@ static BOOL spaces_init = NO;
   }
   
   [self.procAppView selectFirstTabViewItem:self];
-  
-  [AppDelegate runAfterDelay:1 block:^{
-    [self fillArgsEnvForProcess:info];
-    if ([self fillDescForProcess:name])
-    {
-      [self.procAppView removeTabViewItem:descriptionTab];
-      [self.procAppView insertTabViewItem:descriptionTab atIndex:0];
-      //[self.procAppView selectTabViewItem:descriptionTab];
-    }
-    else
-    {
-      [self.procAppView removeTabViewItem:descriptionTab];
-    }
-  }];
+
+  [self fillArgsEnvForProcess:info];
+  [self fillDescForProcess:name tab:descriptionTab];
 }
 
 - (void)launchActivityMonitor:(id)sender
@@ -1544,6 +1517,17 @@ static BOOL spaces_init = NO;
 - (void)menuWillOpen:(NSMenu *)menu
 {
   refreshTop = true;
+
+  // take a fresh sample, unless the timer has just taken one: a very short interval gives noisy CPU%
+  if (!topListValid || (([[NSProcessInfo processInfo] systemUptime] - lastTopSample) >= TOP_MIN_INTERVAL))
+  {
+    [self updateTop:nil];
+    [timerTop setFireDate:[NSDate dateWithTimeIntervalSinceNow:TOP_REFRESH_RATE]];
+  }
+  else
+  {
+    [self updateMenuTop];
+  }
 }
 
 - (void)menuDidClose:(NSMenu *)menu
@@ -1558,17 +1542,17 @@ static BOOL spaces_init = NO;
   {
     case 3:
     {
-      [self performSelectorInBackground:@selector(fillLsofForProcess:) withObject:current_process_pid];
+      [self fillLsofForProcess:current_process_pid];
       break;
     }
     case 4:
     {
-      [self performSelectorInBackground:@selector(fillNmForProcess:) withObject:current_process_path];
+      [self fillNmForProcess:current_process_path];
       break;
     }
     case 5:
     {
-      [self performSelectorInBackground:@selector(fillThreadsForProcess:) withObject:current_process_pid];
+      [self fillThreadsForProcess:current_process_pid];
       break;
     }
     default:
