@@ -105,6 +105,89 @@ static void ShowMenuItemImage(NSMenuItem* item)
   }
 }
 
+// With Reduce Transparency on, the status menu's glass can be drawn as an opaque near-black, and
+// the generic process icons disappear into it. Paint the menu's content in the menu bar's own Dark
+// Mode grey instead. Menus have no public background setting, so this looks for the open menu's
+// glass view; when it is not there, the menu stays as the system draws it.
+
+// sRGB, the menu bar's grey in Dark Mode with Reduce Transparency
+static const CGFloat MENU_DARK_GREY = 32.0/255.0;
+
+// the first glass view in the window, breadth-first from its frame view
+static NSGlassEffectView* FindGlassEffectView(NSWindow* window) API_AVAILABLE(macos(26.0))
+{
+  NSView* root = window.contentView.superview ?: window.contentView;
+  if (root == nil)
+  {
+    return nil;
+  }
+  NSMutableArray<NSView*>* queue = [NSMutableArray arrayWithObject:root];
+  while (queue.count > 0)
+  {
+    NSView* view = queue[0];
+    [queue removeObjectAtIndex:0];
+    if ([view isKindOfClass:[NSGlassEffectView class]])
+    {
+      return (NSGlassEffectView*)view;
+    }
+    [queue addObjectsFromArray:view.subviews];
+  }
+  return nil;
+}
+
+static void PaintOpenMenuBackground(void)
+{
+  if (@available(macOS 26.0, *))
+  {
+    NSWorkspace* workspace = [NSWorkspace sharedWorkspace];
+    if (!workspace.accessibilityDisplayShouldReduceTransparency || workspace.accessibilityDisplayShouldIncreaseContrast)
+    {
+      return;
+    }
+
+    static bool loggedNoWindow = false;
+    static bool loggedNoGlass = false;
+    bool found = false;
+    for (NSWindow* window in [NSApp windows])
+    {
+      if (!window.isVisible || ![NSStringFromClass([window class]) containsString:@"Menu"])
+      {
+        continue;
+      }
+      found = true;
+
+      NSAppearanceName appearance = [window.effectiveAppearance bestMatchFromAppearancesWithNames:@[NSAppearanceNameAqua, NSAppearanceNameDarkAqua]];
+      if (![appearance isEqualToString:NSAppearanceNameDarkAqua])
+      {
+        continue;
+      }
+
+      NSGlassEffectView* glass = FindGlassEffectView(window);
+      if (glass == nil)
+      {
+        if (!loggedNoGlass)
+        {
+          loggedNoGlass = true;
+          NSLog(@"menu window %@ has no glass view: the menu keeps the system's background", NSStringFromClass([window class]));
+        }
+        continue;
+      }
+
+      NSView* content = glass.contentView;
+      content.wantsLayer = YES;
+      content.layer.backgroundColor = [NSColor colorWithSRGBRed:MENU_DARK_GREY green:MENU_DARK_GREY blue:MENU_DARK_GREY alpha:1.0].CGColor;
+      content.layer.cornerRadius = glass.cornerRadius;
+      content.layer.masksToBounds = YES;
+    }
+
+    if (!found && !loggedNoWindow)
+    {
+      loggedNoWindow = true;
+      NSLog(@"no visible menu window: the menu keeps the system's background");
+    }
+  }
+}
+
 #pragma mark - /usr/bin/top reader
 
 // One /usr/bin/top run per menu opening. Its lines are parsed on the file handle's background queue;
@@ -2019,10 +2102,21 @@ static NSUInteger topToolGeneration = 0;
   {
     [self updateMenuTop];
   }
+
+  // the menu's window is new on every opening; paint it once it is on screen
+  [self performSelector:@selector(paintMenuBackground) withObject:nil afterDelay:0 inModes:@[NSRunLoopCommonModes]];
+}
+
+- (void)paintMenuBackground
+{
+  PaintOpenMenuBackground();
 }
 
 - (void)menuDidClose:(NSMenu *)menu
 {
+  // the menu can close before its deferred paint runs
+  [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(paintMenuBackground) object:nil];
+
   refreshTop = false;
   [self stopTopTool];
 }
