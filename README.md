@@ -17,7 +17,7 @@ A lightweight, highly customizable CPU monitoring tool designed specifically for
 `upMonitor` provides real-time insights into your system's CPU usage with a focus on aesthetics and customization.
 
 * **Real-time Menu Bar Visualization:** View your CPU activity at a glance with a live-updating graph right in your macOS menu bar.
-* **Top Process Tracking:** Quickly identify which of your applications are consuming the most CPU with a ranked list of "Your Top CPU Processes." macOS does not let an app running without root privileges read the CPU time of processes owned by other users (such as WindowServer or system daemons), so those are not ranked.
+* **Top Process Tracking:** Quickly identify which processes are consuming the most CPU with a ranked list of "Top CPU Processes", including those of other users and of macOS itself, such as WindowServer.
 * **Highly Customizable:**
     * **Granularity:** Monitor at the Package, Core, or Logical Processor level.
     * **Refresh Rates:** Choose between 2, 5, or 10 updates per second for ultra-responsive feedback.

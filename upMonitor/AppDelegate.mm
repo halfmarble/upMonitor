@@ -30,6 +30,8 @@
 #import <getopt.h>
 #import <stdlib.h>
 #import <cxxabi.h>
+#import <ctype.h>
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 
 #import "AppDelegate.h"
 
@@ -46,6 +48,7 @@
 
 #define TOP_COUNT                   (15)
 #define TOP_REFRESH_RATE            (2.5)
+#define TOP_TOOL_ROWS               (2*TOP_COUNT) // headroom: 2x the rows shown
 
 //   32 space bar  3.333984
 // 8201 thin space 1.669922
@@ -93,23 +96,336 @@ static Boolean stringEqual(const void *value1, const void *value2)
   return [string1 isEqualToString:string2];
 }
 
-static void imageFree(CFAllocatorRef allocator, const void *value)
+// macOS 27 hides menu item images unless an item asks for them
+static void ShowMenuItemImage(NSMenuItem* item)
 {
-  NSImage* image = (__bridge NSImage*)value;
-  CFBridgingRelease((__bridge CFTypeRef _Nullable)(image));
+  if (@available(macOS 27.0, *))
+  {
+    item.preferredImageVisibility = NSMenuItemImageVisibilityVisible;
+  }
 }
 
-static const void* imageRetain(CFAllocatorRef allocator, const void *value)
+#pragma mark - /usr/bin/top reader
+
+// One /usr/bin/top run per menu opening. Its lines are parsed on the file handle's background queue;
+// only complete blocks of (pid, cpu) rows reach the main thread.
+@interface TopToolSession : NSObject
 {
-  NSImage* string = (__bridge NSImage*)value;
-  return CFBridgingRetain(string);
+@public
+  NSUInteger generation;
+  NSTask* task;
+  NSMutableData* pending;       // bytes after the last newline
+  int blocks;                   // "PID" header lines seen; block 1 is all zeros and is dropped
+  bool inBlock;
+  int rows;
+  pid_t pids[TOP_TOOL_ROWS];
+  double cpus[TOP_TOOL_ROWS];
+  bool loggedExit;
+  bool loggedEmpty;
+}
+@end
+
+@implementation TopToolSession
+@end
+
+// a row is exactly: spaces, pid, spaces, cpu (digits with an optional fraction), spaces
+static bool ParseTopRow(const char* s, pid_t* pid, double* cpu)
+{
+  while (isspace((unsigned char)*s)) s++;
+  if (!isdigit((unsigned char)*s)) return false;
+  long long p = 0;
+  while (isdigit((unsigned char)*s))
+  {
+    p = (p * 10) + (*s++ - '0');
+    if (p > INT_MAX) return false;
+  }
+  if (!isspace((unsigned char)*s)) return false;
+  while (isspace((unsigned char)*s)) s++;
+  if (!isdigit((unsigned char)*s)) return false;
+  double value = 0.0;
+  while (isdigit((unsigned char)*s))
+  {
+    value = (value * 10.0) + (*s++ - '0');
+  }
+  if (*s == '.')
+  {
+    s++;
+    if (!isdigit((unsigned char)*s)) return false;
+    double scale = 0.1;
+    while (isdigit((unsigned char)*s))
+    {
+      value += (*s++ - '0') * scale;
+      scale /= 10.0;
+    }
+  }
+  while (isspace((unsigned char)*s)) s++;
+  if (*s != '\0') return false;
+  *pid = (pid_t)p;
+  *cpu = value;
+  return true;
 }
 
-static Boolean imageEqual(const void *value1, const void *value2)
+// feeds one line to the parser; calls block() for every complete block after the first
+static void TopToolParseLine(TopToolSession* session, const char* line, void (^block)(NSData* pids, NSData* cpus), void (^empty)(void))
 {
-  NSImage* image1 = (__bridge NSImage*)value1;
-  NSImage* image2 = (__bridge NSImage*)value2;
-  return [image1 isEqualTo:image2];
+  pid_t pid;
+  double cpu;
+  if (strncmp(line, "PID", 3) == 0)
+  {
+    session->blocks++;
+    session->inBlock = true;
+    session->rows = 0;
+  }
+  else if (strncmp(line, "Processes:", 10) == 0)
+  {
+    if (session->inBlock && (session->blocks > 1))
+    {
+      if (session->rows > 0)
+      {
+        block([NSData dataWithBytes:session->pids length:session->rows * sizeof(pid_t)], [NSData dataWithBytes:session->cpus length:session->rows * sizeof(double)]);
+      }
+      else
+      {
+        empty();
+      }
+    }
+    session->inBlock = false;
+  }
+  else if (session->inBlock && ParseTopRow(line, &pid, &cpu))
+  {
+    session->pids[session->rows] = pid;
+    session->cpus[session->rows] = cpu;
+    session->rows++;
+    if (session->rows == TOP_TOOL_ROWS)
+    {
+      if (session->blocks > 1)
+      {
+        block([NSData dataWithBytes:session->pids length:session->rows * sizeof(pid_t)], [NSData dataWithBytes:session->cpus length:session->rows * sizeof(double)]);
+      }
+      session->inBlock = false;
+    }
+  }
+}
+
+static void TopToolConsume(TopToolSession* session, NSData* data, void (^block)(NSData* pids, NSData* cpus), void (^empty)(void))
+{
+  [session->pending appendData:data];
+  const char* bytes = (const char*)[session->pending bytes];
+  NSUInteger length = [session->pending length];
+  NSUInteger start = 0;
+  for (NSUInteger i=0; i<length; i++)
+  {
+    if (bytes[i] == '\n')
+    {
+      char line[256];
+      NSUInteger n = MIN(i - start, sizeof(line) - 1);
+      memcpy(line, &bytes[start], n);
+      line[n] = '\0';
+      TopToolParseLine(session, line, block, empty);
+      start = i + 1;
+    }
+  }
+  [session->pending replaceBytesInRange:NSMakeRange(0, start) withBytes:NULL length:0];
+}
+
+#pragma mark - Process icons
+
+typedef NS_ENUM(NSInteger, ProcessIconRule)
+{
+  ProcessIconRuleOwn,       // its own app, or a nested bundle that declares an icon
+  ProcessIconRuleAncestor,  // the nearest ancestor with its own icon (launchd skipped)
+  ProcessIconRuleBundle,    // the app bundle it runs inside
+  ProcessIconRuleGeneric,   // the generic executable icon
+};
+
+// One decision per pid: the menu row, its tooltip and the inspector all come from it.
+@interface ProcessIconDecision : NSObject
+@property (nonatomic, copy) NSString* path;         // executable path, nil when proc_pidpath fails
+@property (nonatomic, strong) NSImage* image;       // full size
+@property (nonatomic, strong) NSImage* menuImage;   // MENU_ICON_SIZE copy
+@property (nonatomic, assign) ProcessIconRule rule;
+@property (nonatomic, assign) BOOL helper;          // shown with ↳
+@property (nonatomic, copy) NSString* tooltip;      // nil unless helper
+@property (nonatomic, copy) NSString* helperLine;   // the inspector's "Helper of:" line, nil unless helper
+@end
+
+@implementation ProcessIconDecision
+@end
+
+static NSString* ProcessPath(pid_t pid)
+{
+  char buffer[PROC_PIDPATHINFO_MAXSIZE];
+  if (proc_pidpath(pid, buffer, sizeof(buffer)) <= 0)
+  {
+    return nil;
+  }
+  return [NSString stringWithUTF8String:buffer];
+}
+
+// the outermost .app in the path, nil when there is none
+static NSString* OuterApp(NSString* path)
+{
+  NSRange range = [path rangeOfString:@".app/"];
+  if (range.location == NSNotFound)
+  {
+    return nil;
+  }
+  return [path substringToIndex:range.location + 4];
+}
+
+// the bundle whose icon is the process's own icon, nil when it has none
+static NSString* OwnIconBundle(NSString* path)
+{
+  if (path == nil)
+  {
+    return nil;
+  }
+  NSString* bundle = nil;
+  NSRange range = [path rangeOfString:@"/Contents/MacOS/" options:NSBackwardsSearch];
+  if (range.location != NSNotFound)
+  {
+    bundle = [path substringToIndex:range.location];
+  }
+  else
+  {
+    // an executable directly in a .app directory (no Contents/MacOS)
+    NSString* dir = [path stringByDeletingLastPathComponent];
+    if ([dir hasSuffix:@".app"])
+    {
+      bundle = dir;
+    }
+  }
+  if (bundle == nil)
+  {
+    return nil;
+  }
+  NSString* outer = OuterApp(path);
+  if ([bundle hasSuffix:@".app"] && (outer != nil))
+  {
+    if ([bundle isEqualToString:outer])
+    {
+      // a top-level app: its icon is whatever LaunchServices shows
+      return bundle;
+    }
+    if ([bundle isEqualToString:[[outer stringByAppendingPathComponent:@"Wrapper"] stringByAppendingPathComponent:[bundle lastPathComponent]]])
+    {
+      // an iOS app, <outer>.app/Wrapper/<inner>.app: the outer app's icon
+      return outer;
+    }
+  }
+  NSDictionary* info = [NSDictionary dictionaryWithContentsOfFile:[bundle stringByAppendingPathComponent:@"Contents/Info.plist"]];
+  if ((info[@"CFBundleIconFile"] != nil) || (info[@"CFBundleIconName"] != nil))
+  {
+    // a nested bundle that declares an icon
+    return bundle;
+  }
+  return nil;
+}
+
+// decoded like the menu row decodes it ("%s"), which never fails: the kernel cuts names at a byte
+// limit, so a name can end in half a UTF-8 character
+static NSString* SampleText(const char* name)
+{
+  return [NSString stringWithFormat:@"%s", name];
+}
+
+static NSString* SampleName(pid_t pid)
+{
+  TopProcessSample_t* sample = TopGetSample(pid);
+  return (sample != NULL) ? SampleText(sample->name) : nil;
+}
+
+static ProcessIconDecision* DecideProcessIcon(pid_t pid, NSString* path)
+{
+  ProcessIconDecision* decision = [[ProcessIconDecision alloc] init];
+  decision.path = path;
+  TopProcessSample_t* sample = TopGetSample(pid);
+  pid_t ppid = (sample != NULL) ? sample->ppid : 0;
+  NSString* name = (sample != NULL) ? SampleText(sample->name) : @"?";
+
+  // the spawn chain from the topmost ancestor below launchd down to the process, and the nearest
+  // ancestor with its own icon
+  NSMutableArray<NSString*>* chain = [NSMutableArray arrayWithObject:name];
+  NSString* ancestorBundle = nil;
+  NSString* ancestorName = nil;
+  pid_t p = ppid;
+  for (int depth=0; (p > 1) && (depth < 64); depth++)
+  {
+    TopProcessSample_t* ancestor = TopGetSample(p);
+    if (ancestor == NULL)
+    {
+      break;
+    }
+    NSString* ancestorSampleName = SampleText(ancestor->name);
+    [chain insertObject:ancestorSampleName atIndex:0];
+    if (ancestorBundle == nil)
+    {
+      ancestorBundle = OwnIconBundle(ProcessPath(p));
+      if (ancestorBundle != nil)
+      {
+        ancestorName = ancestorSampleName;
+      }
+    }
+    p = ancestor->ppid;
+  }
+
+  NSString* iconFile = OwnIconBundle(path);
+  NSString* app = nil;
+  if (iconFile != nil)
+  {
+    decision.rule = ProcessIconRuleOwn;
+  }
+  else if (ancestorBundle != nil)
+  {
+    decision.rule = ProcessIconRuleAncestor;
+    iconFile = ancestorBundle;
+  }
+  else if ((path != nil) && ((app = OuterApp(path)) != nil))
+  {
+    decision.rule = ProcessIconRuleBundle;
+    iconFile = app;
+  }
+  else
+  {
+    decision.rule = ProcessIconRuleGeneric;
+  }
+
+  NSImage* image = nil;
+  if (iconFile != nil)
+  {
+    image = [[NSWorkspace sharedWorkspace] iconForFile:iconFile];
+  }
+  else
+  {
+    static NSImage* genericIcon = nil;
+    if (genericIcon == nil)
+    {
+      genericIcon = [[NSWorkspace sharedWorkspace] iconForContentType:UTTypeUnixExecutable];
+    }
+    image = genericIcon;
+  }
+  decision.image = [image copy];
+  decision.menuImage = [image copy];
+  [decision.menuImage setSize:NSMakeSize(MENU_ICON_SIZE, MENU_ICON_SIZE)];
+
+  // ↳: an ancestor other than launchd and kernel_task, or the icon of the app bundle it runs inside
+  bool spawned = (pid > 1) && (ppid > 1);
+  bool inside = (pid > 1) && (decision.rule == ProcessIconRuleBundle);
+  decision.helper = spawned || inside;
+  if (spawned)
+  {
+    NSString* of = (ancestorName != nil) ? ancestorName : SampleName(ppid);
+    NSString* chainText = [chain componentsJoinedByString:@" → "];
+    decision.tooltip = [NSString stringWithFormat:@"Helper of %@\n%@", (of != nil) ? of : @"?", chainText];
+    decision.helperLine = [NSString stringWithFormat:@"Helper of: %@", chainText];
+  }
+  else if (inside)
+  {
+    NSString* appName = [[app lastPathComponent] stringByDeletingPathExtension];
+    decision.tooltip = [NSString stringWithFormat:@"Helper of %@\n%@ runs inside %@", appName, name, [app lastPathComponent]];
+    decision.helperLine = [NSString stringWithFormat:@"Helper of: %@ (runs inside %@)", appName, app];
+  }
+  return decision;
 }
 
 #pragma mark -
@@ -127,9 +443,9 @@ static NSTimer* timerCPU = nil;
 static NSTimer* timerTop = nil;
 static TopProcessSample_t topProcceses[TOP_COUNT];
 static NSMenuItem* topMenus[TOP_COUNT];
-static CFMutableDictionaryRef topNameHashTable;
+static NSMutableDictionary<NSString*, NSString*>* topNameCache = nil; // padded names, by display text
 static CFMutableDictionaryRef topCpuHashTable;
-static CFMutableDictionaryRef topIconHashTable;
+static NSMutableDictionary<NSNumber*, ProcessIconDecision*>* topIconCache = nil; // by pid
 
 static bool refreshTop = false;
 static bool topListValid = false;
@@ -517,16 +833,13 @@ static BOOL spaces_init = NO;
   //return [NSString stringWithFormat:@"%--s %*c %6.1f%%", name, spaces, SPACE_THIN, cpu];
 }
 
-- (NSString*)getStringForName:(char*)name pid:(pid_t)pid width:(CGFloat)target
+- (NSString*)getStringForName:(NSString*)name width:(CGFloat)target
 {
-  const void* key = (const void *)(uintptr_t)pid;
-  if (key == NULL)
+  // keyed by the text shown, so a process that exec'd shows its new name
+  NSString* padded = topNameCache[name];
+  if (padded == nil)
   {
-    key = (const void*)0xffffffff;
-  }
-  if (!CFDictionaryContainsKey(topNameHashTable, key))
-  {
-    NSMutableString* string = [NSMutableString stringWithFormat:@"%s", name];
+    NSMutableString* string = [NSMutableString stringWithString:name];
     int count = [self getSpacesCountFor:string width:target];
     if (count <= 0)
     {
@@ -546,53 +859,45 @@ static BOOL spaces_init = NO;
     }
     [string insertString:[NSString stringWithCharacters:&spaces[0] length:count] atIndex:length];
 
-    CFDictionarySetValue(topNameHashTable, key, (__bridge const void *)(string));
+    padded = string;
+    topNameCache[name] = padded;
   }
-  return (NSString*)CFDictionaryGetValue(topNameHashTable, key);
+  return padded;
   //return [NSString stringWithFormat:@"%--s %*c %6.1f%%", name, spaces, SPACE_THIN, cpu];
 }
 
-- (NSImage*)getIconForPid:(pid_t)pid size:(NSSize)size
+// Decided once per pid, and again when the pid runs another executable. Not redone when the process
+// is reparented (to launchd, when its parent exits) or when a reused pid runs the same executable.
+- (ProcessIconDecision*)decisionForPid:(pid_t)pid
 {
-  const void* key = (const void *)(uintptr_t)pid;
-  if (key == NULL)
+  NSNumber* key = [NSNumber numberWithInt:pid];
+  NSString* path = ProcessPath(pid);
+  ProcessIconDecision* decision = topIconCache[key];
+  if ((decision == nil) || !((decision.path == path) || [decision.path isEqualToString:path]))
   {
-    key = (const void*)0xffffffff;
+    decision = DecideProcessIcon(pid, path);
+    topIconCache[key] = decision;
   }
-  if (!CFDictionaryContainsKey(topIconHashTable, key))
-  {
-    NSRunningApplication* app = [NSRunningApplication runningApplicationWithProcessIdentifier:pid];
-    NSImage* appIcon = [app icon];
-    if (appIcon == nil)
-    {
-      //NSImage* appIcon = [[NSWorkspace sharedWorkspace] iconForFile:[NSString stringWithFormat:@"%s", path]];
-      static NSImage* defaultIcon = nil;
-      if (defaultIcon == nil)
-      {
-#if 0
-        char buffer[4096+1];
-        snprintf(&buffer[0], 4096, "%s/%s", SYSTEM_ICONS_RSRC, PROCESS_DEFAULT_ICON_NAME);
-        defaultIcon = [[NSImage alloc] initWithContentsOfFile:[NSString stringWithFormat:@"%s", buffer]];
-#else
-        defaultIcon = [[NSImage alloc] initWithSize:size];
-#endif
-      }
-      appIcon = defaultIcon;
-    }
-    
-    if (appIcon != nil)
-    {
-      [appIcon setSize:size];
-
-      CFDictionarySetValue(topIconHashTable, key, (__bridge const void *)(appIcon));
-    }
-  }
-  return (NSImage*)CFDictionaryGetValue(topIconHashTable, key);
+  return decision;
 }
 
-- (void)updateMenuTopFor:(NSMenuItem*)item name:(char*)name pid:(pid_t)pid path:(char*)path cpu:(double)cpu width:(CGFloat)target
+// drops the decisions of pids that are gone; call after every TopSample
+- (void)pruneIconCache
 {
-  NSString* stringName = [self getStringForName:name pid:pid width:target];
+  for (NSNumber* key in [topIconCache allKeys])
+  {
+    if (TopGetSample([key intValue]) == NULL)
+    {
+      [topIconCache removeObjectForKey:key];
+    }
+  }
+}
+
+- (void)updateMenuTopFor:(NSMenuItem*)item name:(char*)name pid:(pid_t)pid cpu:(double)cpu width:(CGFloat)target
+{
+  ProcessIconDecision* decision = [self decisionForPid:pid];
+  NSString* shownName = [NSString stringWithFormat:@"%@%s", (decision.helper ? @"↳ " : @""), name];
+  NSString* stringName = [self getStringForName:shownName width:target];
   NSString* stringCpu = [self getStringForCpu:cpu width:CPU_STR_SPACE_TARGET];
   [item setTitle: [NSString stringWithFormat:@"%@ %@", stringName, stringCpu]];
   
@@ -601,7 +906,8 @@ static BOOL spaces_init = NO;
 
   
   [item setAttributedTitle:title];
-  [item setImage:[self getIconForPid:pid size:NSMakeSize(MENU_ICON_SIZE, MENU_ICON_SIZE)]];
+  [item setImage:decision.menuImage];
+  [item setToolTip:decision.tooltip];
   
   //NSSize size = [[item title] sizeWithAttributes:attributesGrey];
   //return size.width;
@@ -621,7 +927,7 @@ static BOOL spaces_init = NO;
       continue;
     }
     TopProcessSample_t* sample = &topProcceses[i];
-    [self updateMenuTopFor:topMenus[i] name:sample->name pid:sample->pid path:NULL cpu:sample->cpu width:NAME_STR_SPACE_TARGET];
+    [self updateMenuTopFor:topMenus[i] name:sample->name pid:sample->pid cpu:sample->cpu width:NAME_STR_SPACE_TARGET];
     [topMenus[i] setTag:sample->pid];
     [topMenus[i] setHidden:NO];
   }
@@ -675,11 +981,12 @@ static BOOL spaces_init = NO;
   {
     NSMenuItem* item = [menu addItemWithTitle:@" " action:nil keyEquivalent:@""];
     [item setAttributedTitle:[[NSAttributedString alloc] initWithString:[item title] attributes:attributesThin]];
-    item = [menu addItemWithTitle:@"YOUR TOP CPU PROCESSES" action:nil keyEquivalent:@""];
+    item = [menu addItemWithTitle:@"TOP CPU PROCESSES" action:nil keyEquivalent:@""];
     [item setAttributedTitle:[[NSAttributedString alloc] initWithString:[item title] attributes:attributesStandardCenter]];
     for (int i=0; i<TOP_COUNT; i++)
     {
       topMenus[i] = [menu addItemWithTitle:@"" action:@selector(selectPid:) keyEquivalent:@""];
+      ShowMenuItemImage(topMenus[i]);
     }
   }
   
@@ -703,6 +1010,7 @@ static BOOL spaces_init = NO;
     NSImage* appIcon = [[NSWorkspace sharedWorkspace] iconForFile:[NSString stringWithFormat:@"/System/Applications/Utilities/Activity Monitor.app"]];
     [appIcon setSize:NSMakeSize(MENU_ICON_SIZE+2.0, MENU_ICON_SIZE+2.0)];
     [item setImage:appIcon];
+    ShowMenuItemImage(item);
   }
 
   [menu addItem:[NSMenuItem separatorItem]];
@@ -714,6 +1022,7 @@ static BOOL spaces_init = NO;
     NSImage* appIcon = [NSImage imageNamed:@"NSPreferencesGeneral"];
     [appIcon setSize:NSMakeSize(MENU_ICON_SIZE+2.0, MENU_ICON_SIZE+2.0)];
     [item setImage:appIcon];
+    ShowMenuItemImage(item);
   }
   
   [menu addItem:[NSMenuItem separatorItem]];
@@ -929,24 +1238,139 @@ static BOOL spaces_init = NO;
   TopSample();
   lastTopSample = [[NSProcessInfo processInfo] systemUptime];
   topListValid = true;
+  [self pruneIconCache];
 
+  [self collectTopList];
+
+  if (refreshTop)
+  {
+    [self updateMenuTop];
+  }
+}
+
+- (void)collectTopList
+{
   int counter = 0;
   const TopProcessSample_t *psample = TopIterate();
   while ((psample != NULL) && (counter < TOP_COUNT))
   {
-    // other users' processes have no readable CPU time, so they cannot be ranked
-    if (psample->cpu_known)
+    // other users' processes are ranked only while /usr/bin/top supplies their CPU (menu open)
+    if (psample->cpu_known != 0)
     {
       topProcceses[counter++] = *psample;
     }
     psample = TopIterate();
   }
   topCount = counter;
+}
 
+#pragma mark - /usr/bin/top while the menu is open
+
+static TopToolSession* topToolSession = nil;
+static NSUInteger topToolGeneration = 0;
+
+- (void)startTopTool
+{
+  [self stopTopTool];
+
+  TopToolSession* session = [[TopToolSession alloc] init];
+  session->generation = ++topToolGeneration;
+  session->pending = [NSMutableData data];
+
+  NSTask* task = [[NSTask alloc] init];
+  [task setExecutableURL:[NSURL fileURLWithPath:@"/usr/bin/top"]];
+  [task setArguments:@[@"-l", @"0", @"-s", @"1", @"-o", @"cpu", @"-stats", @"pid,cpu", @"-n", [NSString stringWithFormat:@"%d", TOP_TOOL_ROWS]]];
+  // the decimal separator is '.' whatever the user's locale
+  NSMutableDictionary* environment = [NSMutableDictionary dictionaryWithObject:@"C" forKey:@"LC_ALL"];
+  NSString* path = [[[NSProcessInfo processInfo] environment] objectForKey:@"PATH"];
+  if (path != nil)
+  {
+    environment[@"PATH"] = path;
+  }
+  [task setEnvironment:environment];
+  NSPipe* pipe = [NSPipe pipe];
+  [task setStandardOutput:pipe];
+  [task setStandardError:[NSFileHandle fileHandleWithNullDevice]];
+
+  NSUInteger generation = session->generation;
+  [task setTerminationHandler:^(NSTask* t) {
+    int status = [t terminationStatus];
+    long reason = (long)[t terminationReason];
+    dispatch_async(dispatch_get_main_queue(), ^{
+      if ((topToolSession != nil) && (topToolSession->generation == generation) && !topToolSession->loggedExit)
+      {
+        topToolSession->loggedExit = true;
+        NSLog(@"/usr/bin/top exited while the menu was open: status %d, reason %ld", status, reason);
+      }
+    });
+  }];
+
+  NSError* error = nil;
+  if (![task launchAndReturnError:&error])
+  {
+    NSLog(@"could not launch /usr/bin/top: %@", error);
+    return;
+  }
+  session->task = task;
+  topToolSession = session;
+
+  __weak AppDelegate* weakSelf = self;
+  [[pipe fileHandleForReading] setReadabilityHandler:^(NSFileHandle* handle) {
+    NSData* data = [handle availableData];
+    if ([data length] == 0)
+    {
+      // end of file: a handler left set would be called again and again
+      [handle setReadabilityHandler:nil];
+      return;
+    }
+    TopToolConsume(session, data, ^(NSData* pids, NSData* cpus) {
+      dispatch_async(dispatch_get_main_queue(), ^{
+        [weakSelf applyTopTool:session pids:pids cpus:cpus];
+      });
+    }, ^{
+      dispatch_async(dispatch_get_main_queue(), ^{
+        if ((topToolSession == session) && !session->loggedEmpty)
+        {
+          session->loggedEmpty = true;
+          NSLog(@"/usr/bin/top printed a sample with no readable rows");
+        }
+      });
+    });
+  }];
+}
+
+- (void)applyTopTool:(TopToolSession*)session pids:(NSData*)pids cpus:(NSData*)cpus
+{
+  if ((topToolSession != session) || (session->generation != topToolGeneration))
+  {
+    return;
+  }
+  TopSetOthersCpu((const pid_t*)[pids bytes], (const double*)[cpus bytes], (int)([pids length] / sizeof(pid_t)));
+  [self collectTopList];
   if (refreshTop)
   {
     [self updateMenuTop];
   }
+}
+
+- (void)stopTopTool
+{
+  topToolGeneration++;
+  TopToolSession* session = topToolSession;
+  topToolSession = nil;
+  if (session != nil)
+  {
+    NSTask* task = session->task;
+    [[[task standardOutput] fileHandleForReading] setReadabilityHandler:nil];
+    [task setTerminationHandler:nil];
+    // terminate on a task that never launched throws
+    if ([task isRunning])
+    {
+      [task terminate];
+    }
+  }
+  TopSetOthersCpu(NULL, NULL, 0);
+  [self collectTopList];
 }
 
 - (void)setupStatusItem
@@ -1122,6 +1546,12 @@ static BOOL spaces_init = NO;
 
 - (void)fillNmForProcess:(NSString*)path
 {
+  if ([path length] == 0)
+  {
+    // no executable path (kernel_task): nothing to run nm on
+    [self.procNmTextView setString:@"N/A"];
+    return;
+  }
   if (nmJob == inspectGeneration)
   {
     return;
@@ -1130,7 +1560,7 @@ static BOOL spaces_init = NO;
   nmJob = generation;
 
   // "--": a path starting with '-' must not be read as an option
-  [self runTool:@"/usr/bin/nm" arguments:@[@"--", (path != nil) ? path : @""] withStderr:YES done:^(NSString* output) {
+  [self runTool:@"/usr/bin/nm" arguments:@[@"--", path] withStderr:YES done:^(NSString* output) {
     if (nmJob == generation)
     {
       nmJob = 0;
@@ -1180,14 +1610,10 @@ static BOOL spaces_init = NO;
   {
     {
       CFDictionaryValueCallBacks tableCallbacks = { 0, stringRetain, stringFree, NULL, stringEqual };
-      topNameHashTable = CFDictionaryCreateMutable(NULL, 0, NULL, &tableCallbacks);
       topCpuHashTable = CFDictionaryCreateMutable(NULL, 0, NULL, &tableCallbacks);
     }
-    
-    {
-      CFDictionaryValueCallBacks tableCallbacks = { 0, imageRetain, imageFree, NULL, imageEqual };
-      topIconHashTable = CFDictionaryCreateMutable(NULL, 0, NULL, &tableCallbacks);
-    }
+    topNameCache = [NSMutableDictionary dictionary];
+    topIconCache = [NSMutableDictionary dictionary];
     
     CpuRenderInit();
     CpuSamplerInit(&cpu_info);
@@ -1200,11 +1626,16 @@ static BOOL spaces_init = NO;
     [self setupStatusItem];
     [self setupMenus];
     [self setupTimers];
+
+    // room for the inspector's "Helper of:" line
+    [self.procAppName setUsesSingleLineMode:NO];
+    [self.procAppName setMaximumNumberOfLines:2];
   }
 }
 
 - (void)applicationWillTerminate:(NSNotification *)aNotification
 {
+  [self stopTopTool];
   //[[NSUserDefaults standardUserDefaults] synchronize];
 }
 
@@ -1244,12 +1675,14 @@ static BOOL spaces_init = NO;
   [self stopInspectorTools];
   current_process_pid = [NSNumber numberWithInt:pid];
 
-  NSImage *icon = [[NSImage alloc] initWithData:[[self getIconForPid:pid size:NSMakeSize(MENU_ICON_SIZE, MENU_ICON_SIZE)] TIFFRepresentation]];
+  ProcessIconDecision* decision = [self decisionForPid:pid];
+  NSImage *icon = [decision.image copy];
   [icon setSize:NSMakeSize(TOP_ICON_SIZE, TOP_ICON_SIZE)];
   [self.procAppIcon setImage:icon];
 
   TopProcessInfo_t* info = TopGetArgs(pid);
-  current_process_path = [NSString stringWithFormat:@"%s", info->command];
+  // KERN_PROCARGS2 (info->command) fails for other users' processes; proc_pidpath fails only for kernel_task
+  current_process_path = ProcessPath(pid);
   NSString* name = [NSString stringWithFormat:@"%s", info->name];
   
   char bits_str[40] = "00000000 00000000 00000000 00000000";
@@ -1295,8 +1728,19 @@ static BOOL spaces_init = NO;
     default: status_str = "?"; break;
   }
 
-  [self.procAppName setStringValue:[NSString stringWithFormat:@"%s, pid:%d, ppid:%d, prio:%d, stat:%d (%s), flags:%d (%s)",
-                                    sample->name, sample->pid, sample->ppid, sample->tprio, sample->status, status_str, sample->flags, bits_str]];
+  NSString* line = [NSString stringWithFormat:@"%s, pid:%d, ppid:%d, prio:%d, stat:%d (%s), flags:%d (%s)",
+                    sample->name, sample->pid, sample->ppid, sample->tprio, sample->status, status_str, sample->flags, bits_str];
+  if (decision.helper)
+  {
+    line = [line stringByAppendingFormat:@"\n%@", decision.helperLine];
+  }
+  [self.procAppName setStringValue:line];
+  // the window is resizable: keep the field's current x, width and vertical center
+  NSRect frame = [self.procAppName frame];
+  CGFloat midY = NSMidY(frame);
+  frame.size.height = decision.helper ? 32.0 : 16.0;
+  frame.origin.y = midY - (frame.size.height / 2.0);
+  [self.procAppName setFrame:frame];
 
   [self.procDescTextView setString:@"\npreparing..."];
   [self.procArgsEnvTextView setString:@"\npreparing..."];
@@ -1516,6 +1960,9 @@ static BOOL spaces_init = NO;
 
 - (void)menuWillOpen:(NSMenu *)menu
 {
+  // other users' processes join when top's second sample arrives, about a second later
+  [self startTopTool];
+
   refreshTop = true;
 
   // take a fresh sample, unless the timer has just taken one: a very short interval gives noisy CPU%
@@ -1533,6 +1980,7 @@ static BOOL spaces_init = NO;
 - (void)menuDidClose:(NSMenu *)menu
 {
   refreshTop = false;
+  [self stopTopTool];
 }
 
 - (void)tabView:(NSTabView *)tabView didSelectTabViewItem:(nullable NSTabViewItem *)tabViewItem

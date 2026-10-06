@@ -81,6 +81,11 @@ static int _top_arg_max;
 static CFMutableDictionaryRef _top_username_hash_table;
 //static CFMutableDictionaryRef _top_hash_table;
 
+/* Other users' CPU values from /usr/bin/top, sorted by pid (TopSetOthersCpu). */
+static pid_t* _top_others_pids;
+static double* _top_others_cpus;
+static int _top_others_count;
+
 static rb_tree(_TopProcessInfo_t) _top_pid_tree;
 static rb_tree(_TopProcessInfo_t) _top_sorted_tree;
 static boolean_t _top_is_sorted;
@@ -152,6 +157,33 @@ TopProcessSample_t* TopGetSample(pid_t pid)
   }
 }
 
+static int _top_compare_pid_key(const void *a, const void *b)
+{
+  pid_t pa = *(const pid_t *)a;
+  pid_t pb = *(const pid_t *)b;
+  return (pa < pb) ? -1 : ((pa > pb) ? 1 : 0);
+}
+
+// sets cpu and cpu_known of another user's process from the table /usr/bin/top filled
+static void _top_apply_others_cpu(TopProcessSample_t* sample)
+{
+  pid_t* found = NULL;
+  if (_top_others_count > 0)
+  {
+    found = bsearch(&sample->pid, _top_others_pids, _top_others_count, sizeof(pid_t), _top_compare_pid_key);
+  }
+  if (found != NULL)
+  {
+    sample->cpu = _top_others_cpus[found - _top_others_pids];
+    sample->cpu_known = 2;
+  }
+  else
+  {
+    sample->cpu = 0.0;
+    sample->cpu_known = 0;
+  }
+}
+
 static void _top_destroy(_TopProcessInfo_t *pinfo)
 {
   _top_remove(pinfo);
@@ -177,8 +209,9 @@ static int __attribute__((noinline)) _top_kinfo_for_pid(struct kinfo_proc* kinfo
 
 // Identity (name, uid, ppid, status) comes from proc_pidinfo(PROC_PIDT_SHORTBSDINFO), which works for
 // every process. CPU time and start time come from proc_pidinfo(PROC_PIDTASKALLINFO), which works only
-// for the user's own processes: for other users' processes (root daemons, WindowServer...) cpu_known
-// stays 0. Both are much cheaper than sysctl(KERN_PROC_PID).
+// for the user's own processes: other users' processes (root daemons, WindowServer...) take their CPU
+// from /usr/bin/top while the menu is open (cpu_known 2), and are unknown (0) otherwise. Both are much
+// cheaper than sysctl(KERN_PROC_PID).
 static int __attribute__((noinline)) _top_update_for_pid(pid_t pid)
 {
   struct proc_bsdshortinfo bsdinfo;
@@ -216,9 +249,8 @@ static int __attribute__((noinline)) _top_update_for_pid(pid_t pid)
   struct proc_taskallinfo pidinfo;
   if (proc_pidinfo(pid, PROC_PIDTASKALLINFO, 0, &pidinfo, PROC_PIDTASKALLINFO_SIZE) != PROC_PIDTASKALLINFO_SIZE)
   {
-    // another user's process: macOS gives an unprivileged app no CPU time for it
-    sample->cpu_known = 0;
-    sample->cpu = 0.0;
+    // another user's process: macOS gives an unprivileged app no CPU time for it, /usr/bin/top may
+    _top_apply_others_cpu(sample);
     sample->start_us = 0;
     sample->last_timens = 0;
     return (0);
@@ -339,6 +371,65 @@ void TopSort(void)
       _top_destroy(pinfo);
     }
   }
+}
+
+typedef struct
+{
+  pid_t pid;
+  double cpu;
+} _TopOthersEntry_t;
+
+static int _top_compare_others_entry(const void *a, const void *b)
+{
+  return _top_compare_pid_key(&((const _TopOthersEntry_t *)a)->pid, &((const _TopOthersEntry_t *)b)->pid);
+}
+
+void TopSetOthersCpu(const pid_t* pids, const double* cpus, int count)
+{
+  _top_others_count = 0;
+  if ((count > 0) && (pids != NULL) && (cpus != NULL))
+  {
+    _TopOthersEntry_t* entries = (_TopOthersEntry_t *)malloc(count * sizeof(_TopOthersEntry_t));
+    pid_t* new_pids = (pid_t *)realloc(_top_others_pids, count * sizeof(pid_t));
+    if (new_pids != NULL)
+    {
+      _top_others_pids = new_pids;
+    }
+    double* new_cpus = (double *)realloc(_top_others_cpus, count * sizeof(double));
+    if (new_cpus != NULL)
+    {
+      _top_others_cpus = new_cpus;
+    }
+    if ((entries != NULL) && (new_pids != NULL) && (new_cpus != NULL))
+    {
+      for (int i=0; i<count; i++)
+      {
+        entries[i].pid = pids[i];
+        entries[i].cpu = cpus[i];
+      }
+      qsort(entries, count, sizeof(_TopOthersEntry_t), _top_compare_others_entry);
+      for (int i=0; i<count; i++)
+      {
+        _top_others_pids[i] = entries[i].pid;
+        _top_others_cpus[i] = entries[i].cpu;
+      }
+      _top_others_count = count;
+    }
+    free(entries);
+  }
+
+  _TopProcessInfo_t *pinfo;
+  rb_first(&_top_pid_tree, node_new, pinfo);
+  for (; pinfo != rb_tree_nil(&_top_pid_tree); )
+  {
+    if ((pinfo->sample.sequence == _top_sequence) && (pinfo->sample.cpu_known != 1))
+    {
+      _top_apply_others_cpu(&pinfo->sample);
+    }
+    rb_next(&_top_pid_tree, pinfo, _TopProcessInfo_t, node_new, pinfo);
+  }
+
+  TopSort();
 }
 
 int TopSample(void)
@@ -507,7 +598,20 @@ TopProcessInfo_t* TopGetArgs(pid_t pid)
   _top_process_info.args_length = 0;
   _top_process_info.envs_count = 0;
   _top_process_info.envs_length = 0;
-  
+  // KERN_PROCARGS2 fails for other users' processes: never leave the previous process's text behind
+  if (_top_process_info.command != NULL)
+  {
+    _top_process_info.command[0] = '\0';
+  }
+  if (_top_process_info.args_info != NULL)
+  {
+    _top_process_info.args_info[0] = '\0';
+  }
+  if (_top_process_info.envs_info != NULL)
+  {
+    _top_process_info.envs_info[0] = '\0';
+  }
+
   int mib[3];
   mib[0] = CTL_KERN;
   mib[1] = KERN_PROCARGS2;

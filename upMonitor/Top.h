@@ -41,7 +41,8 @@ struct TopProcessSample
   uint32_t flags;
   char     name[TOP_MAX_SAMPLE_NAME_SIZE+1];
   double   cpu;          // % of one core since the previous read, 0 when there is no baseline
-  int      cpu_known;    // 1 when the CPU time can be read: the user's own processes only
+  int      cpu_known;    // 0 = unknown, 1 = measured by upMonitor (the user's own processes),
+                         // 2 = taken from /usr/bin/top (other users' processes, while the menu is open)
 
   uint32_t sequence;
 
@@ -71,6 +72,8 @@ const TopProcessSample_t* TopIterate(void);
 const char* TopGetUsername(uid_t a_uid);
 TopProcessInfo_t* TopGetArgs(pid_t pid);
 TopProcessSample_t* TopGetSample(pid_t pid);
+// CPU values for other users' processes, parsed from /usr/bin/top; count 0 clears them. Main thread only.
+void TopSetOthersCpu(const pid_t* pids, const double* cpus, int count);
 
 __END_DECLS
 
