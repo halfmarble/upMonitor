@@ -322,11 +322,44 @@ static NSString* OwnIconBundle(NSString* path)
   return nil;
 }
 
-// decoded like the menu row decodes it ("%s"), which never fails: the kernel cuts names at a byte
-// limit, so a name can end in half a UTF-8 character
+// decodes text from the kernel as UTF-8, and never fails: the kernel cuts names at a byte limit, so
+// a name can end in part of a UTF-8 character, which is dropped; text that Foundation still refuses
+// as UTF-8 is decoded as Mac OS Roman, which maps every byte (some invalid bytes Foundation accepts,
+// showing U+FFFD)
 static NSString* SampleText(const char* name)
 {
-  return [NSString stringWithFormat:@"%s", name];
+  if (name == NULL)
+  {
+    return @"";
+  }
+  const unsigned char* bytes = (const unsigned char*)name;
+  NSUInteger length = strlen(name);
+  NSString* text = [[NSString alloc] initWithBytes:bytes length:length encoding:NSUTF8StringEncoding];
+  if (text != nil)
+  {
+    return text;
+  }
+  // the last character's first byte: back over up to 3 continuation bytes (10xxxxxx) to a byte that
+  // can start a UTF-8 character (0xC2-0xF4)
+  NSUInteger first = length;
+  while ((first > 0) && (length - first < 3) && ((bytes[first-1] & 0xC0) == 0x80))
+  {
+    first--;
+  }
+  if ((first > 0) && (bytes[first-1] >= 0xC2) && (bytes[first-1] <= 0xF4))
+  {
+    first--;
+    NSUInteger needed = (bytes[first] >= 0xF0) ? 4 : ((bytes[first] >= 0xE0) ? 3 : 2);
+    if (length - first < needed)
+    {
+      text = [[NSString alloc] initWithBytes:bytes length:first encoding:NSUTF8StringEncoding];
+    }
+  }
+  if (text == nil)
+  {
+    text = [[NSString alloc] initWithBytes:bytes length:length encoding:NSMacOSRomanStringEncoding];
+  }
+  return (text != nil) ? text : @"";
 }
 
 static NSString* SampleName(pid_t pid)
@@ -843,12 +876,23 @@ static BOOL spaces_init = NO;
     int count = [self getSpacesCountFor:string width:target];
     if (count <= 0)
     {
-      [string deleteCharactersInRange:NSMakeRange([string length]-SIZE_DOTS, SIZE_DOTS)];
-      [string insertString:[NSString stringWithCharacters:&dots[0] length:SIZE_DOTS] atIndex:[string length]];
-      while (count <= 0)
+      // whole characters: an emoji is two UTF-16 units, and an accent can be a unit of its own;
+      // at least SIZE_DOTS units go, and a short name can go entirely
+      NSUInteger before = [string length];
+      while (([string length] > 0) && (before - [string length] < SIZE_DOTS))
       {
-        [string deleteCharactersInRange:NSMakeRange([string length]-SIZE_DOTS, 1)];
+        [string deleteCharactersInRange:[string rangeOfComposedCharacterSequenceAtIndex:[string length]-1]];
+      }
+      [string insertString:[NSString stringWithCharacters:&dots[0] length:SIZE_DOTS] atIndex:[string length]];
+      while ((count <= 0) && ([string length] >= SIZE_DOTS))
+      {
+        [string deleteCharactersInRange:[string rangeOfComposedCharacterSequenceAtIndex:[string length]-SIZE_DOTS]];
         count = [self getSpacesCountFor:string width:target];
+      }
+      if (count < 0)
+      {
+        // only when the dots alone are wider than the target
+        count = 0;
       }
     }
 
@@ -896,7 +940,7 @@ static BOOL spaces_init = NO;
 - (void)updateMenuTopFor:(NSMenuItem*)item name:(char*)name pid:(pid_t)pid cpu:(double)cpu width:(CGFloat)target
 {
   ProcessIconDecision* decision = [self decisionForPid:pid];
-  NSString* shownName = [NSString stringWithFormat:@"%@%s", (decision.helper ? @"↳ " : @""), name];
+  NSString* shownName = [NSString stringWithFormat:@"%@%@", (decision.helper ? @"↳ " : @""), SampleText(name)];
   NSString* stringName = [self getStringForName:shownName width:target];
   NSString* stringCpu = [self getStringForCpu:cpu width:CPU_STR_SPACE_TARGET];
   [item setTitle: [NSString stringWithFormat:@"%@ %@", stringName, stringCpu]];
@@ -1455,8 +1499,8 @@ static NSUInteger topToolGeneration = 0;
 
   if (info->args_count > 0)
   {
-    NSString *output = [NSString stringWithFormat:@"\nCOMMAND:\n\n%s\n\n\nARGUMENTS: (%d)\n\n%s\n\nENVIRONMENT: (%d)\n\n%s\n",
-                        info->command, info->args_count, info->args_info, info->envs_count, info->envs_info];
+    NSString *output = [NSString stringWithFormat:@"\nCOMMAND:\n\n%@\n\n\nARGUMENTS: (%d)\n\n%@\n\nENVIRONMENT: (%d)\n\n%@\n",
+                        SampleText(info->command), info->args_count, SampleText(info->args_info), info->envs_count, SampleText(info->envs_info)];
     [self.procArgsEnvTextView setString:output];
     found = YES;
   }
@@ -1683,7 +1727,7 @@ static NSUInteger topToolGeneration = 0;
   TopProcessInfo_t* info = TopGetArgs(pid);
   // KERN_PROCARGS2 (info->command) fails for other users' processes; proc_pidpath fails only for kernel_task
   current_process_path = ProcessPath(pid);
-  NSString* name = [NSString stringWithFormat:@"%s", info->name];
+  NSString* name = SampleText(info->name);
   
   char bits_str[40] = "00000000 00000000 00000000 00000000";
   uint32_t flags = sample->flags;
@@ -1728,8 +1772,8 @@ static NSUInteger topToolGeneration = 0;
     default: status_str = "?"; break;
   }
 
-  NSString* line = [NSString stringWithFormat:@"%s, pid:%d, ppid:%d, prio:%d, stat:%d (%s), flags:%d (%s)",
-                    sample->name, sample->pid, sample->ppid, sample->tprio, sample->status, status_str, sample->flags, bits_str];
+  NSString* line = [NSString stringWithFormat:@"%@, pid:%d, ppid:%d, prio:%d, stat:%d (%s), flags:%d (%s)",
+                    SampleText(sample->name), sample->pid, sample->ppid, sample->tprio, sample->status, status_str, sample->flags, bits_str];
   if (decision.helper)
   {
     line = [line stringByAppendingFormat:@"\n%@", decision.helperLine];
