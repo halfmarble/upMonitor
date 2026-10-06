@@ -1542,6 +1542,10 @@ static NSUInteger topToolGeneration = 0;
 
   [self updateRendererParameters];
   [self updateUI];
+
+  // the build number, raised on every build by scripts/raise-build-number.sh
+  NSString* build = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleVersion"];
+  [self.buildLabel setStringValue:[NSString stringWithFormat:@"b%@", build]];
 }
 
 - (void)setupTimers
@@ -2060,12 +2064,6 @@ static NSUInteger topToolGeneration = 0;
   [self.blueButton setState:NSControlStateValueOn];
 
   [[NSUserDefaults standardUserDefaults] setDouble:theme forKey:ThemeKey];
-}
-
-- (IBAction)kofi:(id)sender
-{
-  NSURL *url = [NSURL URLWithString:@"https://ko-fi.com/halfmarble"];
-  [[NSWorkspace sharedWorkspace] openURL:url];
 }
 
 // TODO: implement (using SMJobBless ?)

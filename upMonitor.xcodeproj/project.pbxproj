@@ -138,7 +138,7 @@
 				D540B2A323FA2F5400752C7F /* Frameworks */,
 				D540B2A423FA2F5400752C7F /* Resources */,
 				D51DEB012400930E007CA5E0 /* CopyFiles */,
-				D5941B572412976A00986CD5 /* ShellScript */,
+				D5941B572412976A00986CD5 /* Raise Build Number */,
 			);
 			buildRules = (
 			);
@@ -197,22 +197,25 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
-		D5941B572412976A00986CD5 /* ShellScript */ = {
+		D5941B572412976A00986CD5 /* Raise Build Number */ = {
 			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
 			files = (
 			);
 			inputFileListPaths = (
 			);
 			inputPaths = (
+				"$(TARGET_BUILD_DIR)/$(INFOPLIST_PATH)",
 			);
+			name = "Raise Build Number";
 			outputFileListPaths = (
 			);
 			outputPaths = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "# Type a script or drag a script file from your workspace to insert its path.\n";
+			shellScript = "/bin/sh \"${SRCROOT}/scripts/raise-build-number.sh\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
