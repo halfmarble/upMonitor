@@ -239,6 +239,129 @@ static NSRect MenuRowScreenRect(NSWindow* window, NSMenu* menu, NSMenuItem* item
   return [window convertRectToScreen:[row convertRect:row.bounds toView:nil]];
 }
 
+#pragma mark - Freeze's row, which leaves the menu open
+
+// A click on a native menu item closes the menu; a click on an item's view does not, and sends no action. So
+// Freeze's row is a view drawn like the native rows of 24 pt: the item's image at x 15,
+// its title at x 36 and 4 pt up, and when highlighted the system's selection material, inset 5 pt with a corner
+// radius of 7, under the title and image in the selected text colour. The item keeps its title, image and
+// action: the action is what enables it, and so lets it highlight. Return on it does nothing (mouse only). After a
+// click AppKit removes the highlight until the pointer moves.
+
+#define FREEZE_ROW_HEIGHT           (24.0)
+
+@interface FreezeMenuItem : NSMenuItem
+- (BOOL)toggleInPlace;
+@end
+
+@implementation FreezeMenuItem
+
+// a click on the row, or VoiceOver's press: the item's action, with the menu left open
+- (BOOL)toggleInPlace
+{
+  BOOL sent = [NSApp sendAction:self.action to:self.target from:self];
+  if (!sent)
+  {
+    static bool logged = false;
+    if (!logged)
+    {
+      logged = true;
+      NSLog(@"Freeze: its action found no target");
+    }
+  }
+  return sent;
+}
+
+// a press on a menu item with a view would close the menu and send nothing
+- (BOOL)accessibilityPerformPress
+{
+  return [self toggleInPlace];
+}
+
+@end
+
+@interface FreezeRowView : NSView
+{
+  NSVisualEffectView* selection;
+  NSImageView* icon;
+  NSTextField* label;
+}
+- (instancetype)initWithItem:(NSMenuItem*)item;
+@end
+
+@implementation FreezeRowView
+
+- (instancetype)initWithItem:(NSMenuItem*)item
+{
+  // the menu widens the view to its own width
+  self = [super initWithFrame:NSMakeRect(0, 0, 100.0, FREEZE_ROW_HEIGHT)];
+  if (self != nil)
+  {
+    self.autoresizingMask = NSViewWidthSizable;
+
+    selection = [[NSVisualEffectView alloc] initWithFrame:NSInsetRect(self.bounds, 5.0, 0.0)];
+    selection.material = NSVisualEffectMaterialSelection;
+    selection.state = NSVisualEffectStateActive;
+    selection.emphasized = YES;
+    selection.wantsLayer = YES;
+    selection.layer.cornerRadius = 7.0;
+    selection.layer.masksToBounds = YES;
+    selection.autoresizingMask = NSViewWidthSizable;
+    selection.hidden = YES;
+    [self addSubview:selection];
+
+    icon = [NSImageView imageViewWithImage:item.image];
+    icon.frame = NSMakeRect(15.0, 4.0, 16.0, 16.0);
+    // the check mark at its own size, centred, as the native row draws it
+    icon.imageScaling = NSImageScaleNone;
+    [self addSubview:icon];
+
+    label = [NSTextField labelWithAttributedString:item.attributedTitle];
+    label.frame = NSMakeRect(36.0, 4.0, NSWidth(self.bounds) - 36.0 - 6.0, 16.0);
+    label.autoresizingMask = NSViewWidthSizable;
+    [self addSubview:label];
+
+    // VoiceOver reads the item itself (its title, and FreezeMenuItem's press), as for a native item; the item's
+    // accessibility children would otherwise be these two cells
+    icon.cell.accessibilityElement = NO;
+    label.cell.accessibilityElement = NO;
+  }
+  return self;
+}
+
+- (void)viewWillDraw
+{
+  NSMenuItem* item = self.enclosingMenuItem;
+  bool highlighted = item.isHighlighted;
+  selection.hidden = !highlighted;
+  label.textColor = highlighted ? [NSColor selectedMenuItemTextColor] : [NSColor labelColor];
+  icon.contentTintColor = highlighted ? [NSColor selectedMenuItemTextColor] : [NSColor labelColor];
+  // as high as the image and centred in the row, as the native row's image view is: the blank 16 x 16 at y 4, the
+  // check 16 x 11 at y 6.5
+  NSImage* image = item.image;
+  CGFloat height = MIN(image.size.height, 16.0);
+  icon.frame = NSMakeRect(15.0, (FREEZE_ROW_HEIGHT - height)/2.0, 16.0, height);
+  icon.image = image;
+  [super viewWillDraw];
+}
+
+// taken here, so that the menu does not act on it
+- (void)mouseDown:(NSEvent*)event
+{
+}
+
+- (void)mouseUp:(NSEvent*)event
+{
+  // a press that ends on another row has moved the highlight there
+  NSMenuItem* item = self.enclosingMenuItem;
+  if (item.isHighlighted && [item isKindOfClass:[FreezeMenuItem class]])
+  {
+    [(FreezeMenuItem*)item toggleInPlace];
+  }
+}
+
+@end
+
 #pragma mark - /usr/bin/top reader
 
 // One /usr/bin/top run per menu opening. Its lines are parsed on the file handle's background queue;
@@ -630,6 +753,10 @@ static CFMutableDictionaryRef topCpuHashTable;
 static NSMutableDictionary<NSNumber*, ProcessIconDecision*>* topIconCache = nil; // by pid
 
 static bool refreshTop = false;
+static bool menuIsOpen = false;            // from menuWillOpen: to menuDidClose:
+// the last sample is the baseline taken at the unfreeze, whose CPU% averages over the freeze: the rows wait for the
+// next one (updateMenuTop)
+static bool baselineOnly = false;
 static bool topListValid = false;
 static int topCount = 0;
 static NSTimeInterval lastTopSample = 0.0;
@@ -1122,6 +1249,10 @@ static BOOL spaces_init = NO;
 
 - (void)updateMenuTop
 {
+  if (baselineOnly)
+  {
+    return;
+  }
   for (int i=0; i<TOP_COUNT; i++)
   {
     //NSWorkspace *ws = [NSWorkspace sharedWorkspace];
@@ -1228,12 +1359,17 @@ static BOOL spaces_init = NO;
     // check column and shift every row); off at every launch
     CGFloat side = MENU_ICON_SIZE+2.0;
     freezeOffImage = [NSImage imageWithSize:NSMakeSize(side, side) flipped:NO drawingHandler:^BOOL(NSRect rect) { return YES; }];
+    // configured as AppKit draws it in a native row, which FreezeRowView copies: 13 pt, small scale
     freezeOnImage = [[NSImage imageWithSystemSymbolName:@"checkmark" accessibilityDescription:@"Frozen"]
-                     imageWithSymbolConfiguration:[NSImageSymbolConfiguration configurationWithPointSize:side-4.0 weight:NSFontWeightSemibold]];
-    NSMenuItem* item = [menu addItemWithTitle:@"Freeze" action:@selector(toggleFreeze:) keyEquivalent:@""];
+                     imageWithSymbolConfiguration:[NSImageSymbolConfiguration configurationWithPointSize:13.0 weight:NSFontWeightSemibold
+                                                                                                    scale:NSImageSymbolScaleSmall]];
+    NSMenuItem* item = [[FreezeMenuItem alloc] initWithTitle:@"Freeze" action:@selector(toggleFreeze:) keyEquivalent:@""];
+    [menu addItem:item];
     [item setAttributedTitle:[[NSAttributedString alloc] initWithString:[item title] attributes:attributesStandard]];
     [item setImage:freezeOffImage];
     ShowMenuItemImage(item);
+    // a view, so that a click leaves the menu open
+    [item setView:[[FreezeRowView alloc] initWithItem:item]];
   }
 
   {
@@ -1425,6 +1561,7 @@ static bool IsLight(NSAppearance* appearance)
   TopSample();
   lastTopSample = [[NSProcessInfo processInfo] systemUptime];
   topListValid = true;
+  baselineOnly = false;
   [self pruneIconCache];
 
   [self collectTopList];
@@ -2059,9 +2196,13 @@ static double RefreshInterval(void)
   [self hideRowTip];
   frozen = !frozen;
   [sender setImage:(frozen ? freezeOnImage : freezeOffImage)];
+  // the row is a view (FreezeRowView), which draws the item's image
+  [sender.view setNeedsDisplay:YES];
   [frozenStarts removeAllObjects];
   if (frozen)
   {
+    // the menu stays open, and its rows keep what they show
+    refreshTop = false;
     [self stopTopTool];
     for (int i=0; i<TOP_COUNT; i++)
     {
@@ -2074,9 +2215,21 @@ static double RefreshInterval(void)
   }
   else
   {
-    // the next sample would average the CPU% over the whole freeze: take one now as the new baseline
+    // the next sample would average the CPU% over the whole freeze: take one now as the new baseline. It is never
+    // shown: refreshTop is false while frozen, and baselineOnly holds the rows until the next sample
     [self updateTop:nil];
-    [timerTop setFireDate:[NSDate dateWithTimeIntervalSinceNow:TOP_REFRESH_RATE]];
+    baselineOnly = true;
+    if (menuIsOpen)
+    {
+      // as at an opening: top runs, and the rows refresh from the next sample, taken soon
+      [self startTopTool];
+      refreshTop = true;
+      [timerTop setFireDate:[NSDate dateWithTimeIntervalSinceNow:TOP_MIN_INTERVAL]];
+    }
+    else
+    {
+      [timerTop setFireDate:[NSDate dateWithTimeIntervalSinceNow:TOP_REFRESH_RATE]];
+    }
   }
 }
 
@@ -2270,6 +2423,7 @@ static double RefreshInterval(void)
 
 - (void)menuWillOpen:(NSMenu *)menu
 {
+  menuIsOpen = true;
   if (paused)
   {
     // the menu is open, so something can be seen: a wake was missed
@@ -2314,6 +2468,7 @@ static double RefreshInterval(void)
   // the menu can close before its deferred paint runs
   [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(paintMenuBackground) object:nil];
 
+  menuIsOpen = false;
   refreshTop = false;
   [self stopTopTool];
   [self hideRowTip];
