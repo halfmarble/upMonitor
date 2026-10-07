@@ -18,6 +18,7 @@ A lightweight, highly customizable CPU monitoring tool designed specifically for
 
 * **Real-time Menu Bar Visualization:** View your CPU activity at a glance with a live-updating graph right in your macOS menu bar.
 * **Top Process Tracking:** Quickly identify which processes are consuming the most CPU with a ranked list of "Top CPU Processes", including those of other users and of macOS itself, such as WindowServer.
+* **Freeze:** pause the process list to examine it while the CPU graph keeps running; while frozen, rest on a ↳ row to see what it is a helper of.
 * **Highly Customizable:**
     * **Granularity:** Monitor at the Package, Core, or Logical Processor level.
     * **Refresh Rates:** Choose between 2, 5, or 10 updates per second for ultra-responsive feedback.
