@@ -635,11 +635,13 @@ static int topCount = 0;
 static NSTimeInterval lastTopSample = 0.0;
 #define TOP_MIN_INTERVAL (0.25)
 
-// Freeze (a checkable item in the status menu): while frozen the rows keep what they showed, nothing is
-// sampled for them and /usr/bin/top is not run; the menu-bar CPU graph keeps moving. frozenStarts holds
-// each row's process start time, read when Freeze was chosen (0 = already gone).
+// Freeze (an item in the status menu whose check mark is its image): while frozen the rows keep what they
+// showed, nothing is sampled for them and /usr/bin/top is not run; the menu-bar CPU graph keeps moving.
+// frozenStarts holds each row's process start time, read when Freeze was chosen (0 = already gone).
 static bool frozen = false;
 static NSMutableDictionary<NSNumber*, NSNumber*>* frozenStarts = nil; // by pid
+static NSImage* freezeOffImage = nil;       // Freeze's image when not frozen: blank, the size of the menu icons
+static NSImage* freezeOnImage = nil;        // and while frozen: a check mark
 
 static NSPanel* rowTip = nil;               // the helper text box, left of the menu (frozen only)
 static NSTextField* rowTipText = nil;
@@ -1220,9 +1222,17 @@ static BOOL spaces_init = NO;
   [menu addItem:[NSMenuItem separatorItem]];
 
   {
-    // checked while frozen (toggleFreeze:); off at every launch
+    // the check mark shows in the icon column while frozen (toggleFreeze:), a blank image there otherwise, so
+    // "Freeze" lines up with the other titles and nothing moves when it is toggled (the item's state would add a
+    // check column and shift every row); off at every launch
+    CGFloat side = MENU_ICON_SIZE+2.0;
+    freezeOffImage = [NSImage imageWithSize:NSMakeSize(side, side) flipped:NO drawingHandler:^BOOL(NSRect rect) { return YES; }];
+    freezeOnImage = [[NSImage imageWithSystemSymbolName:@"checkmark" accessibilityDescription:@"Frozen"]
+                     imageWithSymbolConfiguration:[NSImageSymbolConfiguration configurationWithPointSize:side-4.0 weight:NSFontWeightSemibold]];
     NSMenuItem* item = [menu addItemWithTitle:@"Freeze" action:@selector(toggleFreeze:) keyEquivalent:@""];
     [item setAttributedTitle:[[NSAttributedString alloc] initWithString:[item title] attributes:attributesStandard]];
+    [item setImage:freezeOffImage];
+    ShowMenuItemImage(item);
   }
 
   {
@@ -1968,7 +1978,7 @@ static NSUInteger topToolGeneration = 0;
 {
   [self hideRowTip];
   frozen = !frozen;
-  [sender setState:(frozen ? NSControlStateValueOn : NSControlStateValueOff)];
+  [sender setImage:(frozen ? freezeOnImage : freezeOffImage)];
   [frozenStarts removeAllObjects];
   if (frozen)
   {
