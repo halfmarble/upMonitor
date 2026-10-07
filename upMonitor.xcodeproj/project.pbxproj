@@ -14,9 +14,6 @@
 		D540B2B323FA2F5800752C7F /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = D540B2B223FA2F5800752C7F /* main.m */; };
 		D540B2BD23FB0C4400752C7F /* CpuRenderer.c in Sources */ = {isa = PBXBuildFile; fileRef = D540B2BB23FB0C4400752C7F /* CpuRenderer.c */; };
 		D540B2C023FB0C7100752C7F /* CpuSampler.c in Sources */ = {isa = PBXBuildFile; fileRef = D540B2BE23FB0C7100752C7F /* CpuSampler.c */; };
-		D5850ACA240C2AA2003C5D3C /* SourceCodePro-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = D5850AC6240C2AA2003C5D3C /* SourceCodePro-Regular.ttf */; };
-		D5850ACB240C2AA2003C5D3C /* SourceCodePro-Medium.ttf in Resources */ = {isa = PBXBuildFile; fileRef = D5850AC7240C2AA2003C5D3C /* SourceCodePro-Medium.ttf */; };
-		D5850ACC240C2AA2003C5D3C /* SourceCodePro-Semibold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = D5850AC8240C2AA2003C5D3C /* SourceCodePro-Semibold.ttf */; };
 		D5BBD70D242A3E3700D0D53A /* ServiceManagement.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D5BBD70C242A3E3700D0D53A /* ServiceManagement.framework */; };
 		0A95BBC14B4938CEF70C3760 /* UniformTypeIdentifiers.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = EE1958CC2E405B265729211C /* UniformTypeIdentifiers.framework */; };
 		D5E340DF2415258A00BD045D /* Top.c in Sources */ = {isa = PBXBuildFile; fileRef = D5E340DE2415258A00BD045D /* Top.c */; };
@@ -48,9 +45,6 @@
 		D540B2BC23FB0C4400752C7F /* CpuRenderer.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = CpuRenderer.h; sourceTree = "<group>"; };
 		D540B2BE23FB0C7100752C7F /* CpuSampler.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = CpuSampler.c; sourceTree = "<group>"; };
 		D540B2BF23FB0C7100752C7F /* CpuSampler.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = CpuSampler.h; sourceTree = "<group>"; };
-		D5850AC6240C2AA2003C5D3C /* SourceCodePro-Regular.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "SourceCodePro-Regular.ttf"; sourceTree = "<group>"; };
-		D5850AC7240C2AA2003C5D3C /* SourceCodePro-Medium.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "SourceCodePro-Medium.ttf"; sourceTree = "<group>"; };
-		D5850AC8240C2AA2003C5D3C /* SourceCodePro-Semibold.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "SourceCodePro-Semibold.ttf"; sourceTree = "<group>"; };
 		D5BBD70C242A3E3700D0D53A /* ServiceManagement.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ServiceManagement.framework; path = System/Library/Frameworks/ServiceManagement.framework; sourceTree = SDKROOT; };
 		EE1958CC2E405B265729211C /* UniformTypeIdentifiers.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UniformTypeIdentifiers.framework; path = System/Library/Frameworks/UniformTypeIdentifiers.framework; sourceTree = SDKROOT; };
 		D5E340DC241490B400BD045D /* rb.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = rb.h; sourceTree = "<group>"; };
@@ -106,19 +100,8 @@
 				D540B2B123FA2F5800752C7F /* Info.plist */,
 				D540B2B223FA2F5800752C7F /* main.m */,
 				D540B2B423FA2F5800752C7F /* upMonitor.entitlements */,
-				D5850AC3240C2959003C5D3C /* Fonts */,
 			);
 			path = upMonitor;
-			sourceTree = "<group>";
-		};
-		D5850AC3240C2959003C5D3C /* Fonts */ = {
-			isa = PBXGroup;
-			children = (
-				D5850AC7240C2AA2003C5D3C /* SourceCodePro-Medium.ttf */,
-				D5850AC6240C2AA2003C5D3C /* SourceCodePro-Regular.ttf */,
-				D5850AC8240C2AA2003C5D3C /* SourceCodePro-Semibold.ttf */,
-			);
-			path = Fonts;
 			sourceTree = "<group>";
 		};
 		D5BBD70B242A3E3700D0D53A /* Frameworks */ = {
@@ -189,12 +172,9 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				D5850ACA240C2AA2003C5D3C /* SourceCodePro-Regular.ttf in Resources */,
 				D540B2AD23FA2F5800752C7F /* Assets.xcassets in Resources */,
 				D540B2B023FA2F5800752C7F /* MainMenu.xib in Resources */,
 				D5C7ED175E1A4B2C9F3A0B12 /* Credits.rtf in Resources */,
-				D5850ACB240C2AA2003C5D3C /* SourceCodePro-Medium.ttf in Resources */,
-				D5850ACC240C2AA2003C5D3C /* SourceCodePro-Semibold.ttf in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
