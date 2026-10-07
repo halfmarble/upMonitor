@@ -10,6 +10,7 @@
 		D540B2AB23FA2F5400752C7F /* AppDelegate.mm in Sources */ = {isa = PBXBuildFile; fileRef = D540B2AA23FA2F5400752C7F /* AppDelegate.mm */; };
 		D540B2AD23FA2F5800752C7F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = D540B2AC23FA2F5800752C7F /* Assets.xcassets */; };
 		D540B2B023FA2F5800752C7F /* MainMenu.xib in Resources */ = {isa = PBXBuildFile; fileRef = D540B2AE23FA2F5800752C7F /* MainMenu.xib */; };
+		D5C7ED175E1A4B2C9F3A0B12 /* Credits.rtf in Resources */ = {isa = PBXBuildFile; fileRef = D5C7ED175E1A4B2C9F3A0B11 /* Credits.rtf */; };
 		D540B2B323FA2F5800752C7F /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = D540B2B223FA2F5800752C7F /* main.m */; };
 		D540B2BD23FB0C4400752C7F /* CpuRenderer.c in Sources */ = {isa = PBXBuildFile; fileRef = D540B2BB23FB0C4400752C7F /* CpuRenderer.c */; };
 		D540B2C023FB0C7100752C7F /* CpuSampler.c in Sources */ = {isa = PBXBuildFile; fileRef = D540B2BE23FB0C7100752C7F /* CpuSampler.c */; };
@@ -42,6 +43,7 @@
 		D540B2B123FA2F5800752C7F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		D540B2B223FA2F5800752C7F /* main.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = main.m; sourceTree = "<group>"; };
 		D540B2B423FA2F5800752C7F /* upMonitor.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = upMonitor.entitlements; sourceTree = "<group>"; };
+		D5C7ED175E1A4B2C9F3A0B11 /* Credits.rtf */ = {isa = PBXFileReference; lastKnownFileType = text.rtf; path = Credits.rtf; sourceTree = "<group>"; };
 		D540B2BB23FB0C4400752C7F /* CpuRenderer.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = CpuRenderer.c; sourceTree = "<group>"; };
 		D540B2BC23FB0C4400752C7F /* CpuRenderer.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = CpuRenderer.h; sourceTree = "<group>"; };
 		D540B2BE23FB0C7100752C7F /* CpuSampler.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = CpuSampler.c; sourceTree = "<group>"; };
@@ -100,6 +102,7 @@
 				D540B2AA23FA2F5400752C7F /* AppDelegate.mm */,
 				D540B2AC23FA2F5800752C7F /* Assets.xcassets */,
 				D540B2AE23FA2F5800752C7F /* MainMenu.xib */,
+				D5C7ED175E1A4B2C9F3A0B11 /* Credits.rtf */,
 				D540B2B123FA2F5800752C7F /* Info.plist */,
 				D540B2B223FA2F5800752C7F /* main.m */,
 				D540B2B423FA2F5800752C7F /* upMonitor.entitlements */,
@@ -189,6 +192,7 @@
 				D5850ACA240C2AA2003C5D3C /* SourceCodePro-Regular.ttf in Resources */,
 				D540B2AD23FA2F5800752C7F /* Assets.xcassets in Resources */,
 				D540B2B023FA2F5800752C7F /* MainMenu.xib in Resources */,
+				D5C7ED175E1A4B2C9F3A0B12 /* Credits.rtf in Resources */,
 				D5850ACB240C2AA2003C5D3C /* SourceCodePro-Medium.ttf in Resources */,
 				D5850ACC240C2AA2003C5D3C /* SourceCodePro-Semibold.ttf in Resources */,
 			);

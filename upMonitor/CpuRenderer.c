@@ -22,19 +22,19 @@
 
 #include "CpuRenderer.h"
 
+#include <math.h>
+
+// red, green and blue, each 0..1
 typedef struct
 {
-  double r;       // a fraction between 0 and 1
-  double g;       // a fraction between 0 and 1
-  double b;       // a fraction between 0 and 1
+  double r, g, b;
 }
 rgb;
 
+// hue in degrees; saturation and value 0..1
 typedef struct
 {
-  double h;       // angle in degrees
-  double s;       // a fraction between 0 and 1
-  double v;       // a fraction between 0 and 1
+  double h, s, v;
 }
 hsv;
 
@@ -77,65 +77,24 @@ void CpuRenderInit(void)
   _cubic_bezier(0, 0, 1, 0, 0, 1, 1, 1);
 }
 
+// one channel of an HSV colour: f(n) = v - v*s*max(0, min(k, 4-k, 1)), with k = (n + h/60) mod 6;
+// n = 5 gives red, 3 green, 1 blue
+static double _hsv_channel(hsv in, double n)
+{
+  double k = fmod(n + (in.h / 60.0), 6.0);
+  if (k < 0.0)
+  {
+    k += 6.0;
+  }
+  return in.v - (in.v * in.s * fmax(0.0, fmin(fmin(k, 4.0 - k), 1.0)));
+}
+
 rgb _hsv2rgb(hsv in)
 {
-  double hh, p, q, t, ff;
-  long i;
   rgb out;
-  
-  if (in.s <= 0.0)
-  {
-    out.r = in.v;
-    out.g = in.v;
-    out.b = in.v;
-    return out;
-  }
-  hh = in.h;
-  if (hh >= 360.0)
-  {
-    hh = 0.0;
-  }
-  hh /= 60.0;
-  i = (long)hh;
-  ff = hh - i;
-  p = in.v * (1.0 - in.s);
-  q = in.v * (1.0 - (in.s * ff));
-  t = in.v * (1.0 - (in.s * (1.0 - ff)));
-  
-  switch(i)
-  {
-    case 0:
-      out.r = in.v;
-      out.g = t;
-      out.b = p;
-      break;
-    case 1:
-      out.r = q;
-      out.g = in.v;
-      out.b = p;
-      break;
-    case 2:
-      out.r = p;
-      out.g = in.v;
-      out.b = t;
-      break;
-    case 3:
-      out.r = p;
-      out.g = q;
-      out.b = in.v;
-      break;
-    case 4:
-      out.r = t;
-      out.g = p;
-      out.b = in.v;
-      break;
-    case 5:
-    default:
-      out.r = in.v;
-      out.g = p;
-      out.b = q;
-      break;
-  }
+  out.r = _hsv_channel(in, 5.0);
+  out.g = _hsv_channel(in, 3.0);
+  out.b = _hsv_channel(in, 1.0);
   return out;
 }
 
