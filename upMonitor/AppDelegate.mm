@@ -188,6 +188,62 @@ static void PaintOpenMenuBackground(void)
   }
 }
 
+#pragma mark - Row tooltips while frozen
+
+// A process row's helper text shows only while the menu is frozen (otherwise the row has moved before
+// the text can be read), in a box of its own left of the menu and level with the row, so that it never
+// covers the rows. AppKit places a menu item's toolTip itself, so the rows carry the text in
+// representedObject instead, and the box is a panel of our own.
+
+#define ROW_TIP_DELAY               (0.4)   // s on a row before its text shows
+#define ROW_TIP_GAP                 (6.0)   // pt between the box and the menu
+#define ROW_TIP_MAX_WIDTH           (400.0)
+
+// the item's row on screen, NSZeroRect when the window's row views do not match the menu: top first,
+// they are the menu's shown items in order, separators included
+static NSRect MenuRowScreenRect(NSWindow* window, NSMenu* menu, NSMenuItem* item)
+{
+  NSView* root = window.contentView.superview ?: window.contentView;
+  if (root == nil)
+  {
+    return NSZeroRect;
+  }
+  NSMutableArray<NSView*>* rows = [NSMutableArray array];
+  NSMutableArray<NSView*>* stack = [NSMutableArray arrayWithObject:root];
+  while (stack.count > 0)
+  {
+    NSView* view = [stack lastObject];
+    [stack removeLastObject];
+    if ([NSStringFromClass([view class]) hasSuffix:@"MenuItemView"])
+    {
+      [rows addObject:view];
+      continue;
+    }
+    [stack addObjectsFromArray:view.subviews];
+  }
+  [rows sortUsingComparator:^NSComparisonResult(NSView* a, NSView* b) {
+    CGFloat ya = NSMaxY([a convertRect:a.bounds toView:nil]);
+    CGFloat yb = NSMaxY([b convertRect:b.bounds toView:nil]);
+    return (ya > yb) ? NSOrderedAscending : ((ya < yb) ? NSOrderedDescending : NSOrderedSame);
+  }];
+
+  NSMutableArray<NSMenuItem*>* shown = [NSMutableArray array];
+  for (NSMenuItem* each in menu.itemArray)
+  {
+    if (!each.hidden)
+    {
+      [shown addObject:each];
+    }
+  }
+  NSUInteger index = [shown indexOfObjectIdenticalTo:item];
+  if ((rows.count != shown.count) || (index == NSNotFound))
+  {
+    return NSZeroRect;
+  }
+  NSView* row = rows[index];
+  return [window convertRectToScreen:[row convertRect:row.bounds toView:nil]];
+}
+
 #pragma mark - /usr/bin/top reader
 
 // One /usr/bin/top run per menu opening. Its lines are parsed on the file handle's background queue;
@@ -589,6 +645,10 @@ static NSTimeInterval lastTopSample = 0.0;
 // each row's process start time, read when Freeze was chosen (0 = already gone).
 static bool frozen = false;
 static NSMutableDictionary<NSNumber*, NSNumber*>* frozenStarts = nil; // by pid
+
+static NSPanel* rowTip = nil;               // the helper text box, left of the menu (frozen only)
+static NSTextField* rowTipText = nil;
+static NSMenuItem* rowTipItem = nil;        // the row whose text shows, or is about to
 
 static CGFloat tickHeight = 16.0;
 static CGFloat tickWidth = 3.0;
@@ -1055,7 +1115,8 @@ static BOOL spaces_init = NO;
   
   [item setAttributedTitle:title];
   [item setImage:decision.menuImage];
-  [item setToolTip:decision.tooltip];
+  // shown by showRowTip while frozen, never as the item's toolTip
+  [item setRepresentedObject:decision.tooltip];
   
   //NSSize size = [[item title] sizeWithAttributes:attributesGrey];
   //return size.width;
@@ -1938,6 +1999,7 @@ static NSUInteger topToolGeneration = 0;
 // Freeze keeps the rows as they were when it was chosen, so that they can be examined
 - (void)toggleFreeze:(NSMenuItem*)sender
 {
+  [self hideRowTip];
   frozen = !frozen;
   [sender setState:(frozen ? NSControlStateValueOn : NSControlStateValueOff)];
   [frozenStarts removeAllObjects];
@@ -2189,6 +2251,101 @@ static NSUInteger topToolGeneration = 0;
 
   refreshTop = false;
   [self stopTopTool];
+  [self hideRowTip];
+}
+
+// while frozen, a row with helper text shows it after ROW_TIP_DELAY on the row
+- (void)menu:(NSMenu*)aMenu willHighlightItem:(NSMenuItem*)item
+{
+  // the same row again: its text is showing, or about to
+  if ((item != nil) && (item == rowTipItem))
+  {
+    return;
+  }
+  [self hideRowTip];
+  if (frozen && [item.representedObject isKindOfClass:[NSString class]])
+  {
+    rowTipItem = item;
+    [self performSelector:@selector(showRowTip) withObject:nil afterDelay:ROW_TIP_DELAY inModes:@[NSRunLoopCommonModes]];
+  }
+}
+
+- (void)showRowTip
+{
+  NSMenuItem* item = rowTipItem;
+  if (!frozen || ![item.representedObject isKindOfClass:[NSString class]])
+  {
+    return;
+  }
+
+  NSWindow* window = nil;
+  NSRect row = NSZeroRect;
+  for (NSWindow* each in [NSApp windows])
+  {
+    if (each.isVisible && [NSStringFromClass([each class]) containsString:@"Menu"])
+    {
+      row = MenuRowScreenRect(each, menu, item);
+      if (!NSIsEmptyRect(row))
+      {
+        window = each;
+        break;
+      }
+    }
+  }
+  if (window == nil)
+  {
+    static bool logged = false;
+    if (!logged)
+    {
+      logged = true;
+      NSLog(@"the open menu's rows were not found: no helper text shown");
+    }
+    return;
+  }
+
+  if (rowTip == nil)
+  {
+    rowTip = [[NSPanel alloc] initWithContentRect:NSMakeRect(0, 0, 100, 20) styleMask:(NSWindowStyleMaskBorderless | NSWindowStyleMaskNonactivatingPanel) backing:NSBackingStoreBuffered defer:YES];
+    rowTip.level = CGWindowLevelForKey(kCGHelpWindowLevelKey);
+    rowTip.ignoresMouseEvents = YES;
+    rowTip.hidesOnDeactivate = NO;
+    rowTip.hasShadow = YES;
+    rowTip.opaque = NO;
+    rowTip.backgroundColor = [NSColor clearColor];
+    rowTip.collectionBehavior = NSWindowCollectionBehaviorCanJoinAllSpaces | NSWindowCollectionBehaviorTransient | NSWindowCollectionBehaviorFullScreenAuxiliary;
+    NSVisualEffectView* background = [[NSVisualEffectView alloc] init];
+    background.material = NSVisualEffectMaterialToolTip;
+    background.state = NSVisualEffectStateActive;
+    background.wantsLayer = YES;
+    background.layer.cornerRadius = 5.0;
+    background.layer.masksToBounds = YES;
+    rowTip.contentView = background;
+    rowTipText = [NSTextField wrappingLabelWithString:@""];
+    rowTipText.font = [NSFont toolTipsFontOfSize:0];
+    [background addSubview:rowTipText];
+  }
+
+  rowTipText.stringValue = item.representedObject;
+  NSSize size = [rowTipText sizeThatFits:NSMakeSize(ROW_TIP_MAX_WIDTH, CGFLOAT_MAX)];
+  size = NSMakeSize(ceil(size.width), ceil(size.height));
+  rowTipText.frame = NSMakeRect(6.0, 4.0, size.width, size.height);
+  NSRect frame = NSMakeRect(0, 0, size.width + 12.0, size.height + 8.0);
+  frame.origin.x = NSMinX(window.frame) - ROW_TIP_GAP - NSWidth(frame);
+  frame.origin.y = NSMidY(row) - NSHeight(frame)/2.0;
+  // kept on screen, even when that means covering the menu
+  NSScreen* screen = window.screen ?: [NSScreen mainScreen];
+  NSRect visible = screen.visibleFrame;
+  frame.origin.x = MAX(frame.origin.x, NSMinX(visible));
+  frame.origin.y = MIN(MAX(frame.origin.y, NSMinY(visible)), NSMaxY(visible) - NSHeight(frame));
+  [rowTip setFrame:frame display:YES];
+  [rowTip orderFrontRegardless];
+}
+
+- (void)hideRowTip
+{
+  [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(showRowTip) object:nil];
+  rowTipItem = nil;
+  [rowTip orderOut:nil];
 }
 
 - (void)tabView:(NSTabView *)tabView didSelectTabViewItem:(nullable NSTabViewItem *)tabViewItem
