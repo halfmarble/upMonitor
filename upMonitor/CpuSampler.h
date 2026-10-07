@@ -32,12 +32,13 @@
 
 __BEGIN_DECLS
 
+// the kernel's tick counters are 32 bits and wrap; a difference taken in 32 bits is right across a wrap
 struct Ticks
 {
-  uint64_t  systemTicks;
-  uint64_t  userTicks;
-  uint64_t  niceTicks;
-  uint64_t  idleTicks;
+  uint32_t  systemTicks;
+  uint32_t  userTicks;
+  uint32_t  niceTicks;
+  uint32_t  idleTicks;
   double    load;
 }
 typedef Ticks;
@@ -54,10 +55,6 @@ struct CpuSummaryInfo
 typedef CpuSummaryInfo;
 
 natural_t CpuSamplerGetCount(int granularity);
-
-char* CpuSamplerGetCpuType(void);
-char* CpuSamplerGetCpuSubtype(void);
-long CpuSamplerGetCpuMHz(void);
 
 void CpuSamplerInit(CpuSummaryInfo* cpu_info);
 void CpuSamplerUpdate(CpuSummaryInfo* cpu_info);

@@ -65,9 +65,17 @@ static void _cubic_bezier(double x1, double y1, double x2, double y2, double x3,
   }
 }
 
-// value [0..1]
+// value 0..1; anything outside, NaN included, is clamped, so the index stays inside the table
 static inline double _ease(double value)
 {
+  if (!(value > 0.0))
+  {
+    return easing[0].y;
+  }
+  if (value >= 1.0)
+  {
+    return easing[N_SEG].y;
+  }
   int index = (int)(value*N_SEG);
   return easing[index].y;
 }
@@ -149,17 +157,20 @@ void CpuRender(CpuSummaryInfo* cpu_info, CGContextRef ctx, bool light, int granu
     CGContextFillRect(ctx, CGRectMake(0, 0, imageWidth, 1));
   }
   
-  natural_t count = CpuSamplerGetCount(granularity);
-  natural_t group = cpu_info->countLogical / count;
+  natural_t count = CpuSamplerGetCount(granularity); // at least 1
+  natural_t group = cpu_info->countLogical / count;  // 0 when no CPU could be read: nothing to average
   for (natural_t i=0; i<count; i++)
   {
     CGFloat load = 0.0;
-    for (natural_t j=0; j<group; j++)
+    if (group > 0)
     {
-      natural_t index = (i*group)+j;
-      load += cpu_info->now[index].load;
+      for (natural_t j=0; j<group; j++)
+      {
+        natural_t index = (i*group)+j;
+        load += cpu_info->now[index].load;
+      }
+      load /= (CGFloat)group;
     }
-    load /= (CGFloat)group;
     
     CGFloat alpha = (range*load)+(1.0-range);
     if (!bar)
@@ -167,7 +178,7 @@ void CpuRender(CpuSummaryInfo* cpu_info, CGContextRef ctx, bool light, int granu
       alpha = 1.0f;
     }
     
-    rgb rgb;
+    rgb rgb = {color, color, color}; // dots without colour (the Preferences never ask for them) draw grey
     if (colored)
     {
       rgb = _color(theme, load);

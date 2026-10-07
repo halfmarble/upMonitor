@@ -635,6 +635,13 @@ static int topCount = 0;
 static NSTimeInterval lastTopSample = 0.0;
 #define TOP_MIN_INTERVAL (0.25)
 
+// The graph and the process samples pause while nothing can be seen: the displays asleep, the Mac going to sleep,
+// or another user's session in front. Each has its own flag; the timers run again once all are clear (updatePause).
+static bool screensAsleep = false;
+static bool systemAsleep = false;
+static bool sessionInactive = false;
+static bool paused = false;
+
 // Freeze (an item in the status menu whose check mark is its image): while frozen the rows keep what they
 // showed, nothing is sampled for them and /usr/bin/top is not run; the menu-bar CPU graph keeps moving.
 // frozenStarts holds each row's process start time, read when Freeze was chosen (0 = already gone).
@@ -652,6 +659,7 @@ static CGFloat tickWidth = 3.0;
 static CGFloat tickSpaceWidth = 1.0;
 static CGFloat tickTotalWidth = 0.0;
 static CGFloat imageWidth = 0.0;
+static CGFloat drawWidth = 3.0;      // the width each bar or dot is drawn: the bar width, 4 for the one package bar, 3 for dots
 
 static int granularity = 0;
 
@@ -752,9 +760,6 @@ static NSMutableSet<NSTask*>* runningTasks = nil;
 
 - (void)launchAppAt:(NSString*)path with:(NSArray<NSString *> *)arguments
 {
-#if 1
-  [[NSWorkspace sharedWorkspace] launchApplication:path];
-#else
   NSWorkspaceOpenConfiguration* configuration = [NSWorkspaceOpenConfiguration configuration];
   [configuration setArguments:arguments];
   [configuration setPromptsUserIfNeeded:YES];
@@ -766,12 +771,7 @@ static NSMutableSet<NSTask*>* runningTasks = nil;
     {
       NSLog(@"launchAppAt error: %@", error.localizedDescription);
     }
-    else
-    {
-      //NSLog(@"launchAppAt OK");
-    }
   }];
-#endif
 }
 
 - (void)updateRendererParameters
@@ -787,6 +787,7 @@ static NSMutableSet<NSTask*>* runningTasks = nil;
     tickSpace = 4.0;
   }
   tickTotalWidth = tickSpace + tickSpaceWidth;
+  drawWidth = !bar ? 3.0 : ((count == 1) ? 4.0 : tickWidth);
   imageWidth = count * tickTotalWidth;
   if (bar == NO)
   {
@@ -1255,23 +1256,11 @@ static BOOL spaces_init = NO;
   self.statusItem.menu = menu;
 }
 
-- (bool)isLight
+// light or dark as an appearance resolves to Aqua or Dark Aqua, whatever its variant (vibrant, high contrast)
+static bool IsLight(NSAppearance* appearance)
 {
-  static NSAppearance* darkAppearance = nil;
-  if (darkAppearance == nil)
-  {
-    darkAppearance = [NSAppearance appearanceNamed:@"NSAppearanceNameDarkAqua"];
-  }
-
-  NSAppearance* appearance = [NSApp effectiveAppearance];
-  if (appearance == darkAppearance)
-  {
-    return false;
-  }
-  else
-  {
-    return true;
-  }
+  NSAppearanceName name = [appearance bestMatchFromAppearancesWithNames:@[NSAppearanceNameAqua, NSAppearanceNameDarkAqua]];
+  return ![name isEqualToString:NSAppearanceNameDarkAqua];
 }
 
 - (void)renderMenubarWithLight:(BOOL)light
@@ -1295,7 +1284,7 @@ static BOOL spaces_init = NO;
     [image lockFocus];
     {
       CGContextRef ctx = [[NSGraphicsContext currentContext] CGContext];
-      CpuRender(&cpu_info, ctx, light, granularity, bar, stripped, colored, tickWidth, tickTotalWidth, imageWidth, theme);
+      CpuRender(&cpu_info, ctx, light, granularity, bar, stripped, colored, drawWidth, tickTotalWidth, imageWidth, theme);
     }
     [image unlockFocus];
   }
@@ -1322,7 +1311,7 @@ static BOOL spaces_init = NO;
     [image lockFocus];
     {
       CGContextRef ctx = [[NSGraphicsContext currentContext] CGContext];
-      CpuRender(&cpu_info, ctx, light, granularity, bar, stripped, colored, tickWidth, tickTotalWidth, imageWidth, theme);
+      CpuRender(&cpu_info, ctx, light, granularity, bar, stripped, colored, drawWidth, tickTotalWidth, imageWidth, theme);
     }
     [image unlockFocus];
   }
@@ -1351,7 +1340,7 @@ static BOOL spaces_init = NO;
     [image lockFocus];
     {
       CGContextRef ctx = [[NSGraphicsContext currentContext] CGContext];
-      CpuRender(&cpu_sine_demo_info, ctx, light, granularity, bar, stripped, colored, tickWidth, tickTotalWidth, imageWidth, theme);
+      CpuRender(&cpu_sine_demo_info, ctx, light, granularity, bar, stripped, colored, drawWidth, tickTotalWidth, imageWidth, theme);
     }
     [image unlockFocus];
   }
@@ -1380,7 +1369,7 @@ static BOOL spaces_init = NO;
     [image lockFocus];
     {
       CGContextRef ctx = [[NSGraphicsContext currentContext] CGContext];
-      CpuRender(&cpu_flat_demo_info, ctx, light, granularity, bar, stripped, colored, tickWidth, tickTotalWidth, imageWidth, theme);
+      CpuRender(&cpu_flat_demo_info, ctx, light, granularity, bar, stripped, colored, drawWidth, tickTotalWidth, imageWidth, theme);
     }
     [image unlockFocus];
   }
@@ -1389,12 +1378,13 @@ static BOOL spaces_init = NO;
 
 - (void)updateCPU:(id)sender
 {
-  bool light = [self isLight];
   [self updateRendererParameters];
   
-  [self renderMenubarWithLight:light];
+  // the menu bar's appearance need not be the app's: the graph takes the status item's, the previews their window's
+  [self renderMenubarWithLight:IsLight(self.statusItem.button.effectiveAppearance)];
   if ([self.window isVisible])
   {
+    bool light = IsLight(self.window.effectiveAppearance);
     [self renderPrefsRealWithLight:light];
     [self renderPrefsSinWithLight:light];
     [self renderPrefsFlatWithLight:light];
@@ -1586,6 +1576,13 @@ static NSUInteger topToolGeneration = 0;
     [userDefaults synchronize];
 }
 
+// the refresh interval the Preferences offer: 0.1, 0.2 or 0.5 s; any other stored value counts as 0.1
+static double RefreshInterval(void)
+{
+  double interval = [[NSUserDefaults standardUserDefaults] doubleForKey:RefreshKey];
+  return ((interval == 0.2) || (interval == 0.5)) ? interval : 0.1;
+}
+
 - (void)setupPreferences
 {
 #if 0
@@ -1602,7 +1599,7 @@ static NSUInteger topToolGeneration = 0;
   [[NSUserDefaults standardUserDefaults] registerDefaults:@{LaunchOnStartupKey:@0}];
 
   granularity = (int)[[NSUserDefaults standardUserDefaults] integerForKey:GranularityKey];
-  speed = 10.0 * [[NSUserDefaults standardUserDefaults] doubleForKey:RefreshKey];
+  speed = 10.0 * RefreshInterval();
   bar = [[NSUserDefaults standardUserDefaults] boolForKey:StyleKey];
   stripped = [[NSUserDefaults standardUserDefaults] boolForKey:TickLineKey];
   tickWidth = [[NSUserDefaults standardUserDefaults] doubleForKey:TickWidthKey];
@@ -1622,15 +1619,89 @@ static NSUInteger topToolGeneration = 0;
 {
   [timerCPU invalidate];
   timerCPU = nil;
-  timerCPU = [NSTimer scheduledTimerWithTimeInterval:[[NSUserDefaults standardUserDefaults] doubleForKey:RefreshKey] target:self selector:@selector(updateCPU:) userInfo:nil repeats:YES];
-  [[NSRunLoop currentRunLoop] addTimer:timerCPU forMode:NSEventTrackingRunLoopMode];
-  [[NSRunLoop currentRunLoop] addTimer:timerCPU forMode:NSModalPanelRunLoopMode];
-
   [timerTop invalidate];
   timerTop = nil;
-  timerTop = [NSTimer scheduledTimerWithTimeInterval:TOP_REFRESH_RATE target:self selector:@selector(updateTop:) userInfo:nil repeats:YES];
-  [[NSRunLoop currentRunLoop] addTimer:timerTop forMode:NSEventTrackingRunLoopMode];
-  [[NSRunLoop currentRunLoop] addTimer:timerTop forMode:NSModalPanelRunLoopMode];
+  if (paused)
+  {
+    // nothing can be seen: updatePause starts them again
+    return;
+  }
+
+  // common modes: they fire while the menu is open (event tracking) and under a modal panel too. A tolerance of a
+  // tenth of the interval lets macOS group their wakeups with others'.
+  double interval = RefreshInterval();
+  timerCPU = [NSTimer timerWithTimeInterval:interval target:self selector:@selector(updateCPU:) userInfo:nil repeats:YES];
+  timerCPU.tolerance = 0.1 * interval;
+  [[NSRunLoop mainRunLoop] addTimer:timerCPU forMode:NSRunLoopCommonModes];
+
+  timerTop = [NSTimer timerWithTimeInterval:TOP_REFRESH_RATE target:self selector:@selector(updateTop:) userInfo:nil repeats:YES];
+  timerTop.tolerance = 0.1 * TOP_REFRESH_RATE;
+  [[NSRunLoop mainRunLoop] addTimer:timerTop forMode:NSRunLoopCommonModes];
+}
+
+- (void)workspaceChanged:(NSNotification*)notification
+{
+  NSString* name = notification.name;
+  if ([name isEqualToString:NSWorkspaceScreensDidSleepNotification])
+  {
+    screensAsleep = true;
+  }
+  else if ([name isEqualToString:NSWorkspaceScreensDidWakeNotification])
+  {
+    // the displays are on, so the Mac is awake too
+    screensAsleep = false;
+    systemAsleep = false;
+  }
+  else if ([name isEqualToString:NSWorkspaceWillSleepNotification])
+  {
+    systemAsleep = true;
+  }
+  else if ([name isEqualToString:NSWorkspaceDidWakeNotification])
+  {
+    systemAsleep = false;
+  }
+  else if ([name isEqualToString:NSWorkspaceSessionDidResignActiveNotification])
+  {
+    sessionInactive = true;
+  }
+  else if ([name isEqualToString:NSWorkspaceSessionDidBecomeActiveNotification])
+  {
+    // this session is in front, so its displays are on and the Mac is awake: a wake missed while it was not in
+    // front cannot keep the graph paused
+    screensAsleep = false;
+    systemAsleep = false;
+    sessionInactive = false;
+  }
+  [self updatePause];
+}
+
+// stops the timers when nothing can be seen, and starts them again when something can
+- (void)updatePause
+{
+  bool pause = screensAsleep || systemAsleep || sessionInactive;
+  if (pause == paused)
+  {
+    return;
+  }
+  paused = pause; // first: setupTimers makes no timers while paused
+  if (paused)
+  {
+    [timerCPU invalidate];
+    timerCPU = nil;
+    [timerTop invalidate];
+    timerTop = nil;
+    NSLog(@"paused: nothing can be seen (screens asleep %d, system asleep %d, session inactive %d)", screensAsleep, systemAsleep, sessionInactive);
+  }
+  else
+  {
+    // the first readings after the pause would average over all of it: take them now as the new baselines
+    CpuSamplerUpdate(&cpu_info);
+    [self updateTop:nil];
+    [self setupTimers];
+    // and the next process sample soon, so that an open menu does not show the pause's average for 2.5 s
+    [timerTop setFireDate:[NSDate dateWithTimeIntervalSinceNow:TOP_MIN_INTERVAL]];
+    NSLog(@"running again");
+  }
 }
 
 - (void)fillDescForProcess:(NSString*)name tab:(NSTabViewItem*)descriptionTab
@@ -1820,13 +1891,22 @@ static NSUInteger topToolGeneration = 0;
     CpuRenderInit();
     CpuSamplerInit(&cpu_info);
     CpuSamplerSineDemoInit(&cpu_sine_demo_info);
-    CpuSamplerSineDemoInit(&cpu_flat_demo_info);
+    CpuSamplerFlatDemoInit(&cpu_flat_demo_info);
     TopInit(); // takes the first sample: the CPU baseline
     lastTopSample = [[NSProcessInfo processInfo] systemUptime];
 
     [self setupPreferences];
     [self setupStatusItem];
     [self setupMenus];
+
+    // pause while nothing can be seen (updatePause)
+    NSNotificationCenter* workspaceCenter = [[NSWorkspace sharedWorkspace] notificationCenter];
+    for (NSNotificationName name in @[NSWorkspaceScreensDidSleepNotification, NSWorkspaceScreensDidWakeNotification,
+                                      NSWorkspaceWillSleepNotification, NSWorkspaceDidWakeNotification,
+                                      NSWorkspaceSessionDidResignActiveNotification, NSWorkspaceSessionDidBecomeActiveNotification])
+    {
+      [workspaceCenter addObserver:self selector:@selector(workspaceChanged:) name:name object:nil];
+    }
     [self setupTimers];
 
     // room for the inspector's "Helper of:" line
@@ -2077,9 +2157,7 @@ static NSUInteger topToolGeneration = 0;
 {
   bar = false;
   colored = false;
-  tickWidth = 3.0;
   [[NSUserDefaults standardUserDefaults] setBool:bar forKey:StyleKey];
-  [[NSUserDefaults standardUserDefaults] setDouble:tickWidth forKey:TickWidthKey];
 
   [self updateUI];
 }
@@ -2192,6 +2270,16 @@ static NSUInteger topToolGeneration = 0;
 
 - (void)menuWillOpen:(NSMenu *)menu
 {
+  if (paused)
+  {
+    // the menu is open, so something can be seen: a wake was missed
+    NSLog(@"menu opened while paused (screens asleep %d, system asleep %d, session inactive %d): running again", screensAsleep, systemAsleep, sessionInactive);
+    screensAsleep = false;
+    systemAsleep = false;
+    sessionInactive = false;
+    [self updatePause];
+  }
+
   // frozen: the rows keep what they showed, and neither top nor a sample runs
   if (!frozen)
   {

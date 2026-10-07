@@ -26,11 +26,7 @@
 #include <math.h>
 #include <sys/sysctl.h>
 
-static char *_cpuType = NULL;
-static char *_cpuSubtype = NULL;
-static long _frequency = 0;
-
-static host_basic_info_t _CpuSamplerGetCounts()
+static host_basic_info_t _CpuSamplerGetCounts(void)
 {
   static boolean_t initialized = FALSE;
   static host_basic_info_data_t basic_info;
@@ -69,33 +65,34 @@ static host_basic_info_t _CpuSamplerGetCounts()
 //
 //      cpu_type: x86_64h
 //      cpu_subtype: Intel x86-64h Haswell
-      slot_name(basic_info.cpu_type, basic_info.cpu_subtype, &_cpuType, &_cpuSubtype);
-
-      size_t size = sizeof(_frequency);
-      int mib[] = { CTL_HW, HW_CPU_FREQ };
-      if (sysctl(mib, 2, &_frequency, &size, NULL, 0) == 0)
-      {
-        _frequency /= 1000000;
-      }
     }
   }
   return &basic_info;
 }
 
-static natural_t _CpuSamplerGet(mach_port_t port, Ticks* ticks)
+// Copies the tick counters of at most capacity CPUs into ticks (when not NULL), and returns the number of CPUs the
+// kernel reported, 0 when it could not be read (ticks are then left as they were). Failures are logged once: this
+// runs on every frame.
+static natural_t _CpuSamplerGet(mach_port_t port, Ticks* ticks, natural_t capacity)
 {
   natural_t cpu_count = 0;
-  processor_cpu_load_info_t cpu_load;
+  processor_cpu_load_info_t cpu_load = NULL;
   mach_msg_type_number_t msg_count = PROCESSOR_CPU_LOAD_INFO_COUNT;
   kern_return_t error = host_processor_info(port, PROCESSOR_CPU_LOAD_INFO, &cpu_count, (processor_info_array_t *)&cpu_load, &msg_count);
   if (error != KERN_SUCCESS)
   {
-    mach_error("host_processor_info error:", error);
-    memset(&cpu_load, 0x0, sizeof(processor_cpu_load_info_t));
+    static boolean_t logged = FALSE;
+    if (!logged)
+    {
+      logged = TRUE;
+      mach_error("host_processor_info error:", error);
+    }
+    return 0;
   }
-  else if (ticks != NULL)
+  if (ticks != NULL)
   {
-    for (natural_t i=0; i<cpu_count; i++)
+    natural_t count = (cpu_count < capacity) ? cpu_count : capacity;
+    for (natural_t i=0; i<count; i++)
     {
       ticks[i].systemTicks = cpu_load[i].cpu_ticks[CPU_STATE_SYSTEM];
       ticks[i].userTicks   = cpu_load[i].cpu_ticks[CPU_STATE_USER];
@@ -103,42 +100,33 @@ static natural_t _CpuSamplerGet(mach_port_t port, Ticks* ticks)
       ticks[i].idleTicks   = cpu_load[i].cpu_ticks[CPU_STATE_IDLE];
     }
   }
-  error = vm_deallocate(mach_task_self(), (vm_address_t)cpu_load, msg_count);
+  // msg_count counts integers; vm_deallocate takes bytes
+  error = vm_deallocate(mach_task_self(), (vm_address_t)cpu_load, (vm_size_t)msg_count * sizeof(integer_t));
   if (error != KERN_SUCCESS)
   {
-    mach_error("vm_deallocate error:", error);
+    static boolean_t logged = FALSE;
+    if (!logged)
+    {
+      logged = TRUE;
+      mach_error("vm_deallocate error:", error);
+    }
   }
 
   return cpu_count;
 }
 
+// at least 1: a failed host_info leaves the counts 0
 natural_t CpuSamplerGetCount(int granularity)
 {
   host_basic_info_t info = _CpuSamplerGetCounts();
+  natural_t count = 1;
   switch(granularity)
   {
-    case 1: return info->physical_cpu;
-    case 2: return info->logical_cpu;
-    default: return 1;
+    case 1: count = info->physical_cpu; break;
+    case 2: count = info->logical_cpu; break;
+    default: count = 1; break;
   }
-}
-
-char* CpuSamplerGetCpuType()
-{
-  _CpuSamplerGetCounts();
-  return _cpuType;
-}
-
-char* CpuSamplerGetCpuSubtype()
-{
-  _CpuSamplerGetCounts();
-  return _cpuSubtype;
-}
-
-long CpuSamplerGetCpuMHz()
-{
-  _CpuSamplerGetCounts();
-  return _frequency;
+  return (count > 0) ? count : 1;
 }
 
 void CpuSamplerInit(CpuSummaryInfo* cpu_info)
@@ -146,7 +134,7 @@ void CpuSamplerInit(CpuSummaryInfo* cpu_info)
   memset(cpu_info, 0x00, sizeof(CpuSummaryInfo));
   
   cpu_info->port = mach_host_self();
-  cpu_info->countLogical = _CpuSamplerGet(cpu_info->port, NULL);
+  cpu_info->countLogical = _CpuSamplerGet(cpu_info->port, NULL, 0);
   host_basic_info_t info = _CpuSamplerGetCounts();
   cpu_info->countCores = info->physical_cpu;
 
@@ -156,23 +144,27 @@ void CpuSamplerInit(CpuSummaryInfo* cpu_info)
   cpu_info->now = (Ticks*)malloc(size);
   memset(cpu_info->now, 0x00, size);
   
-  _CpuSamplerGet(cpu_info->port, cpu_info->last);
+  _CpuSamplerGet(cpu_info->port, cpu_info->last, cpu_info->countLogical);
   CpuSamplerUpdate(cpu_info);
 }
 
 void CpuSamplerUpdate(CpuSummaryInfo* cpu_info)
 {
-  _CpuSamplerGet(cpu_info->port, cpu_info->now);
+  if (_CpuSamplerGet(cpu_info->port, cpu_info->now, cpu_info->countLogical) == 0)
+  {
+    // no reading: the previous loads stay
+    return;
+  }
   
   for (natural_t i=0; i<cpu_info->countLogical; i++)
   {
-    uint64_t systemTicks = cpu_info->now[i].systemTicks - cpu_info->last[i].systemTicks;
-    uint64_t userTicks   = cpu_info->now[i].userTicks   - cpu_info->last[i].userTicks;
-    uint64_t niceTicks   = cpu_info->now[i].niceTicks   - cpu_info->last[i].niceTicks;
-    uint64_t idleTicks   = cpu_info->now[i].idleTicks   - cpu_info->last[i].idleTicks;
+    uint32_t systemTicks = cpu_info->now[i].systemTicks - cpu_info->last[i].systemTicks;
+    uint32_t userTicks   = cpu_info->now[i].userTicks   - cpu_info->last[i].userTicks;
+    uint32_t niceTicks   = cpu_info->now[i].niceTicks   - cpu_info->last[i].niceTicks;
+    uint32_t idleTicks   = cpu_info->now[i].idleTicks   - cpu_info->last[i].idleTicks;
     {
-      double used = systemTicks + userTicks + niceTicks;
-      double total = used + idleTicks;
+      double used = (double)systemTicks + (double)userTicks + (double)niceTicks;
+      double total = used + (double)idleTicks;
       if (total == 0.0)
       {
         total = 1.0;
@@ -186,7 +178,7 @@ void CpuSamplerUpdate(CpuSummaryInfo* cpu_info)
 void CpuSamplerSineDemoInit(CpuSummaryInfo* cpu_info)
 {
   cpu_info->port = mach_host_self();
-  cpu_info->countLogical = _CpuSamplerGet(cpu_info->port, NULL);
+  cpu_info->countLogical = _CpuSamplerGet(cpu_info->port, NULL, 0);
   host_basic_info_t info = _CpuSamplerGetCounts();
   cpu_info->countCores = info->physical_cpu;
 
@@ -210,7 +202,7 @@ void CpuSamplerSineDemoUpdate(CpuSummaryInfo* cpu_info, float speed)
 void CpuSamplerFlatDemoInit(CpuSummaryInfo* cpu_info)
 {
   cpu_info->port = mach_host_self();
-  cpu_info->countLogical = _CpuSamplerGet(cpu_info->port, NULL);
+  cpu_info->countLogical = _CpuSamplerGet(cpu_info->port, NULL, 0);
   host_basic_info_t info = _CpuSamplerGetCounts();
   cpu_info->countCores = info->physical_cpu;
 
@@ -218,7 +210,7 @@ void CpuSamplerFlatDemoInit(CpuSummaryInfo* cpu_info)
   cpu_info->now = (Ticks*)malloc(size);
   memset(cpu_info->now, 0x00, size);
   
-  CpuSamplerSineDemoUpdate(cpu_info, 1.0);
+  CpuSamplerFlatDemoUpdate(cpu_info, 1.0);
 }
 
 void CpuSamplerFlatDemoUpdate(CpuSummaryInfo* cpu_info, float speed)

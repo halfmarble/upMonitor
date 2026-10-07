@@ -68,7 +68,6 @@ static TopProcessInfo_t _top_process_info;
 
 static uint32_t _top_sequence;
 static uint32_t _top_process_count;
-static mach_port_t _top_port;
 static uint64_t _timens;
 static uint64_t _top_wall_us;
 static uint64_t _top_prev_timens;
@@ -301,7 +300,7 @@ static int __attribute__((noinline)) _top_update_for_pid(pid_t pid)
   return (0);
 }
 
-int TopInit()
+int TopInit(void)
 {
   if ((mach_timebase_info(&_top_timebase) != KERN_SUCCESS) || (_top_timebase.denom == 0))
   {
@@ -309,8 +308,6 @@ int TopInit()
     _top_timebase.denom = 1;
   }
   
-  _top_port = MACH_PORT_NULL;
-    
   _top_sequence = 0;
 
   {
@@ -330,8 +327,6 @@ int TopInit()
     }
   }
   
-  _top_port = mach_host_self();
-
   rb_tree_new(&_top_pid_tree, node_new);
 
   CFDictionaryValueCallBacks tableCallbacks = { 0, stringRetain, simpleFree, NULL, stringEqual };
