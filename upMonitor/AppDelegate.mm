@@ -1214,12 +1214,6 @@ static BOOL spaces_init = NO;
 //  [menu addItem:[NSMenuItem separatorItem]];
 
   {
-    // checked while frozen (toggleFreeze:); off at every launch
-    NSMenuItem* item = [menu addItemWithTitle:@"Freeze" action:@selector(toggleFreeze:) keyEquivalent:@""];
-    [item setAttributedTitle:[[NSAttributedString alloc] initWithString:[item title] attributes:attributesStandard]];
-  }
-
-  {
     NSMenuItem* item = [menu addItemWithTitle:@"Launch \"Activity Monitor\"" action:@selector(launchActivityMonitor:) keyEquivalent:@""];
     [item setAttributedTitle:[[NSAttributedString alloc] initWithString:[item title] attributes:attributesStandard]];
     NSImage* appIcon = [[NSWorkspace sharedWorkspace] iconForFile:[NSString stringWithFormat:@"/System/Applications/Utilities/Activity Monitor.app"]];
@@ -1229,6 +1223,12 @@ static BOOL spaces_init = NO;
   }
 
   [menu addItem:[NSMenuItem separatorItem]];
+
+  {
+    // checked while frozen (toggleFreeze:); off at every launch
+    NSMenuItem* item = [menu addItemWithTitle:@"Freeze" action:@selector(toggleFreeze:) keyEquivalent:@""];
+    [item setAttributedTitle:[[NSAttributedString alloc] initWithString:[item title] attributes:attributesStandard]];
+  }
 
   {
     NSMenuItem* item = [menu addItemWithTitle:@"Open upMonitor Preferences..." action:@selector(openPreferences:) keyEquivalent:@""];
