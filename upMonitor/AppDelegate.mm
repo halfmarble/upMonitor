@@ -345,6 +345,21 @@ static NSString* ProcessPath(pid_t pid)
   return [NSString stringWithUTF8String:buffer];
 }
 
+// the start time of the process now running as pid, in microseconds; 0 when the pid has exited or is a
+// zombie. sysctl(KERN_PROC_PID) gives it for every user's processes (proc_pidinfo only for the user's own)
+static uint64_t ProcessStartTime(pid_t pid)
+{
+  struct kinfo_proc kinfo;
+  size_t length = sizeof(kinfo);
+  int mib[4] = {CTL_KERN, KERN_PROC, KERN_PROC_PID, pid};
+  // for a pid that has already exited, sysctl succeeds but returns no data (length 0)
+  if ((sysctl(mib, 4, &kinfo, &length, NULL, 0) != 0) || (length != sizeof(kinfo)) || (kinfo.kp_proc.p_stat == SZOMB))
+  {
+    return 0;
+  }
+  return ((uint64_t)kinfo.kp_proc.p_starttime.tv_sec * USEC_PER_SEC) + (uint64_t)kinfo.kp_proc.p_starttime.tv_usec;
+}
+
 // the outermost .app in the path, nil when there is none
 static NSString* OuterApp(NSString* path)
 {
@@ -568,6 +583,12 @@ static bool topListValid = false;
 static int topCount = 0;
 static NSTimeInterval lastTopSample = 0.0;
 #define TOP_MIN_INTERVAL (0.25)
+
+// Freeze (a checkable item in the status menu): while frozen the rows keep what they showed, nothing is
+// sampled for them and /usr/bin/top is not run; the menu-bar CPU graph keeps moving. frozenStarts holds
+// each row's process start time, read when Freeze was chosen (0 = already gone).
+static bool frozen = false;
+static NSMutableDictionary<NSNumber*, NSNumber*>* frozenStarts = nil; // by pid
 
 static CGFloat tickHeight = 16.0;
 static CGFloat tickWidth = 3.0;
@@ -1132,6 +1153,12 @@ static BOOL spaces_init = NO;
 //  [menu addItem:[NSMenuItem separatorItem]];
 
   {
+    // checked while frozen (toggleFreeze:); off at every launch
+    NSMenuItem* item = [menu addItemWithTitle:@"Freeze" action:@selector(toggleFreeze:) keyEquivalent:@""];
+    [item setAttributedTitle:[[NSAttributedString alloc] initWithString:[item title] attributes:attributesStandard]];
+  }
+
+  {
     NSMenuItem* item = [menu addItemWithTitle:@"Launch \"Activity Monitor\"" action:@selector(launchActivityMonitor:) keyEquivalent:@""];
     [item setAttributedTitle:[[NSAttributedString alloc] initWithString:[item title] attributes:attributesStandard]];
     NSImage* appIcon = [[NSWorkspace sharedWorkspace] iconForFile:[NSString stringWithFormat:@"/System/Applications/Utilities/Activity Monitor.app"]];
@@ -1359,9 +1386,14 @@ static BOOL spaces_init = NO;
 //}
 
 // Samples on every tick, with the menu closed too (about 1-2 ms), so that the CPU% always covers the
-// last interval and the list is current the moment the menu opens.
+// last interval and the list is current the moment the menu opens. Nothing is sampled while frozen.
 - (void)updateTop:(id)sender
 {
+  if (frozen)
+  {
+    return;
+  }
+
   TopSample();
   lastTopSample = [[NSProcessInfo processInfo] systemUptime];
   topListValid = true;
@@ -1745,7 +1777,8 @@ static NSUInteger topToolGeneration = 0;
     }
     topNameCache = [NSMutableDictionary dictionary];
     topIconCache = [NSMutableDictionary dictionary];
-    
+    frozenStarts = [NSMutableDictionary dictionary];
+
     CpuRenderInit();
     CpuSamplerInit(&cpu_info);
     CpuSamplerSineDemoInit(&cpu_sine_demo_info);
@@ -1802,19 +1835,24 @@ static NSUInteger topToolGeneration = 0;
     return;
   }
 
+  // a frozen row whose process has exited, or whose pid now belongs to another process (its start time
+  // differs from the one read at the freeze): show what the row recorded and run no tool on the pid
+  uint64_t frozenStart = [frozenStarts[[NSNumber numberWithInt:pid]] unsignedLongLongValue];
+  bool exited = frozen && ((frozenStart == 0) || (ProcessStartTime(pid) != frozenStart));
+
   inspectGeneration++;
   [self stopInspectorTools];
-  current_process_pid = [NSNumber numberWithInt:pid];
+  current_process_pid = exited ? nil : [NSNumber numberWithInt:pid];
 
-  ProcessIconDecision* decision = [self decisionForPid:pid];
+  ProcessIconDecision* decision = exited ? topIconCache[[NSNumber numberWithInt:pid]] : [self decisionForPid:pid];
   NSImage *icon = [decision.image copy];
   [icon setSize:NSMakeSize(TOP_ICON_SIZE, TOP_ICON_SIZE)];
   [self.procAppIcon setImage:icon];
 
-  TopProcessInfo_t* info = TopGetArgs(pid);
+  TopProcessInfo_t* info = exited ? NULL : TopGetArgs(pid);
   // KERN_PROCARGS2 (info->command) fails for other users' processes; proc_pidpath fails only for kernel_task
-  current_process_path = ProcessPath(pid);
-  NSString* name = SampleText(info->name);
+  current_process_path = exited ? nil : ProcessPath(pid);
+  NSString* name = exited ? SampleText(sample->name) : SampleText(info->name);
   
   char bits_str[40] = "00000000 00000000 00000000 00000000";
   uint32_t flags = sample->flags;
@@ -1859,8 +1897,8 @@ static NSUInteger topToolGeneration = 0;
     default: status_str = "?"; break;
   }
 
-  NSString* line = [NSString stringWithFormat:@"%@, pid:%d, ppid:%d, prio:%d, stat:%d (%s), flags:%d (%s)",
-                    SampleText(sample->name), sample->pid, sample->ppid, sample->tprio, sample->status, status_str, sample->flags, bits_str];
+  NSString* line = [NSString stringWithFormat:@"%@%@, pid:%d, ppid:%d, prio:%d, stat:%d (%s), flags:%d (%s)",
+                    SampleText(sample->name), (exited ? @" (exited)" : @""), sample->pid, sample->ppid, sample->tprio, sample->status, status_str, sample->flags, bits_str];
   if (decision.helper)
   {
     line = [line stringByAppendingFormat:@"\n%@", decision.helperLine];
@@ -1873,11 +1911,12 @@ static NSUInteger topToolGeneration = 0;
   frame.origin.y = midY - (frame.size.height / 2.0);
   [self.procAppName setFrame:frame];
 
+  NSString* live = exited ? @"\nN/A (exited)" : @"\npreparing...";
   [self.procDescTextView setString:@"\npreparing..."];
-  [self.procArgsEnvTextView setString:@"\npreparing..."];
-  [self.procLsofTextView setString:@"\npreparing..."];
-  [self.procNmTextView setString:@"\npreparing..."];
-  [self.procThreadsTextView setString:@"\npreparing..."];
+  [self.procArgsEnvTextView setString:live];
+  [self.procLsofTextView setString:live];
+  [self.procNmTextView setString:live];
+  [self.procThreadsTextView setString:live];
 
   //if ([self.top isVisible] == NO)
   {
@@ -1889,8 +1928,37 @@ static NSUInteger topToolGeneration = 0;
   
   [self.procAppView selectFirstTabViewItem:self];
 
-  [self fillArgsEnvForProcess:info];
+  if (!exited)
+  {
+    [self fillArgsEnvForProcess:info];
+  }
   [self fillDescForProcess:name tab:descriptionTab];
+}
+
+// Freeze keeps the rows as they were when it was chosen, so that they can be examined
+- (void)toggleFreeze:(NSMenuItem*)sender
+{
+  frozen = !frozen;
+  [sender setState:(frozen ? NSControlStateValueOn : NSControlStateValueOff)];
+  [frozenStarts removeAllObjects];
+  if (frozen)
+  {
+    [self stopTopTool];
+    for (int i=0; i<TOP_COUNT; i++)
+    {
+      if (![topMenus[i] isHidden])
+      {
+        pid_t pid = (pid_t)[topMenus[i] tag];
+        frozenStarts[[NSNumber numberWithInt:pid]] = [NSNumber numberWithUnsignedLongLong:ProcessStartTime(pid)];
+      }
+    }
+  }
+  else
+  {
+    // the next sample would average the CPU% over the whole freeze: take one now as the new baseline
+    [self updateTop:nil];
+    [timerTop setFireDate:[NSDate dateWithTimeIntervalSinceNow:TOP_REFRESH_RATE]];
+  }
 }
 
 - (void)launchActivityMonitor:(id)sender
@@ -2085,20 +2153,24 @@ static NSUInteger topToolGeneration = 0;
 
 - (void)menuWillOpen:(NSMenu *)menu
 {
-  // other users' processes join when top's second sample arrives, about a second later
-  [self startTopTool];
-
-  refreshTop = true;
-
-  // take a fresh sample, unless the timer has just taken one: a very short interval gives noisy CPU%
-  if (!topListValid || (([[NSProcessInfo processInfo] systemUptime] - lastTopSample) >= TOP_MIN_INTERVAL))
+  // frozen: the rows keep what they showed, and neither top nor a sample runs
+  if (!frozen)
   {
-    [self updateTop:nil];
-    [timerTop setFireDate:[NSDate dateWithTimeIntervalSinceNow:TOP_REFRESH_RATE]];
-  }
-  else
-  {
-    [self updateMenuTop];
+    // other users' processes join when top's second sample arrives, about a second later
+    [self startTopTool];
+
+    refreshTop = true;
+
+    // take a fresh sample, unless the timer has just taken one: a very short interval gives noisy CPU%
+    if (!topListValid || (([[NSProcessInfo processInfo] systemUptime] - lastTopSample) >= TOP_MIN_INTERVAL))
+    {
+      [self updateTop:nil];
+      [timerTop setFireDate:[NSDate dateWithTimeIntervalSinceNow:TOP_REFRESH_RATE]];
+    }
+    else
+    {
+      [self updateMenuTop];
+    }
   }
 
   // the menu's window is new on every opening; paint it once it is on screen
@@ -2121,7 +2193,12 @@ static NSUInteger topToolGeneration = 0;
 
 - (void)tabView:(NSTabView *)tabView didSelectTabViewItem:(nullable NSTabViewItem *)tabViewItem
 {
-  
+  if (current_process_pid == nil)
+  {
+    // no selection yet, or a frozen row whose process has exited: no tool runs
+    return;
+  }
+
   switch ([[tabViewItem identifier] intValue])
   {
     case 3:
