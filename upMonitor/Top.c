@@ -22,6 +22,8 @@
 
 #include <stdlib.h>
 #include <limits.h>
+#include <stdbool.h>
+#include <string.h>
 #include <libproc.h>
 #include <pwd.h>
 
@@ -591,6 +593,42 @@ static inline void _spewbytes(char *ptr, unsigned long left)
 }
 #endif
 
+// The next NUL-terminated string at *data, before end; NULL when none is left or it has no NUL before end
+// (a process can overwrite its own string area and leave none).
+static char* _top_next_string(char** data, char* end, size_t* length)
+{
+  char* string = *data;
+  if (string >= end)
+  {
+    return NULL;
+  }
+  char* nul = memchr(string, '\0', (size_t)(end - string));
+  if (nul == NULL)
+  {
+    return NULL;
+  }
+  *length = (size_t)(nul - string);
+  *data = nul + 1;
+  return string;
+}
+
+// Appends length bytes of string and a newline to *buffer, which holds *used characters and a NUL. False when
+// out of memory (the buffer keeps what it had).
+static bool _top_append_line(char** buffer, int* used, const char* string, size_t length)
+{
+  char* grown = realloc(*buffer, (size_t)*used + length + 2);
+  if (grown == NULL)
+  {
+    return false;
+  }
+  memcpy(grown + *used, string, length);
+  grown[*used + length] = '\n';
+  grown[*used + length + 1] = '\0';
+  *buffer = grown;
+  *used += (int)(length + 1);
+  return true;
+}
+
 // http://search.cpan.org/src/DURIST/Proc-ProcessTable-0.43/os/darwin.c
 TopProcessInfo_t* TopGetArgs(pid_t pid)
 {  
@@ -617,7 +655,7 @@ TopProcessInfo_t* TopGetArgs(pid_t pid)
   mib[1] = KERN_PROCARGS2;
   mib[2] = pid;
   size_t size = _top_arg_max;
-  if (sysctl(mib, 3, _top_arg_buffer, &size, NULL, 0) == KERN_SUCCESS)
+  if ((sysctl(mib, 3, _top_arg_buffer, &size, NULL, 0) == 0) && (size >= sizeof(int)))
   {
 #ifdef DEBUG_ARGS
     fprintf(stderr, "\n");
@@ -626,105 +664,73 @@ TopProcessInfo_t* TopGetArgs(pid_t pid)
     fprintf(stderr, "\n");
     fprintf(stderr, "\n");
 #endif
-    size_t left = size;
-    if (left >= sizeof(int))
-    {
-      char *data = _top_arg_buffer;
-      
-      memcpy(&_top_process_info.args_count, data, sizeof(int));
-      left -= sizeof(int);
-      data += sizeof(int);
-      
+    // argc; the executable's path and its NUL padding; argc arguments; the environment up to the first empty
+    // string; then empty strings and the kernel's own apple[] strings (ptr_munge=, executable_cdhash= ...),
+    // which are not environment. Every string is read up to end, never with strlen.
+    char* data = _top_arg_buffer;
+    char* end = _top_arg_buffer + size;
+    int argc = 0;
+    memcpy(&argc, data, sizeof(int));
+    data += sizeof(int);
+    _top_process_info.args_count = (argc > 0) ? argc : 0;
 #ifdef DEBUG_ARGS
-      fprintf(stderr, "   args_count: %d\n", _top_process_info.args_count);
+    fprintf(stderr, "   args_count: %d\n", _top_process_info.args_count);
 #endif
-      
-      if (left > 0)
-      {
-        // full path
-        size_t length = strlen(data);
-        _top_process_info.command = realloc(_top_process_info.command, length+1);
-        memcpy(_top_process_info.command, data, length);
-        _top_process_info.command[length] ='\0';
-        data += length;
-        left -= length;
-#ifdef DEBUG_ARGS
-        fprintf(stderr, "   args_command: %s\n", _top_process_info.command);
-#endif
-        
-        // skip empty space
-        while ((left > 0) && (data[0] == '\0'))
-        {
-          data++;
-          left--;
-        }
-        
-        // rest of arguments
-        if (left > 0)
-        {
-          int index = 0;
-          while ((left > 0) && (index < _top_process_info.args_count))
-          {
-            length = strlen(data)+1;
-            if (length > 1)
-            {
-              _top_process_info.args_length += length;
-              _top_process_info.args_info = realloc(_top_process_info.args_info, _top_process_info.args_length+1);
-              
-              char *string = &_top_process_info.args_info[_top_process_info.args_length-length];
-              memcpy(string, data, length);
-              string[length-1] = '\n';
-              string[length] = '\0';
-            }
-            data += length;
-            left -= length;
-            index++;
-          }
-#ifdef DEBUG_ARGS
-          fprintf(stderr, "---- args_length: [%d]\n", _top_process_info.args_length);
-          fprintf(stderr, "---- args_count: [%d]\n", _top_process_info.args_count);
-          _spewbytes(_top_process_info.args_info, _top_process_info.args_length);
-          fprintf(stderr, "\n");
-#endif
-          
-          if (left > 0)
-          {
-            // skip empty space
-            while ((left > 0) && (data[0] == '\0'))
-            {
-              data++;
-              left--;
-            }
-            
-            // environment
-            if (left > 0)
-            {
-              while (left > 0)
-              {
-                length = strlen(data)+1;
-                if (length > 1)
-                {
-                  _top_process_info.envs_length += length;
-                  _top_process_info.envs_info = realloc(_top_process_info.envs_info, _top_process_info.envs_length+1);
-                  _top_process_info.envs_count++;
-                  
-                  char *string = &_top_process_info.envs_info[_top_process_info.envs_length-length];
-                  memcpy(string, data, length);
-                  string[length-1] = '\n';
-                  string[length] = '\0';
-                }
 
-                data += length;
-                left -= length;
-              }
+    size_t length = 0;
+    char* string = _top_next_string(&data, end, &length);
+    if (string != NULL)
+    {
+      char* command = realloc(_top_process_info.command, length+1);
+      if (command != NULL)
+      {
+        memcpy(command, string, length);
+        command[length] = '\0';
+        _top_process_info.command = command;
+      }
 #ifdef DEBUG_ARGS
-              fprintf(stderr, "---- envs_length: [%d]\n", _top_process_info.envs_length);
-              fprintf(stderr, "---- envs_count: [%d]\n", _top_process_info.envs_count);
-              _spewbytes(_top_process_info.envs_info, _top_process_info.envs_length);
+      fprintf(stderr, "   args_command: %s\n", _top_process_info.command);
 #endif
-            }
-          }
+
+      // the padding after the path
+      while ((data < end) && (data[0] == '\0'))
+      {
+        data++;
+      }
+
+      // argc arguments; an empty one counts, and is not shown
+      int index = 0;
+      while ((index < _top_process_info.args_count) && ((string = _top_next_string(&data, end, &length)) != NULL))
+      {
+        if ((length > 0) && !_top_append_line(&_top_process_info.args_info, &_top_process_info.args_length, string, length))
+        {
+          break;
         }
+        index++;
+      }
+#ifdef DEBUG_ARGS
+      fprintf(stderr, "---- args_length: [%d]\n", _top_process_info.args_length);
+      fprintf(stderr, "---- args_count: [%d]\n", _top_process_info.args_count);
+      _spewbytes(_top_process_info.args_info, _top_process_info.args_length);
+      fprintf(stderr, "\n");
+#endif
+
+      // the environment, only when every argument was found
+      if (index == _top_process_info.args_count)
+      {
+        while (((string = _top_next_string(&data, end, &length)) != NULL) && (length > 0))
+        {
+          if (!_top_append_line(&_top_process_info.envs_info, &_top_process_info.envs_length, string, length))
+          {
+            break;
+          }
+          _top_process_info.envs_count++;
+        }
+#ifdef DEBUG_ARGS
+        fprintf(stderr, "---- envs_length: [%d]\n", _top_process_info.envs_length);
+        fprintf(stderr, "---- envs_count: [%d]\n", _top_process_info.envs_count);
+        _spewbytes(_top_process_info.envs_info, _top_process_info.envs_length);
+#endif
       }
     }
   }
@@ -740,9 +746,19 @@ TopProcessInfo_t* TopGetArgs(pid_t pid)
     fprintf(stderr, "ERR kinfo_for_pid\n");
     return &_top_process_info;
   }
-  size = strlen(kinfo.kp_proc.p_comm);
-  _top_process_info.name = realloc(_top_process_info.name, size+1);
-  strcpy(_top_process_info.name, kinfo.kp_proc.p_comm);
+  size = strnlen(kinfo.kp_proc.p_comm, sizeof(kinfo.kp_proc.p_comm));
+  char* name = realloc(_top_process_info.name, size+1);
+  if (name == NULL)
+  {
+    if (_top_process_info.name != NULL)
+    {
+      _top_process_info.name[0] = '\0';
+    }
+    return &_top_process_info;
+  }
+  memcpy(name, kinfo.kp_proc.p_comm, size);
+  name[size] = '\0';
+  _top_process_info.name = name;
   
   return &_top_process_info;
 }
