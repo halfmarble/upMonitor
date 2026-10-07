@@ -41,11 +41,6 @@
 
 #pragma mark Constants
 
-//#define GENERATE_THEME_IMAGE
-#ifdef GENERATE_THEME_IMAGE
-  #warning "GENERATE_THEME_IMAGE !"
-#endif
-
 #define TOP_COUNT                   (15)
 #define TOP_REFRESH_RATE            (2.5)
 #define TOP_TOOL_ROWS               (2*TOP_COUNT) // headroom: 2x the rows shown
@@ -1394,34 +1389,6 @@ static BOOL spaces_init = NO;
     [self renderPrefsSinWithLight:light];
     [self renderPrefsFlatWithLight:light];
   }
-  
-#ifdef GENERATE_THEME_IMAGE
-  static BOOL doit = YES;
-  if (doit)
-  {
-    int width = 64, height = 256;
-    image = [[NSImage alloc] initWithSize:NSMakeSize(width, height)];
-    [image lockFocus];
-    {
-      CGContextRef ctx = [[NSGraphicsContext currentContext] CGContext];
-      CpuRenderDemo(ctx, width, height, 0);
-    }
-    [image unlockFocus];
-    {
-      CGImageRef cgRef = [image CGImageForProposedRect:NULL context:nil hints:nil];
-      NSBitmapImageRep *newRep = [[NSBitmapImageRep alloc] initWithCGImage:cgRef];
-      [newRep setSize:[image size]];
-      NSData *pngData = [newRep representationUsingType:NSBitmapImageFileTypePNG properties:@{NSImageCompressionFactor:@1.0}];
-      NSError* error = nil;
-      BOOL written = [pngData writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Downloads/img.png"] options:NSDataWritingAtomic error:&error];
-      if (!written)
-      {
-        NSLog(@"%@", error);
-      }
-    }
-    doit = NO;
-  }
-#endif
 }
 
 //static int _task_extmod_info_for_pid(pid_t pid, struct task_extmod_info *info)
