@@ -248,9 +248,12 @@ static NSRect MenuRowScreenRect(NSWindow* window, NSMenu* menu, NSMenuItem* item
 // material, inset 5 pt with a corner radius of 7, under the title and image in the selected text colour. A title
 // too wide for the row is drawn in smaller type. The item keeps its title, image and action: the action is what
 // enables it, and so lets it highlight. Return on it does nothing (mouse only). After a click AppKit removes the
-// highlight until the pointer moves.
+// highlight until the pointer moves. A disabled row is drawn grey, as a native one, with no selection, and a click on
+// it does nothing.
 
 #define STAY_OPEN_ROW_HEIGHT        (24.0)
+
+static bool IsLight(NSAppearance* appearance);
 
 @interface StayOpenMenuItem : NSMenuItem
 {
@@ -264,12 +267,16 @@ static NSRect MenuRowScreenRect(NSWindow* window, NSMenu* menu, NSMenuItem* item
 // a click on the row, or VoiceOver's press: the item's action, with the menu left open
 - (BOOL)actInPlace
 {
+  if (!self.isEnabled)
+  {
+    return NO;
+  }
   BOOL sent = [NSApp sendAction:self.action to:self.target from:self];
   if (!sent && !loggedNoTarget)
   {
     loggedNoTarget = true;
     // the action, not the title: the IP row's title can be the user's address
-    NSLog(@"%@: the row's action found no target", NSStringFromSelector(self.action));
+    NSLog(@"the row's action %@ found no target", NSStringFromSelector(self.action));
   }
   return sent;
 }
@@ -278,6 +285,12 @@ static NSRect MenuRowScreenRect(NSWindow* window, NSMenu* menu, NSMenuItem* item
 - (BOOL)accessibilityPerformPress
 {
   return [self actInPlace];
+}
+
+// a native item reports its enabled state to accessibility; an item with a view reports enabled even when disabled
+- (BOOL)isAccessibilityEnabled
+{
+  return self.isEnabled;
 }
 
 @end
@@ -378,13 +391,17 @@ static NSRect MenuRowScreenRect(NSWindow* window, NSMenu* menu, NSMenuItem* item
 - (void)viewWillDraw
 {
   NSMenuItem* item = self.enclosingMenuItem;
-  bool highlighted = item.isHighlighted;
+  bool enabled = item.isEnabled;
+  bool highlighted = enabled && item.isHighlighted;
   selection.hidden = !highlighted;
   [self fitTitle:item];
-  label.textColor = highlighted ? [NSColor selectedMenuItemTextColor] : [NSColor labelColor];
+  // disabled: the grey AppKit gives a native disabled row's title, secondary in Dark and tertiary in Light
+  NSColor* disabledColor = IsLight(self.effectiveAppearance) ? [NSColor tertiaryLabelColor] : [NSColor secondaryLabelColor];
+  NSColor* color = !enabled ? disabledColor : (highlighted ? [NSColor selectedMenuItemTextColor] : [NSColor labelColor]);
+  label.textColor = color;
   if (icon != nil)
   {
-    icon.contentTintColor = highlighted ? [NSColor selectedMenuItemTextColor] : [NSColor labelColor];
+    icon.contentTintColor = color;
     // as high as the image and centred in the row, as the native row's image view is: the blank 16 x 16 at y 4, the
     // check 16 x 11 at y 6.5
     NSImage* image = item.image;
@@ -461,9 +478,10 @@ static NSString* UptimeText(long seconds)
   return [NSString stringWithFormat:@"Uptime %ldm", minutes];
 }
 
-// the IP row's text for ipify's answer: "IP <address>", or what went wrong
-static NSString* IPAnswerText(NSData* data, NSURLResponse* response, NSError* error)
+// the IP row's text for ipify's answer: "IP <address>" (and *address true), or what went wrong
+static NSString* IPAnswerText(NSData* data, NSURLResponse* response, NSError* error, bool* address)
 {
+  *address = false;
   if (error != nil)
   {
     NSLog(@"What is my IP?: no answer (%@ %ld)", error.domain, (long)error.code);
@@ -502,10 +520,12 @@ static NSString* IPAnswerText(NSData* data, NSURLResponse* response, NSError* er
   {
     if ((inet_pton(AF_INET, s, &v4) == 1) && (inet_ntop(AF_INET, &v4, text, sizeof(text)) != NULL))
     {
+      *address = true;
       return [NSString stringWithFormat:@"IP %s", text];
     }
     if ((inet_pton(AF_INET6, s, &v6) == 1) && (inet_ntop(AF_INET6, &v6, text, sizeof(text)) != NULL))
     {
+      *address = true;
       return [NSString stringWithFormat:@"IP %s", text];
     }
   }
@@ -886,8 +906,9 @@ static ProcessIconDecision* DecideProcessIcon(pid_t pid, NSString* path)
 
 #pragma mark -
 
-// the IP row's session asks AppDelegate about redirects (URLSession:task:willPerformHTTPRedirection:...)
-@interface AppDelegate () <NSURLSessionTaskDelegate>
+// the IP row's session asks AppDelegate about redirects (URLSession:task:willPerformHTTPRedirection:...), and AppKit
+// asks it which of the menu items whose actions it implements are enabled (validateMenuItem:)
+@interface AppDelegate () <NSURLSessionTaskDelegate, NSMenuItemValidation>
 @end
 
 @implementation AppDelegate
@@ -937,10 +958,11 @@ static NSTextField* rowTipText = nil;
 static NSMenuItem* rowTipItem = nil;        // the row whose text shows, or is about to
 
 static NSMenuItem* uptimeItem = nil;        // information only: no action, so the row is grey
-static NSMenuItem* ipItem = nil;            // asks ipify on a click; the answer shows until the menu closes
+static NSMenuItem* ipItem = nil;            // asks ipify on a click, only while it reads "What is my IP?"
 static NSURLSession* ipSession = nil;
 static NSURLSessionDataTask* ipTask = nil;  // the question still out, nil when none
 static NSUInteger ipGeneration = 0;         // an answer that comes after the menu has closed is dropped
+static bool ipAnswered = false;             // the row shows ipify's address: it stays until upMonitor quits
 static NSString* ipLookupURL = @"https://api64.ipify.org"; // the IPv6 address when the network has one, else IPv4
 
 static CGFloat tickHeight = 16.0;
@@ -2438,19 +2460,37 @@ static double RefreshInterval(void)
   }
 }
 
+// the IP row is clickable only while it asks the question; from the click on it is grey and does nothing
+static bool IPAskable(void)
+{
+  return [ipItem.title isEqualToString:IP_QUESTION];
+}
+
 - (void)setIPText:(NSString*)text
 {
   [ipItem setTitle:text];
   [ipItem setAttributedTitle:[[NSAttributedString alloc] initWithString:text attributes:attributesStandard]];
-  // the row is a view (StayOpenRowView), which draws the item's title
+  // at once, in the open menu too; validateMenuItem: says the same whenever AppKit validates the menu
+  [ipItem setEnabled:IPAskable()];
+  // the row is a view (StayOpenRowView), which draws the item's title, grey when disabled
   [ipItem.view setNeedsDisplay:YES];
 }
 
-// a click on "What is my IP?": one question to ipify, and its answer, or what went wrong, in the row until the menu
-// closes. Nothing is sent before a click; a click while a question is out asks nothing more.
+// AppKit enables an item whose action has a target; the IP row only while it asks
+- (BOOL)validateMenuItem:(NSMenuItem*)item
+{
+  if (item == ipItem)
+  {
+    return IPAskable();
+  }
+  return YES;
+}
+
+// a click on "What is my IP?": one question to ipify, and its answer, or what went wrong, in the row. An address stays
+// until upMonitor quits; "Asking ipify…" and a failure until the menu closes. Nothing is sent before a click.
 - (void)askIP:(NSMenuItem*)sender
 {
-  if (ipTask != nil)
+  if (!IPAskable())
   {
     return;
   }
@@ -2479,7 +2519,10 @@ static double RefreshInterval(void)
       return;
     }
     ipTask = nil;
-    [weakSelf setIPText:IPAnswerText(data, response, error)];
+    bool address = false;
+    NSString* text = IPAnswerText(data, response, error, &address);
+    ipAnswered = address;
+    [weakSelf setIPText:text];
   }];
   [ipTask resume];
 }
@@ -2734,11 +2777,15 @@ static double RefreshInterval(void)
   [self stopTopTool];
   [self hideRowTip];
 
-  // the IP answer shows until the menu closes; a question still out is dropped
+  // a question still out is dropped, and the row asks again, unless it shows ipify's address: that stays until
+  // upMonitor quits
   ipGeneration++;
   [ipTask cancel];
   ipTask = nil;
-  [self setIPText:IP_QUESTION];
+  if (!ipAnswered)
+  {
+    [self setIPText:IP_QUESTION];
+  }
 }
 
 // while frozen, a row with helper text shows it after ROW_TIP_DELAY on the row

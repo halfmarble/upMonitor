@@ -20,7 +20,7 @@ A lightweight, highly customizable CPU monitoring tool designed specifically for
 * **Top Process Tracking:** Quickly identify which processes are consuming the most CPU with a ranked list of "Top CPU Processes", including those of other users and of macOS itself, such as WindowServer.
 * **Freeze:** pause the process list to examine it while the CPU graph keeps running; while frozen, rest on a ↳ row to see what it is a helper of.
 * **Uptime:** see how long the Mac has been up since it last started, sleep included, as `uptime` counts it.
-* **What is my IP?:** click it to see the public IP address the internet sees for your Mac. Nothing is sent before you click; each click makes at most one HTTPS request to [ipify](https://www.ipify.org), which sees that address and a request that names only upMonitor, with no cookies. The answer shows until the menu closes.
+* **What is my IP?:** click it to see the public IP address the internet sees for your Mac. Nothing is sent before you click; each click makes at most one HTTPS request to [ipify](https://www.ipify.org), which sees that address and a request that names only upMonitor, with no cookies. The address stays until upMonitor quits; quit and reopen upMonitor to ask again. If the question fails, you can ask again the next time you open the menu.
 * **Highly Customizable:**
     * **Granularity:** Monitor at the Package, Core, or Logical Processor level.
     * **Refresh Rates:** Choose between 2, 5, or 10 updates per second for ultra-responsive feedback.
