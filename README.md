@@ -35,6 +35,8 @@ A lightweight, highly customizable CPU monitoring tool designed specifically for
 2.  Drag `upMonitor.app` to your `/Applications` folder.
 3.  Launch the app and look for the activity graph in your menu bar!
 
+upMonitor is not sandboxed: it reads other processes' CPU use and runs system tools (top, lsof, nm, sample), which the App Sandbox does not allow.
+
 ## ⚙️ Configuration
 
 To customize your experience:
