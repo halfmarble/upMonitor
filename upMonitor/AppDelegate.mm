@@ -32,6 +32,7 @@
 #import <cxxabi.h>
 #import <ctype.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
+#import <arpa/inet.h>
 
 #import "AppDelegate.h"
 
@@ -239,35 +240,36 @@ static NSRect MenuRowScreenRect(NSWindow* window, NSMenu* menu, NSMenuItem* item
   return [window convertRectToScreen:[row convertRect:row.bounds toView:nil]];
 }
 
-#pragma mark - Freeze's row, which leaves the menu open
+#pragma mark - Rows that leave the menu open (Freeze, What is my IP?)
 
 // A click on a native menu item closes the menu; a click on an item's view does not, and sends no action. So
-// Freeze's row is a view drawn like the native rows of 24 pt: the item's image at x 15,
-// its title at x 36 and 4 pt up, and when highlighted the system's selection material, inset 5 pt with a corner
-// radius of 7, under the title and image in the selected text colour. The item keeps its title, image and
-// action: the action is what enables it, and so lets it highlight. Return on it does nothing (mouse only). After a
-// click AppKit removes the highlight until the pointer moves.
+// these rows are views drawn like the native rows of 24 pt: with an image, the image at x 15 and the title at
+// x 36; without one, the title at x 14, as Quit's; the title 4 pt up, and when highlighted the system's selection
+// material, inset 5 pt with a corner radius of 7, under the title and image in the selected text colour. A title
+// too wide for the row is drawn in smaller type. The item keeps its title, image and action: the action is what
+// enables it, and so lets it highlight. Return on it does nothing (mouse only). After a click AppKit removes the
+// highlight until the pointer moves.
 
-#define FREEZE_ROW_HEIGHT           (24.0)
+#define STAY_OPEN_ROW_HEIGHT        (24.0)
 
-@interface FreezeMenuItem : NSMenuItem
-- (BOOL)toggleInPlace;
+@interface StayOpenMenuItem : NSMenuItem
+{
+  bool loggedNoTarget;  // a missing target is logged once per row
+}
+- (BOOL)actInPlace;
 @end
 
-@implementation FreezeMenuItem
+@implementation StayOpenMenuItem
 
 // a click on the row, or VoiceOver's press: the item's action, with the menu left open
-- (BOOL)toggleInPlace
+- (BOOL)actInPlace
 {
   BOOL sent = [NSApp sendAction:self.action to:self.target from:self];
-  if (!sent)
+  if (!sent && !loggedNoTarget)
   {
-    static bool logged = false;
-    if (!logged)
-    {
-      logged = true;
-      NSLog(@"Freeze: its action found no target");
-    }
+    loggedNoTarget = true;
+    // the action, not the title: the IP row's title can be the user's address
+    NSLog(@"%@: the row's action found no target", NSStringFromSelector(self.action));
   }
   return sent;
 }
@@ -275,26 +277,28 @@ static NSRect MenuRowScreenRect(NSWindow* window, NSMenu* menu, NSMenuItem* item
 // a press on a menu item with a view would close the menu and send nothing
 - (BOOL)accessibilityPerformPress
 {
-  return [self toggleInPlace];
+  return [self actInPlace];
 }
 
 @end
 
-@interface FreezeRowView : NSView
+@interface StayOpenRowView : NSView
 {
   NSVisualEffectView* selection;
-  NSImageView* icon;
+  NSImageView* icon;                  // nil for an item without an image
   NSTextField* label;
+  NSAttributedString* fittedTitle;    // the title the label last showed, and the room it was fitted to
+  CGFloat fittedRoom;
 }
 - (instancetype)initWithItem:(NSMenuItem*)item;
 @end
 
-@implementation FreezeRowView
+@implementation StayOpenRowView
 
 - (instancetype)initWithItem:(NSMenuItem*)item
 {
   // the menu widens the view to its own width
-  self = [super initWithFrame:NSMakeRect(0, 0, 100.0, FREEZE_ROW_HEIGHT)];
+  self = [super initWithFrame:NSMakeRect(0, 0, 100.0, STAY_OPEN_ROW_HEIGHT)];
   if (self != nil)
   {
     self.autoresizingMask = NSViewWidthSizable;
@@ -310,23 +314,65 @@ static NSRect MenuRowScreenRect(NSWindow* window, NSMenu* menu, NSMenuItem* item
     selection.hidden = YES;
     [self addSubview:selection];
 
-    icon = [NSImageView imageViewWithImage:item.image];
-    icon.frame = NSMakeRect(15.0, 4.0, 16.0, 16.0);
-    // the check mark at its own size, centred, as the native row draws it
-    icon.imageScaling = NSImageScaleNone;
-    [self addSubview:icon];
+    CGFloat x = 14.0;
+    if (item.image != nil)
+    {
+      icon = [NSImageView imageViewWithImage:item.image];
+      icon.frame = NSMakeRect(15.0, 4.0, 16.0, 16.0);
+      // the check mark at its own size, centred, as the native row draws it
+      icon.imageScaling = NSImageScaleNone;
+      [self addSubview:icon];
+      x = 36.0;
+    }
 
     label = [NSTextField labelWithAttributedString:item.attributedTitle];
-    label.frame = NSMakeRect(36.0, 4.0, NSWidth(self.bounds) - 36.0 - 6.0, 16.0);
+    label.frame = NSMakeRect(x, 4.0, NSWidth(self.bounds) - x - 6.0, 16.0);
     label.autoresizingMask = NSViewWidthSizable;
     [self addSubview:label];
 
-    // VoiceOver reads the item itself (its title, and FreezeMenuItem's press), as for a native item; the item's
-    // accessibility children would otherwise be these two cells
+    // VoiceOver reads the item itself (its title, and StayOpenMenuItem's press), as for a native item; the item's
+    // accessibility children would otherwise be these cells
     icon.cell.accessibilityElement = NO;
     label.cell.accessibilityElement = NO;
   }
   return self;
+}
+
+// the item's title in the label, in smaller type when it is wider than the row's room
+- (void)fitTitle:(NSMenuItem*)item
+{
+  NSAttributedString* title = item.attributedTitle;
+  CGFloat room = NSWidth(label.frame);
+  if ((title == nil) || (title.length == 0) || ([title isEqualToAttributedString:fittedTitle] && (room == fittedRoom)))
+  {
+    return;
+  }
+  fittedTitle = [title copy];
+  fittedRoom = room;
+  label.attributedStringValue = title;
+  NSFont* font = [title attribute:NSFontAttributeName atIndex:0 effectiveRange:NULL];
+  CGFloat width = [label sizeThatFits:NSMakeSize(CGFLOAT_MAX, NSHeight(label.frame))].width;
+  if ((font == nil) || (width <= room) || (width <= 0.0))
+  {
+    return;
+  }
+  // from the size that would fit if the width scaled with it, down in tenths of a point until it fits
+  CGFloat size = floor(font.pointSize * room / width * 10.0) / 10.0;
+  for (; size >= 6.0; size -= 0.1)
+  {
+    NSFont* smallerFont = [NSFont fontWithDescriptor:font.fontDescriptor size:size];
+    if (smallerFont == nil)
+    {
+      return;
+    }
+    NSMutableAttributedString* smaller = [title mutableCopy];
+    [smaller addAttribute:NSFontAttributeName value:smallerFont range:NSMakeRange(0, smaller.length)];
+    label.attributedStringValue = smaller;
+    if ([label sizeThatFits:NSMakeSize(CGFLOAT_MAX, NSHeight(label.frame))].width <= room)
+    {
+      return;
+    }
+  }
 }
 
 - (void)viewWillDraw
@@ -334,14 +380,18 @@ static NSRect MenuRowScreenRect(NSWindow* window, NSMenu* menu, NSMenuItem* item
   NSMenuItem* item = self.enclosingMenuItem;
   bool highlighted = item.isHighlighted;
   selection.hidden = !highlighted;
+  [self fitTitle:item];
   label.textColor = highlighted ? [NSColor selectedMenuItemTextColor] : [NSColor labelColor];
-  icon.contentTintColor = highlighted ? [NSColor selectedMenuItemTextColor] : [NSColor labelColor];
-  // as high as the image and centred in the row, as the native row's image view is: the blank 16 x 16 at y 4, the
-  // check 16 x 11 at y 6.5
-  NSImage* image = item.image;
-  CGFloat height = MIN(image.size.height, 16.0);
-  icon.frame = NSMakeRect(15.0, (FREEZE_ROW_HEIGHT - height)/2.0, 16.0, height);
-  icon.image = image;
+  if (icon != nil)
+  {
+    icon.contentTintColor = highlighted ? [NSColor selectedMenuItemTextColor] : [NSColor labelColor];
+    // as high as the image and centred in the row, as the native row's image view is: the blank 16 x 16 at y 4, the
+    // check 16 x 11 at y 6.5
+    NSImage* image = item.image;
+    CGFloat height = MIN(image.size.height, 16.0);
+    icon.frame = NSMakeRect(15.0, (STAY_OPEN_ROW_HEIGHT - height)/2.0, 16.0, height);
+    icon.image = image;
+  }
   [super viewWillDraw];
 }
 
@@ -354,13 +404,114 @@ static NSRect MenuRowScreenRect(NSWindow* window, NSMenu* menu, NSMenuItem* item
 {
   // a press that ends on another row has moved the highlight there
   NSMenuItem* item = self.enclosingMenuItem;
-  if (item.isHighlighted && [item isKindOfClass:[FreezeMenuItem class]])
+  if (item.isHighlighted && [item isKindOfClass:[StayOpenMenuItem class]])
   {
-    [(FreezeMenuItem*)item toggleInPlace];
+    [(StayOpenMenuItem*)item actInPlace];
   }
 }
 
 @end
+
+#pragma mark - Uptime and "What is my IP?"
+
+#define IP_QUESTION                 @"What is my IP?"
+#define IP_TIMEOUT                  (10.0)  // s for the whole question
+
+// seconds since the last boot, sleep included (kern.boottime), past the first minute rounded to the nearest minute
+// as uptime(1) does; -1 when the kernel cannot be read
+static long UptimeSeconds(void)
+{
+  struct timeval boot = {0, 0};
+  size_t size = sizeof(boot);
+  int mib[2] = {CTL_KERN, KERN_BOOTTIME};
+  if ((sysctl(mib, 2, &boot, &size, NULL, 0) != 0) || (size != sizeof(boot)) || (boot.tv_sec <= 0))
+  {
+    return -1;
+  }
+  long seconds = (long)(time(NULL) - boot.tv_sec);
+  if (seconds < 0)
+  {
+    return -1;
+  }
+  if (seconds > 60)
+  {
+    seconds += 30;
+  }
+  return seconds;
+}
+
+// "Uptime 3d 4h 27m"; under a day "Uptime 4h 27m", under an hour "Uptime 27m"
+static NSString* UptimeText(long seconds)
+{
+  if (seconds < 0)
+  {
+    return @"Uptime unknown";
+  }
+  long days = seconds / 86400;
+  long hours = (seconds % 86400) / 3600;
+  long minutes = (seconds % 3600) / 60;
+  if (days > 0)
+  {
+    return [NSString stringWithFormat:@"Uptime %ldd %ldh %ldm", days, hours, minutes];
+  }
+  if (hours > 0)
+  {
+    return [NSString stringWithFormat:@"Uptime %ldh %ldm", hours, minutes];
+  }
+  return [NSString stringWithFormat:@"Uptime %ldm", minutes];
+}
+
+// the IP row's text for ipify's answer: "IP <address>", or what went wrong
+static NSString* IPAnswerText(NSData* data, NSURLResponse* response, NSError* error)
+{
+  if (error != nil)
+  {
+    NSLog(@"What is my IP?: no answer (%@ %ld)", error.domain, (long)error.code);
+    if ([error.domain isEqualToString:NSURLErrorDomain])
+    {
+      switch (error.code)
+      {
+        case NSURLErrorTimedOut:
+          return [NSString stringWithFormat:@"IP: no answer in %.0f s", IP_TIMEOUT];
+        case NSURLErrorNotConnectedToInternet:
+          return @"IP: offline";
+        case NSURLErrorCannotFindHost:
+        case NSURLErrorDNSLookupFailed:
+          return @"IP: can't find ipify";
+        default:
+          break;
+      }
+    }
+    return @"IP: can't reach ipify";
+  }
+
+  NSInteger status = [response isKindOfClass:[NSHTTPURLResponse class]] ? ((NSHTTPURLResponse*)response).statusCode : 0;
+  if (status != 200)
+  {
+    NSLog(@"What is my IP?: ipify answered %ld", (long)status);
+    return [NSString stringWithFormat:@"IP: ipify answered %ld", (long)status];
+  }
+
+  // a bare address, nothing else; shown in its usual form
+  NSString* body = (data != nil) ? [[[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] : nil;
+  const char* s = body.UTF8String;
+  char text[INET6_ADDRSTRLEN] = "";
+  struct in_addr v4;
+  struct in6_addr v6;
+  if ((s != NULL) && (strlen(s) > 0) && (strlen(s) < INET6_ADDRSTRLEN))
+  {
+    if ((inet_pton(AF_INET, s, &v4) == 1) && (inet_ntop(AF_INET, &v4, text, sizeof(text)) != NULL))
+    {
+      return [NSString stringWithFormat:@"IP %s", text];
+    }
+    if ((inet_pton(AF_INET6, s, &v6) == 1) && (inet_ntop(AF_INET6, &v6, text, sizeof(text)) != NULL))
+    {
+      return [NSString stringWithFormat:@"IP %s", text];
+    }
+  }
+  NSLog(@"What is my IP?: ipify's answer is not an address (%lu bytes)", (unsigned long)data.length);
+  return @"IP: unreadable answer";
+}
 
 #pragma mark - /usr/bin/top reader
 
@@ -735,6 +886,10 @@ static ProcessIconDecision* DecideProcessIcon(pid_t pid, NSString* path)
 
 #pragma mark -
 
+// the IP row's session asks AppDelegate about redirects (URLSession:task:willPerformHTTPRedirection:...)
+@interface AppDelegate () <NSURLSessionTaskDelegate>
+@end
+
 @implementation AppDelegate
 
 static CpuSummaryInfo cpu_info;
@@ -780,6 +935,13 @@ static NSImage* freezeOnImage = nil;        // and while frozen: a check mark
 static NSPanel* rowTip = nil;               // the helper text box, left of the menu (frozen only)
 static NSTextField* rowTipText = nil;
 static NSMenuItem* rowTipItem = nil;        // the row whose text shows, or is about to
+
+static NSMenuItem* uptimeItem = nil;        // information only: no action, so the row is grey
+static NSMenuItem* ipItem = nil;            // asks ipify on a click; the answer shows until the menu closes
+static NSURLSession* ipSession = nil;
+static NSURLSessionDataTask* ipTask = nil;  // the question still out, nil when none
+static NSUInteger ipGeneration = 0;         // an answer that comes after the menu has closed is dropped
+static NSString* ipLookupURL = @"https://api64.ipify.org"; // the IPv6 address when the network has one, else IPv4
 
 static CGFloat tickHeight = 16.0;
 static CGFloat tickWidth = 3.0;
@@ -1359,17 +1521,17 @@ static BOOL spaces_init = NO;
     // check column and shift every row); off at every launch
     CGFloat side = MENU_ICON_SIZE+2.0;
     freezeOffImage = [NSImage imageWithSize:NSMakeSize(side, side) flipped:NO drawingHandler:^BOOL(NSRect rect) { return YES; }];
-    // configured as AppKit draws it in a native row, which FreezeRowView copies: 13 pt, small scale
+    // configured as AppKit draws it in a native row, which StayOpenRowView copies: 13 pt, small scale
     freezeOnImage = [[NSImage imageWithSystemSymbolName:@"checkmark" accessibilityDescription:@"Frozen"]
                      imageWithSymbolConfiguration:[NSImageSymbolConfiguration configurationWithPointSize:13.0 weight:NSFontWeightSemibold
                                                                                                     scale:NSImageSymbolScaleSmall]];
-    NSMenuItem* item = [[FreezeMenuItem alloc] initWithTitle:@"Freeze" action:@selector(toggleFreeze:) keyEquivalent:@""];
+    NSMenuItem* item = [[StayOpenMenuItem alloc] initWithTitle:@"Freeze" action:@selector(toggleFreeze:) keyEquivalent:@""];
     [menu addItem:item];
     [item setAttributedTitle:[[NSAttributedString alloc] initWithString:[item title] attributes:attributesStandard]];
     [item setImage:freezeOffImage];
     ShowMenuItemImage(item);
     // a view, so that a click leaves the menu open
-    [item setView:[[FreezeRowView alloc] initWithItem:item]];
+    [item setView:[[StayOpenRowView alloc] initWithItem:item]];
   }
 
   {
@@ -1381,9 +1543,25 @@ static BOOL spaces_init = NO;
     [item setImage:appIcon];
     ShowMenuItemImage(item);
   }
-  
+
   [menu addItem:[NSMenuItem separatorItem]];
-  
+
+  {
+    // information only: no action, so the row is grey, and a click on it leaves the menu open
+    uptimeItem = [menu addItemWithTitle:@"Uptime" action:nil keyEquivalent:@""];
+    [self updateUptime];
+  }
+
+  {
+    ipItem = [[StayOpenMenuItem alloc] initWithTitle:IP_QUESTION action:@selector(askIP:) keyEquivalent:@""];
+    [menu addItem:ipItem];
+    [ipItem setAttributedTitle:[[NSAttributedString alloc] initWithString:[ipItem title] attributes:attributesStandard]];
+    // a view, so that a click leaves the menu open, and the answer shows in the row
+    [ipItem setView:[[StayOpenRowView alloc] initWithItem:ipItem]];
+  }
+
+  [menu addItem:[NSMenuItem separatorItem]];
+
   {
     NSMenuItem* item = [menu addItemWithTitle:@"Quit" action:@selector(terminate:) keyEquivalent:@""];
     [item setAttributedTitle:[[NSAttributedString alloc] initWithString:[item title] attributes:attributesStandard]];
@@ -1553,6 +1731,12 @@ static bool IsLight(NSAppearance* appearance)
 // last interval and the list is current the moment the menu opens. Nothing is sampled while frozen.
 - (void)updateTop:(id)sender
 {
+  // the uptime row runs under Freeze too
+  if (menuIsOpen)
+  {
+    [self updateUptime];
+  }
+
   if (frozen)
   {
     return;
@@ -2196,7 +2380,7 @@ static double RefreshInterval(void)
   [self hideRowTip];
   frozen = !frozen;
   [sender setImage:(frozen ? freezeOnImage : freezeOffImage)];
-  // the row is a view (FreezeRowView), which draws the item's image
+  // the row is a view (StayOpenRowView), which draws the item's image
   [sender.view setNeedsDisplay:YES];
   [frozenStarts removeAllObjects];
   if (frozen)
@@ -2231,6 +2415,80 @@ static double RefreshInterval(void)
       [timerTop setFireDate:[NSDate dateWithTimeIntervalSinceNow:TOP_REFRESH_RATE]];
     }
   }
+}
+
+// refreshed when the menu opens, and on the process timer's tick while it is open
+- (void)updateUptime
+{
+  long seconds = UptimeSeconds();
+  if (seconds < 0)
+  {
+    static bool logged = false;
+    if (!logged)
+    {
+      logged = true;
+      NSLog(@"the uptime could not be worked out (kern.boottime unreadable, or later than the clock): shown as unknown");
+    }
+  }
+  NSString* text = UptimeText(seconds);
+  if (![uptimeItem.title isEqualToString:text])
+  {
+    [uptimeItem setTitle:text];
+    [uptimeItem setAttributedTitle:[[NSAttributedString alloc] initWithString:text attributes:attributesStandard]];
+  }
+}
+
+- (void)setIPText:(NSString*)text
+{
+  [ipItem setTitle:text];
+  [ipItem setAttributedTitle:[[NSAttributedString alloc] initWithString:text attributes:attributesStandard]];
+  // the row is a view (StayOpenRowView), which draws the item's title
+  [ipItem.view setNeedsDisplay:YES];
+}
+
+// a click on "What is my IP?": one question to ipify, and its answer, or what went wrong, in the row until the menu
+// closes. Nothing is sent before a click; a click while a question is out asks nothing more.
+- (void)askIP:(NSMenuItem*)sender
+{
+  if (ipTask != nil)
+  {
+    return;
+  }
+  if (ipSession == nil)
+  {
+    // nothing kept: no cache, cookies or credentials; the request names the app, not its version or the system
+    NSURLSessionConfiguration* configuration = [NSURLSessionConfiguration ephemeralSessionConfiguration];
+    configuration.timeoutIntervalForRequest = IP_TIMEOUT;
+    configuration.timeoutIntervalForResource = IP_TIMEOUT;
+    configuration.requestCachePolicy = NSURLRequestReloadIgnoringLocalCacheData;
+    configuration.URLCache = nil;
+    configuration.HTTPCookieStorage = nil;
+    configuration.HTTPShouldSetCookies = NO;
+    configuration.URLCredentialStorage = nil;
+    configuration.HTTPAdditionalHeaders = @{@"User-Agent": @"upMonitor", @"Accept-Language": @"en"};
+    // answers on the main queue, which runs while the menu is open; a redirect is not followed (below)
+    ipSession = [NSURLSession sessionWithConfiguration:configuration delegate:self delegateQueue:[NSOperationQueue mainQueue]];
+  }
+
+  [self setIPText:@"Asking ipify…"];
+  NSUInteger generation = ++ipGeneration;
+  __weak AppDelegate* weakSelf = self;
+  ipTask = [ipSession dataTaskWithURL:[NSURL URLWithString:ipLookupURL] completionHandler:^(NSData* data, NSURLResponse* response, NSError* error) {
+    if (generation != ipGeneration)
+    {
+      return;
+    }
+    ipTask = nil;
+    [weakSelf setIPText:IPAnswerText(data, response, error)];
+  }];
+  [ipTask resume];
+}
+
+// one request per question: a redirect is not followed, and its response is the answer ("IP: ipify answered 302")
+- (void)URLSession:(NSURLSession*)session task:(NSURLSessionTask*)task willPerformHTTPRedirection:(NSHTTPURLResponse*)response
+        newRequest:(NSURLRequest*)request completionHandler:(void (^)(NSURLRequest*))completionHandler
+{
+  completionHandler(nil);
 }
 
 - (void)launchActivityMonitor:(id)sender
@@ -2434,6 +2692,9 @@ static double RefreshInterval(void)
     [self updatePause];
   }
 
+  // frozen too
+  [self updateUptime];
+
   // frozen: the rows keep what they showed, and neither top nor a sample runs
   if (!frozen)
   {
@@ -2472,6 +2733,12 @@ static double RefreshInterval(void)
   refreshTop = false;
   [self stopTopTool];
   [self hideRowTip];
+
+  // the IP answer shows until the menu closes; a question still out is dropped
+  ipGeneration++;
+  [ipTask cancel];
+  ipTask = nil;
+  [self setIPText:IP_QUESTION];
 }
 
 // while frozen, a row with helper text shows it after ROW_TIP_DELAY on the row
