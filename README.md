@@ -21,7 +21,7 @@ A lightweight, highly customizable CPU monitoring tool designed specifically for
 * **Freeze:** pause the process list to examine it while the CPU graph keeps running; while frozen, rest on a ↳ row to see what it is a helper of.
 * **Uptime:** see how long the Mac has been up since it last started, sleep included, as `uptime` counts it.
 * **What is my IP?:** click it to see the public IP address the internet sees for your Mac. Nothing is sent before you click; each click makes at most one HTTPS request to [ipify](https://www.ipify.org), which sees that address and a request that names only upMonitor, with no cookies. The address stays until upMonitor quits; quit and reopen upMonitor to ask again. If the question fails, you can ask again the next time you open the menu.
-* **Launch at login:** tick it in Preferences to open upMonitor when you log in (macOS 13 or later).
+* **Launch at login:** tick it in Preferences to open upMonitor when you log in.
 * **Highly Customizable:**
     * **Granularity:** Monitor at the Package, Core, or Logical Processor level.
     * **Refresh Rates:** Choose between 2, 5, or 10 updates per second for ultra-responsive feedback.
@@ -35,6 +35,8 @@ A lightweight, highly customizable CPU monitoring tool designed specifically for
 1.  Download the latest release from the [Releases](https://github.com/halfmarble/upMonitor/releases) page.
 2.  Drag `upMonitor.app` to your `/Applications` folder.
 3.  Launch the app and look for the activity graph in your menu bar!
+
+upMonitor requires macOS 27 or later.
 
 upMonitor is not sandboxed: it reads other processes' CPU use and runs system tools (top, lsof, nm, sample), which the App Sandbox does not allow.
 
