@@ -69,7 +69,6 @@ static NSString* TickLineKey = @"TickLineKey";
 static NSString* TickWidthKey = @"TickWidthKey";
 static NSString* AppearanceKey = @"AppearanceKey";
 static NSString* ThemeKey = @"ThemeKey";
-static NSString* LaunchOnStartupKey = @"LaunchOnStartupKey";
 
 #pragma mark - C APIs
 
@@ -982,8 +981,6 @@ static bool colored = false;
 static int theme = THEME_YELLOW;
 
 static float speed = 1.0f;
-
-static bool launch = false;
 
 static NSDictionary* attributesStandard = nil;
 static NSDictionary* attributesGrey = nil;
@@ -1939,7 +1936,6 @@ static double RefreshInterval(void)
   [[NSUserDefaults standardUserDefaults] registerDefaults:@{TickWidthKey:@3.0}];
   [[NSUserDefaults standardUserDefaults] registerDefaults:@{AppearanceKey:@1}];
   [[NSUserDefaults standardUserDefaults] registerDefaults:@{ThemeKey:@2}];
-  [[NSUserDefaults standardUserDefaults] registerDefaults:@{LaunchOnStartupKey:@0}];
 
   granularity = (int)[[NSUserDefaults standardUserDefaults] integerForKey:GranularityKey];
   speed = 10.0 * RefreshInterval();
@@ -1948,10 +1944,10 @@ static double RefreshInterval(void)
   tickWidth = [[NSUserDefaults standardUserDefaults] doubleForKey:TickWidthKey];
   colored = [[NSUserDefaults standardUserDefaults] boolForKey:AppearanceKey];
   theme = (int)[[NSUserDefaults standardUserDefaults] integerForKey:ThemeKey];
-  launch = [[NSUserDefaults standardUserDefaults] boolForKey:LaunchOnStartupKey];
 
   [self updateRendererParameters];
   [self updateUI];
+  [self updateLoginButton];
 
   // the build number, raised on every build by scripts/raise-build-number.sh
   NSString* build = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleVersion"];
@@ -2250,6 +2246,8 @@ static double RefreshInterval(void)
     {
       [workspaceCenter addObserver:self selector:@selector(workspaceChanged:) name:name object:nil];
     }
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(preferencesBecameKey:)
+                                                 name:NSWindowDidBecomeKeyNotification object:self.window];
     [self setupTimers];
 
     // room for the inspector's "Helper of:" line
@@ -2268,6 +2266,7 @@ static double RefreshInterval(void)
 {
   [NSApp activateIgnoringOtherApps:YES];
   
+  [self updateLoginButton];
   [self.window center];
   [self.window orderFrontRegardless];
   [self.window makeKeyWindow];
@@ -2703,6 +2702,51 @@ static bool IPAskable(void)
   [self.blueButton setState:NSControlStateValueOn];
 
   [[NSUserDefaults standardUserDefaults] setDouble:theme forKey:ThemeKey];
+}
+
+// Launch at login: macOS keeps the setting (System Settings, Login Items), so the checkbox shows what macOS
+// reports. SMAppService needs macOS 13; on macOS 12 the checkbox is disabled.
+- (void)updateLoginButton
+{
+  if (@available(macOS 13.0, *))
+  {
+    [self.loginButton setEnabled:YES];
+    [self.loginButton setToolTip:nil];
+    [self.loginButton setState:([SMAppService mainAppService].status == SMAppServiceStatusEnabled) ? NSControlStateValueOn : NSControlStateValueOff];
+  }
+  else
+  {
+    [self.loginButton setEnabled:NO];
+    [self.loginButton setToolTip:@"Launch at login needs macOS 13 or later"];
+    [self.loginButton setState:NSControlStateValueOff];
+  }
+}
+
+- (IBAction)loginButtonClicked:(id)sender
+{
+  if (@available(macOS 13.0, *))
+  {
+    SMAppService* service = [SMAppService mainAppService];
+    BOOL on = (self.loginButton.state == NSControlStateValueOn);
+    NSError* error = nil;
+    BOOL ok = on ? [service registerAndReturnError:&error] : [service unregisterAndReturnError:&error];
+    if (!ok)
+    {
+      NSLog(@"launch at login: %@ failed: %@ %ld, status %ld", on ? @"register" : @"unregister", error.domain, (long)error.code, (long)service.status);
+    }
+    if (on && (service.status == SMAppServiceStatusRequiresApproval))
+    {
+      // registered, but the user turned it off in System Settings: show them where to allow it
+      [SMAppService openSystemSettingsLoginItems];
+    }
+  }
+  [self updateLoginButton];
+}
+
+- (void)preferencesBecameKey:(NSNotification*)notification
+{
+  // the setting may have changed in System Settings while Preferences was open
+  [self updateLoginButton];
 }
 
 // TODO: implement (using SMJobBless ?)

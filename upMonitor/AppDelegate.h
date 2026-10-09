@@ -58,6 +58,8 @@
 @property (weak) IBOutlet NSButton *greenButton;
 @property (weak) IBOutlet NSButton *blueButton;
 
+@property (weak) IBOutlet NSButton *loginButton;
+
 @property (weak) IBOutlet NSTextField *buildLabel;
 
 @property (nonatomic, strong, readwrite) NSStatusItem *statusItem;

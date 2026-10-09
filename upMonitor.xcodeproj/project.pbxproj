@@ -19,18 +19,6 @@
 		D5E340DF2415258A00BD045D /* Top.c in Sources */ = {isa = PBXBuildFile; fileRef = D5E340DE2415258A00BD045D /* Top.c */; };
 /* End PBXBuildFile section */
 
-/* Begin PBXCopyFilesBuildPhase section */
-		D51DEB012400930E007CA5E0 /* CopyFiles */ = {
-			isa = PBXCopyFilesBuildPhase;
-			buildActionMask = 2147483647;
-			dstPath = Contents/Library/LoginItems;
-			dstSubfolderSpec = 1;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-/* End PBXCopyFilesBuildPhase section */
-
 /* Begin PBXFileReference section */
 		D540B2A623FA2F5400752C7F /* upMonitor.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = upMonitor.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		D540B2A923FA2F5400752C7F /* AppDelegate.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = AppDelegate.h; sourceTree = "<group>"; };
@@ -123,7 +111,6 @@
 				D540B2A223FA2F5400752C7F /* Sources */,
 				D540B2A323FA2F5400752C7F /* Frameworks */,
 				D540B2A423FA2F5400752C7F /* Resources */,
-				D51DEB012400930E007CA5E0 /* CopyFiles */,
 				D5941B572412976A00986CD5 /* Raise Build Number */,
 			);
 			buildRules = (
