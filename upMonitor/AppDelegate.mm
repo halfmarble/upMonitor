@@ -94,10 +94,7 @@ static Boolean stringEqual(const void *value1, const void *value2)
 // macOS 27 hides menu item images unless an item asks for them
 static void ShowMenuItemImage(NSMenuItem* item)
 {
-  if (@available(macOS 27.0, *))
-  {
-    item.preferredImageVisibility = NSMenuItemImageVisibilityVisible;
-  }
+  item.preferredImageVisibility = NSMenuItemImageVisibilityVisible;
 }
 
 // With Reduce Transparency on, the status menu's glass can be drawn as an opaque near-black, and
@@ -109,7 +106,7 @@ static void ShowMenuItemImage(NSMenuItem* item)
 static const CGFloat MENU_DARK_GREY = 32.0/255.0;
 
 // the first glass view in the window, breadth-first from its frame view
-static NSGlassEffectView* FindGlassEffectView(NSWindow* window) API_AVAILABLE(macos(26.0))
+static NSGlassEffectView* FindGlassEffectView(NSWindow* window)
 {
   NSView* root = window.contentView.superview ?: window.contentView;
   if (root == nil)
@@ -132,54 +129,51 @@ static NSGlassEffectView* FindGlassEffectView(NSWindow* window) API_AVAILABLE(ma
 
 static void PaintOpenMenuBackground(void)
 {
-  if (@available(macOS 26.0, *))
+  NSWorkspace* workspace = [NSWorkspace sharedWorkspace];
+  if (!workspace.accessibilityDisplayShouldReduceTransparency || workspace.accessibilityDisplayShouldIncreaseContrast)
   {
-    NSWorkspace* workspace = [NSWorkspace sharedWorkspace];
-    if (!workspace.accessibilityDisplayShouldReduceTransparency || workspace.accessibilityDisplayShouldIncreaseContrast)
+    return;
+  }
+
+  static bool loggedNoWindow = false;
+  static bool loggedNoGlass = false;
+  bool found = false;
+  for (NSWindow* window in [NSApp windows])
+  {
+    if (!window.isVisible || ![NSStringFromClass([window class]) containsString:@"Menu"])
     {
-      return;
+      continue;
+    }
+    found = true;
+
+    NSAppearanceName appearance = [window.effectiveAppearance bestMatchFromAppearancesWithNames:@[NSAppearanceNameAqua, NSAppearanceNameDarkAqua]];
+    if (![appearance isEqualToString:NSAppearanceNameDarkAqua])
+    {
+      continue;
     }
 
-    static bool loggedNoWindow = false;
-    static bool loggedNoGlass = false;
-    bool found = false;
-    for (NSWindow* window in [NSApp windows])
+    NSGlassEffectView* glass = FindGlassEffectView(window);
+    if (glass == nil)
     {
-      if (!window.isVisible || ![NSStringFromClass([window class]) containsString:@"Menu"])
+      if (!loggedNoGlass)
       {
-        continue;
+        loggedNoGlass = true;
+        NSLog(@"menu window %@ has no glass view: the menu keeps the system's background", NSStringFromClass([window class]));
       }
-      found = true;
-
-      NSAppearanceName appearance = [window.effectiveAppearance bestMatchFromAppearancesWithNames:@[NSAppearanceNameAqua, NSAppearanceNameDarkAqua]];
-      if (![appearance isEqualToString:NSAppearanceNameDarkAqua])
-      {
-        continue;
-      }
-
-      NSGlassEffectView* glass = FindGlassEffectView(window);
-      if (glass == nil)
-      {
-        if (!loggedNoGlass)
-        {
-          loggedNoGlass = true;
-          NSLog(@"menu window %@ has no glass view: the menu keeps the system's background", NSStringFromClass([window class]));
-        }
-        continue;
-      }
-
-      NSView* content = glass.contentView;
-      content.wantsLayer = YES;
-      content.layer.backgroundColor = [NSColor colorWithSRGBRed:MENU_DARK_GREY green:MENU_DARK_GREY blue:MENU_DARK_GREY alpha:1.0].CGColor;
-      content.layer.cornerRadius = glass.cornerRadius;
-      content.layer.masksToBounds = YES;
+      continue;
     }
 
-    if (!found && !loggedNoWindow)
-    {
-      loggedNoWindow = true;
-      NSLog(@"no visible menu window: the menu keeps the system's background");
-    }
+    NSView* content = glass.contentView;
+    content.wantsLayer = YES;
+    content.layer.backgroundColor = [NSColor colorWithSRGBRed:MENU_DARK_GREY green:MENU_DARK_GREY blue:MENU_DARK_GREY alpha:1.0].CGColor;
+    content.layer.cornerRadius = glass.cornerRadius;
+    content.layer.masksToBounds = YES;
+  }
+
+  if (!found && !loggedNoWindow)
+  {
+    loggedNoWindow = true;
+    NSLog(@"no visible menu window: the menu keeps the system's background");
   }
 }
 
@@ -2705,40 +2699,26 @@ static bool IPAskable(void)
 }
 
 // Launch at login: macOS keeps the setting (System Settings, Login Items), so the checkbox shows what macOS
-// reports. SMAppService needs macOS 13; on macOS 12 the checkbox is disabled.
+// reports.
 - (void)updateLoginButton
 {
-  if (@available(macOS 13.0, *))
-  {
-    [self.loginButton setEnabled:YES];
-    [self.loginButton setToolTip:nil];
-    [self.loginButton setState:([SMAppService mainAppService].status == SMAppServiceStatusEnabled) ? NSControlStateValueOn : NSControlStateValueOff];
-  }
-  else
-  {
-    [self.loginButton setEnabled:NO];
-    [self.loginButton setToolTip:@"Launch at login needs macOS 13 or later"];
-    [self.loginButton setState:NSControlStateValueOff];
-  }
+  [self.loginButton setState:([SMAppService mainAppService].status == SMAppServiceStatusEnabled) ? NSControlStateValueOn : NSControlStateValueOff];
 }
 
 - (IBAction)loginButtonClicked:(id)sender
 {
-  if (@available(macOS 13.0, *))
+  SMAppService* service = [SMAppService mainAppService];
+  BOOL on = (self.loginButton.state == NSControlStateValueOn);
+  NSError* error = nil;
+  BOOL ok = on ? [service registerAndReturnError:&error] : [service unregisterAndReturnError:&error];
+  if (!ok)
   {
-    SMAppService* service = [SMAppService mainAppService];
-    BOOL on = (self.loginButton.state == NSControlStateValueOn);
-    NSError* error = nil;
-    BOOL ok = on ? [service registerAndReturnError:&error] : [service unregisterAndReturnError:&error];
-    if (!ok)
-    {
-      NSLog(@"launch at login: %@ failed: %@ %ld, status %ld", on ? @"register" : @"unregister", error.domain, (long)error.code, (long)service.status);
-    }
-    if (on && (service.status == SMAppServiceStatusRequiresApproval))
-    {
-      // registered, but the user turned it off in System Settings: show them where to allow it
-      [SMAppService openSystemSettingsLoginItems];
-    }
+    NSLog(@"launch at login: %@ failed: %@ %ld, status %ld", on ? @"register" : @"unregister", error.domain, (long)error.code, (long)service.status);
+  }
+  if (on && (service.status == SMAppServiceStatusRequiresApproval))
+  {
+    // registered, but the user turned it off in System Settings: show them where to allow it
+    [SMAppService openSystemSettingsLoginItems];
   }
   [self updateLoginButton];
 }
