@@ -39,6 +39,7 @@
 #import "CpuSampler.h"
 #import "CpuRenderer.h"
 #import "Top.h"
+#import "MenuRows.h"
 
 #pragma mark Constants
 
@@ -421,6 +422,33 @@ static bool IsLight(NSAppearance* appearance);
 }
 
 @end
+
+#pragma mark - Rows a build adds
+
+// made on the first call, not by an initializer: a class registers from +load, which runs before this file's static initializers
+static NSMutableArray<Class>* menuRowsClasses = nil;
+
+// one instance of each registered class, made in setupMenus; a menu item's target is weak, so this keeps them alive
+static NSMutableArray<id<MenuRows>>* menuRows = nil;
+
+void MenuRowsRegister(Class<MenuRows> rowsClass)
+{
+  if (menuRowsClasses == nil)
+  {
+    menuRowsClasses = [[NSMutableArray alloc] init];
+  }
+  [menuRowsClasses addObject:rowsClass];
+}
+
+NSMenuItem* MenuRowsStayOpenItem(NSString* title, SEL action, id target, NSDictionary<NSAttributedStringKey, id>* attributes)
+{
+  NSMenuItem* item = [[StayOpenMenuItem alloc] initWithTitle:title action:action keyEquivalent:@""];
+  [item setTarget:target];
+  [item setAttributedTitle:[[NSAttributedString alloc] initWithString:[item title] attributes:attributes]];
+  // a view, so that a click leaves the menu open
+  [item setView:[[StayOpenRowView alloc] initWithItem:item]];
+  return item;
+}
 
 #pragma mark - Uptime and "What is my IP?"
 
@@ -1559,6 +1587,22 @@ static BOOL spaces_init = NO;
 
   [menu addItem:[NSMenuItem separatorItem]];
 
+  menuRows = [[NSMutableArray alloc] init];
+  for (Class rowsClass in menuRowsClasses)
+  {
+    id<MenuRows> rows = [[rowsClass alloc] init];
+    [menuRows addObject:rows];
+    NSArray<NSMenuItem*>* items = [rows menuItemsWithAttributes:attributesStandard];
+    for (NSMenuItem* item in items)
+    {
+      [menu addItem:item];
+    }
+    if ([items count] > 0)
+    {
+      [menu addItem:[NSMenuItem separatorItem]];
+    }
+  }
+
   {
     // information only: no action, so the row is grey, and a click on it leaves the menu open
     uptimeItem = [menu addItemWithTitle:@"Uptime" action:nil keyEquivalent:@""];
@@ -1744,10 +1788,17 @@ static bool IsLight(NSAppearance* appearance)
 // last interval and the list is current the moment the menu opens. Nothing is sampled while frozen.
 - (void)updateTop:(id)sender
 {
-  // the uptime row runs under Freeze too
+  // the uptime row and the rows a build adds run under Freeze too
   if (menuIsOpen)
   {
     [self updateUptime];
+    for (id<MenuRows> rows in menuRows)
+    {
+      if ([rows respondsToSelector:@selector(menuTick)])
+      {
+        [rows menuTick];
+      }
+    }
   }
 
   if (frozen)
@@ -2761,6 +2812,13 @@ static bool IPAskable(void)
 
   // frozen too
   [self updateUptime];
+  for (id<MenuRows> rows in menuRows)
+  {
+    if ([rows respondsToSelector:@selector(menuWillOpen)])
+    {
+      [rows menuWillOpen];
+    }
+  }
 
   // frozen: the rows keep what they showed, and neither top nor a sample runs
   if (!frozen)
@@ -2800,6 +2858,14 @@ static bool IPAskable(void)
   refreshTop = false;
   [self stopTopTool];
   [self hideRowTip];
+
+  for (id<MenuRows> rows in menuRows)
+  {
+    if ([rows respondsToSelector:@selector(menuDidClose)])
+    {
+      [rows menuDidClose];
+    }
+  }
 
   // a question still out is dropped, and the row asks again, unless it shows ipify's address: that stays until
   // upMonitor quits

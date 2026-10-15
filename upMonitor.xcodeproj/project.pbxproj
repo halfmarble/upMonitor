@@ -37,6 +37,7 @@
 		EE1958CC2E405B265729211C /* UniformTypeIdentifiers.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UniformTypeIdentifiers.framework; path = System/Library/Frameworks/UniformTypeIdentifiers.framework; sourceTree = SDKROOT; };
 		D5E340DC241490B400BD045D /* rb.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = rb.h; sourceTree = "<group>"; };
 		D5E340DD2415258A00BD045D /* Top.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = Top.h; sourceTree = "<group>"; };
+		D5A7C3E1F20B4D6A8E9C1F02 /* MenuRows.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MenuRows.h; sourceTree = "<group>"; };
 		D5E340DE2415258A00BD045D /* Top.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = Top.c; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -79,6 +80,7 @@
 				D540B2BB23FB0C4400752C7F /* CpuRenderer.c */,
 				D5E340DC241490B400BD045D /* rb.h */,
 				D5E340DD2415258A00BD045D /* Top.h */,
+				D5A7C3E1F20B4D6A8E9C1F02 /* MenuRows.h */,
 				D5E340DE2415258A00BD045D /* Top.c */,
 				D540B2A923FA2F5400752C7F /* AppDelegate.h */,
 				D540B2AA23FA2F5400752C7F /* AppDelegate.mm */,
