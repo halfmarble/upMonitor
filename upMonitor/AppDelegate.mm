@@ -32,7 +32,6 @@
 #import <cxxabi.h>
 #import <ctype.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
-#import <arpa/inet.h>
 
 #import "AppDelegate.h"
 
@@ -234,7 +233,7 @@ static NSRect MenuRowScreenRect(NSWindow* window, NSMenu* menu, NSMenuItem* item
   return [window convertRectToScreen:[row convertRect:row.bounds toView:nil]];
 }
 
-#pragma mark - Rows that leave the menu open (Freeze, What is my IP?)
+#pragma mark - Rows that leave the menu open (Freeze)
 
 // A click on a native menu item closes the menu; a click on an item's view does not, and sends no action. So
 // these rows are views drawn like the native rows of 24 pt: with an image, the image at x 15 and the title at
@@ -269,7 +268,7 @@ static bool IsLight(NSAppearance* appearance);
   if (!sent && !loggedNoTarget)
   {
     loggedNoTarget = true;
-    // the action, not the title: the IP row's title can be the user's address
+    // the action, not the title: a row's title can be private
     NSLog(@"the row's action %@ found no target", NSStringFromSelector(self.action));
   }
   return sent;
@@ -448,110 +447,6 @@ NSMenuItem* MenuRowsStayOpenItem(NSString* title, SEL action, id target, NSDicti
   // a view, so that a click leaves the menu open
   [item setView:[[StayOpenRowView alloc] initWithItem:item]];
   return item;
-}
-
-#pragma mark - Uptime and "What is my IP?"
-
-#define IP_QUESTION                 @"What is my IP?"
-#define IP_TIMEOUT                  (10.0)  // s for the whole question
-
-// seconds since the last boot, sleep included (kern.boottime), past the first minute rounded to the nearest minute
-// as uptime(1) does; -1 when the kernel cannot be read
-static long UptimeSeconds(void)
-{
-  struct timeval boot = {0, 0};
-  size_t size = sizeof(boot);
-  int mib[2] = {CTL_KERN, KERN_BOOTTIME};
-  if ((sysctl(mib, 2, &boot, &size, NULL, 0) != 0) || (size != sizeof(boot)) || (boot.tv_sec <= 0))
-  {
-    return -1;
-  }
-  long seconds = (long)(time(NULL) - boot.tv_sec);
-  if (seconds < 0)
-  {
-    return -1;
-  }
-  if (seconds > 60)
-  {
-    seconds += 30;
-  }
-  return seconds;
-}
-
-// "Uptime 3d 4h 27m"; under a day "Uptime 4h 27m", under an hour "Uptime 27m"
-static NSString* UptimeText(long seconds)
-{
-  if (seconds < 0)
-  {
-    return @"Uptime unknown";
-  }
-  long days = seconds / 86400;
-  long hours = (seconds % 86400) / 3600;
-  long minutes = (seconds % 3600) / 60;
-  if (days > 0)
-  {
-    return [NSString stringWithFormat:@"Uptime %ldd %ldh %ldm", days, hours, minutes];
-  }
-  if (hours > 0)
-  {
-    return [NSString stringWithFormat:@"Uptime %ldh %ldm", hours, minutes];
-  }
-  return [NSString stringWithFormat:@"Uptime %ldm", minutes];
-}
-
-// the IP row's text for ipify's answer: "IP <address>" (and *address true), or what went wrong
-static NSString* IPAnswerText(NSData* data, NSURLResponse* response, NSError* error, bool* address)
-{
-  *address = false;
-  if (error != nil)
-  {
-    NSLog(@"What is my IP?: no answer (%@ %ld)", error.domain, (long)error.code);
-    if ([error.domain isEqualToString:NSURLErrorDomain])
-    {
-      switch (error.code)
-      {
-        case NSURLErrorTimedOut:
-          return [NSString stringWithFormat:@"IP: no answer in %.0f s", IP_TIMEOUT];
-        case NSURLErrorNotConnectedToInternet:
-          return @"IP: offline";
-        case NSURLErrorCannotFindHost:
-        case NSURLErrorDNSLookupFailed:
-          return @"IP: can't find ipify";
-        default:
-          break;
-      }
-    }
-    return @"IP: can't reach ipify";
-  }
-
-  NSInteger status = [response isKindOfClass:[NSHTTPURLResponse class]] ? ((NSHTTPURLResponse*)response).statusCode : 0;
-  if (status != 200)
-  {
-    NSLog(@"What is my IP?: ipify answered %ld", (long)status);
-    return [NSString stringWithFormat:@"IP: ipify answered %ld", (long)status];
-  }
-
-  // a bare address, nothing else; shown in its usual form
-  NSString* body = (data != nil) ? [[[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] : nil;
-  const char* s = body.UTF8String;
-  char text[INET6_ADDRSTRLEN] = "";
-  struct in_addr v4;
-  struct in6_addr v6;
-  if ((s != NULL) && (strlen(s) > 0) && (strlen(s) < INET6_ADDRSTRLEN))
-  {
-    if ((inet_pton(AF_INET, s, &v4) == 1) && (inet_ntop(AF_INET, &v4, text, sizeof(text)) != NULL))
-    {
-      *address = true;
-      return [NSString stringWithFormat:@"IP %s", text];
-    }
-    if ((inet_pton(AF_INET6, s, &v6) == 1) && (inet_ntop(AF_INET6, &v6, text, sizeof(text)) != NULL))
-    {
-      *address = true;
-      return [NSString stringWithFormat:@"IP %s", text];
-    }
-  }
-  NSLog(@"What is my IP?: ipify's answer is not an address (%lu bytes)", (unsigned long)data.length);
-  return @"IP: unreadable answer";
 }
 
 #pragma mark - /usr/bin/top reader
@@ -927,11 +822,6 @@ static ProcessIconDecision* DecideProcessIcon(pid_t pid, NSString* path)
 
 #pragma mark -
 
-// the IP row's session asks AppDelegate about redirects (URLSession:task:willPerformHTTPRedirection:...), and AppKit
-// asks it which of the menu items whose actions it implements are enabled (validateMenuItem:)
-@interface AppDelegate () <NSURLSessionTaskDelegate, NSMenuItemValidation>
-@end
-
 @implementation AppDelegate
 
 static CpuSummaryInfo cpu_info;
@@ -977,14 +867,6 @@ static NSImage* freezeOnImage = nil;        // and while frozen: a check mark
 static NSPanel* rowTip = nil;               // the helper text box, left of the menu (frozen only)
 static NSTextField* rowTipText = nil;
 static NSMenuItem* rowTipItem = nil;        // the row whose text shows, or is about to
-
-static NSMenuItem* uptimeItem = nil;        // information only: no action, so the row is grey
-static NSMenuItem* ipItem = nil;            // asks ipify on a click, only while it reads "What is my IP?"
-static NSURLSession* ipSession = nil;
-static NSURLSessionDataTask* ipTask = nil;  // the question still out, nil when none
-static NSUInteger ipGeneration = 0;         // an answer that comes after the menu has closed is dropped
-static bool ipAnswered = false;             // the row shows ipify's address: it stays until upMonitor quits
-static NSString* ipLookupURL = @"https://api64.ipify.org"; // the IPv6 address when the network has one, else IPv4
 
 static CGFloat tickHeight = 16.0;
 static CGFloat tickWidth = 3.0;
@@ -1604,22 +1486,6 @@ static BOOL spaces_init = NO;
   }
 
   {
-    // information only: no action, so the row is grey, and a click on it leaves the menu open
-    uptimeItem = [menu addItemWithTitle:@"Uptime" action:nil keyEquivalent:@""];
-    [self updateUptime];
-  }
-
-  {
-    ipItem = [[StayOpenMenuItem alloc] initWithTitle:IP_QUESTION action:@selector(askIP:) keyEquivalent:@""];
-    [menu addItem:ipItem];
-    [ipItem setAttributedTitle:[[NSAttributedString alloc] initWithString:[ipItem title] attributes:attributesStandard]];
-    // a view, so that a click leaves the menu open, and the answer shows in the row
-    [ipItem setView:[[StayOpenRowView alloc] initWithItem:ipItem]];
-  }
-
-  [menu addItem:[NSMenuItem separatorItem]];
-
-  {
     NSMenuItem* item = [menu addItemWithTitle:@"Quit" action:@selector(terminate:) keyEquivalent:@""];
     [item setAttributedTitle:[[NSAttributedString alloc] initWithString:[item title] attributes:attributesStandard]];
   }
@@ -1788,10 +1654,9 @@ static bool IsLight(NSAppearance* appearance)
 // last interval and the list is current the moment the menu opens. Nothing is sampled while frozen.
 - (void)updateTop:(id)sender
 {
-  // the uptime row and the rows a build adds run under Freeze too
+  // the rows a build adds run under Freeze too
   if (menuIsOpen)
   {
-    [self updateUptime];
     for (id<MenuRows> rows in menuRows)
     {
       if ([rows respondsToSelector:@selector(menuTick)])
@@ -2483,101 +2348,6 @@ static double RefreshInterval(void)
   }
 }
 
-// refreshed when the menu opens, and on the process timer's tick while it is open
-- (void)updateUptime
-{
-  long seconds = UptimeSeconds();
-  if (seconds < 0)
-  {
-    static bool logged = false;
-    if (!logged)
-    {
-      logged = true;
-      NSLog(@"the uptime could not be worked out (kern.boottime unreadable, or later than the clock): shown as unknown");
-    }
-  }
-  NSString* text = UptimeText(seconds);
-  if (![uptimeItem.title isEqualToString:text])
-  {
-    [uptimeItem setTitle:text];
-    [uptimeItem setAttributedTitle:[[NSAttributedString alloc] initWithString:text attributes:attributesStandard]];
-  }
-}
-
-// the IP row is clickable only while it asks the question; from the click on it is grey and does nothing
-static bool IPAskable(void)
-{
-  return [ipItem.title isEqualToString:IP_QUESTION];
-}
-
-- (void)setIPText:(NSString*)text
-{
-  [ipItem setTitle:text];
-  [ipItem setAttributedTitle:[[NSAttributedString alloc] initWithString:text attributes:attributesStandard]];
-  // at once, in the open menu too; validateMenuItem: says the same whenever AppKit validates the menu
-  [ipItem setEnabled:IPAskable()];
-  // the row is a view (StayOpenRowView), which draws the item's title, grey when disabled
-  [ipItem.view setNeedsDisplay:YES];
-}
-
-// AppKit enables an item whose action has a target; the IP row only while it asks
-- (BOOL)validateMenuItem:(NSMenuItem*)item
-{
-  if (item == ipItem)
-  {
-    return IPAskable();
-  }
-  return YES;
-}
-
-// a click on "What is my IP?": one question to ipify, and its answer, or what went wrong, in the row. An address stays
-// until upMonitor quits; "Asking ipify…" and a failure until the menu closes. Nothing is sent before a click.
-- (void)askIP:(NSMenuItem*)sender
-{
-  if (!IPAskable())
-  {
-    return;
-  }
-  if (ipSession == nil)
-  {
-    // nothing kept: no cache, cookies or credentials; the request names the app, not its version or the system
-    NSURLSessionConfiguration* configuration = [NSURLSessionConfiguration ephemeralSessionConfiguration];
-    configuration.timeoutIntervalForRequest = IP_TIMEOUT;
-    configuration.timeoutIntervalForResource = IP_TIMEOUT;
-    configuration.requestCachePolicy = NSURLRequestReloadIgnoringLocalCacheData;
-    configuration.URLCache = nil;
-    configuration.HTTPCookieStorage = nil;
-    configuration.HTTPShouldSetCookies = NO;
-    configuration.URLCredentialStorage = nil;
-    configuration.HTTPAdditionalHeaders = @{@"User-Agent": @"upMonitor", @"Accept-Language": @"en"};
-    // answers on the main queue, which runs while the menu is open; a redirect is not followed (below)
-    ipSession = [NSURLSession sessionWithConfiguration:configuration delegate:self delegateQueue:[NSOperationQueue mainQueue]];
-  }
-
-  [self setIPText:@"Asking ipify…"];
-  NSUInteger generation = ++ipGeneration;
-  __weak AppDelegate* weakSelf = self;
-  ipTask = [ipSession dataTaskWithURL:[NSURL URLWithString:ipLookupURL] completionHandler:^(NSData* data, NSURLResponse* response, NSError* error) {
-    if (generation != ipGeneration)
-    {
-      return;
-    }
-    ipTask = nil;
-    bool address = false;
-    NSString* text = IPAnswerText(data, response, error, &address);
-    ipAnswered = address;
-    [weakSelf setIPText:text];
-  }];
-  [ipTask resume];
-}
-
-// one request per question: a redirect is not followed, and its response is the answer ("IP: ipify answered 302")
-- (void)URLSession:(NSURLSession*)session task:(NSURLSessionTask*)task willPerformHTTPRedirection:(NSHTTPURLResponse*)response
-        newRequest:(NSURLRequest*)request completionHandler:(void (^)(NSURLRequest*))completionHandler
-{
-  completionHandler(nil);
-}
-
 - (void)launchActivityMonitor:(id)sender
 {
   NSString *appPath = @"/System/Applications/Utilities/Activity Monitor.app";
@@ -2811,7 +2581,6 @@ static bool IPAskable(void)
   }
 
   // frozen too
-  [self updateUptime];
   for (id<MenuRows> rows in menuRows)
   {
     if ([rows respondsToSelector:@selector(menuWillOpen)])
@@ -2865,16 +2634,6 @@ static bool IPAskable(void)
     {
       [rows menuDidClose];
     }
-  }
-
-  // a question still out is dropped, and the row asks again, unless it shows ipify's address: that stays until
-  // upMonitor quits
-  ipGeneration++;
-  [ipTask cancel];
-  ipTask = nil;
-  if (!ipAnswered)
-  {
-    [self setIPText:IP_QUESTION];
   }
 }
 
