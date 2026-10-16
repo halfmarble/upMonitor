@@ -6,7 +6,7 @@ A lightweight, highly customizable CPU monitoring tool designed specifically for
 
 * **hiding in the menu bar:**
 
-![upMonitor Screenshot](Screenshot1.png)
+![upMonitor Screenshot](Screenshot-menu.png)
 
 * **showing preferences and processes:**
 
