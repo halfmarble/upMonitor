@@ -27,6 +27,7 @@
 #import <pwd.h>
 #import <sys/types.h>
 #import <unistd.h>
+#import <netinet/in.h>
 #import <getopt.h>
 #import <stdlib.h>
 #import <cxxabi.h>
@@ -38,6 +39,7 @@
 #import "CpuSampler.h"
 #import "CpuRenderer.h"
 #import "Top.h"
+#import "SystemInfo.h"
 #import "MenuRows.h"
 
 #pragma mark Constants
@@ -127,10 +129,31 @@ static NSGlassEffectView* FindGlassEffectView(NSWindow* window)
   return nil;
 }
 
-static void PaintOpenMenuBackground(void)
+// Reduce Transparency on and Increase Contrast off: a menu in Dark Mode is then painted MENU_DARK_GREY
+static bool PaintsMenusGrey(void)
 {
   NSWorkspace* workspace = [NSWorkspace sharedWorkspace];
-  if (!workspace.accessibilityDisplayShouldReduceTransparency || workspace.accessibilityDisplayShouldIncreaseContrast)
+  return workspace.accessibilityDisplayShouldReduceTransparency && !workspace.accessibilityDisplayShouldIncreaseContrast;
+}
+
+static bool IsDarkAqua(NSAppearance* appearance)
+{
+  NSAppearanceName name = [appearance bestMatchFromAppearancesWithNames:@[NSAppearanceNameAqua, NSAppearanceNameDarkAqua]];
+  return [name isEqualToString:NSAppearanceNameDarkAqua];
+}
+
+static void PaintGlassGrey(NSGlassEffectView* glass)
+{
+  NSView* content = glass.contentView;
+  content.wantsLayer = YES;
+  content.layer.backgroundColor = [NSColor colorWithSRGBRed:MENU_DARK_GREY green:MENU_DARK_GREY blue:MENU_DARK_GREY alpha:1.0].CGColor;
+  content.layer.cornerRadius = glass.cornerRadius;
+  content.layer.masksToBounds = YES;
+}
+
+static void PaintOpenMenuBackground(void)
+{
+  if (!PaintsMenusGrey())
   {
     return;
   }
@@ -146,8 +169,7 @@ static void PaintOpenMenuBackground(void)
     }
     found = true;
 
-    NSAppearanceName appearance = [window.effectiveAppearance bestMatchFromAppearancesWithNames:@[NSAppearanceNameAqua, NSAppearanceNameDarkAqua]];
-    if (![appearance isEqualToString:NSAppearanceNameDarkAqua])
+    if (!IsDarkAqua(window.effectiveAppearance))
     {
       continue;
     }
@@ -163,11 +185,7 @@ static void PaintOpenMenuBackground(void)
       continue;
     }
 
-    NSView* content = glass.contentView;
-    content.wantsLayer = YES;
-    content.layer.backgroundColor = [NSColor colorWithSRGBRed:MENU_DARK_GREY green:MENU_DARK_GREY blue:MENU_DARK_GREY alpha:1.0].CGColor;
-    content.layer.cornerRadius = glass.cornerRadius;
-    content.layer.masksToBounds = YES;
+    PaintGlassGrey(glass);
   }
 
   if (!found && !loggedNoWindow)
@@ -231,6 +249,102 @@ static NSRect MenuRowScreenRect(NSWindow* window, NSMenu* menu, NSMenuItem* item
   }
   NSView* row = rows[index];
   return [window convertRectToScreen:[row convertRect:row.bounds toView:nil]];
+}
+
+// the open menu's window, recognised by the item's row (MenuRowScreenRect), which goes to *row when row is not NULL;
+// nil when the menu is not on screen or its rows do not match it
+static NSWindow* OpenMenuWindow(NSMenu* menu, NSMenuItem* item, NSRect* row)
+{
+  for (NSWindow* each in [NSApp windows])
+  {
+    if (each.isVisible && [NSStringFromClass([each class]) containsString:@"Menu"])
+    {
+      NSRect rect = MenuRowScreenRect(each, menu, item);
+      if (!NSIsEmptyRect(rect))
+      {
+        if (row != NULL)
+        {
+          *row = rect;
+        }
+        return each;
+      }
+    }
+  }
+  return nil;
+}
+
+#pragma mark - The readings panel beside the menu
+
+// While the status menu is open, a panel beside it shows overall CPU, memory, the startup volume's free space, uptime
+// and the primary interface's IPv4 address, all read on this Mac. It is placed left of the menu, level with its top,
+// or right of it when there is no room on the left; it updates every second, frozen too, and closes with the menu.
+
+#define INFO_REFRESH                (1.0)   // s between updates
+#define INFO_RETRY_DELAY            (0.1)   // s before a second look for the menu's window
+#define INFO_ROW_HEIGHT             (22.0)  // pt, as a native row
+#define INFO_INSET                  (14.0)  // pt left and right, as a title-only row
+#define INFO_COLUMN_GAP             (24.0)  // pt at least between a label and its value
+#define INFO_VERTICAL_INSET         (5.0)
+#define INFO_CORNER_RADIUS          (8.0)
+
+// one decimal, none when the rounded value is whole, with the locale's separator: "9.8", "16", "9,8"
+static NSString* OneDecimal(double value, NSLocale* locale)
+{
+  double rounded = round(value * 10.0) / 10.0;
+  if (rounded == floor(rounded))
+  {
+    return [[NSString alloc] initWithFormat:@"%.0f" locale:locale, rounded];
+  }
+  return [[NSString alloc] initWithFormat:@"%.1f" locale:locale, rounded];
+}
+
+// memory, 1024-based as Activity Monitor shows it: "9.8 GB", "16 GB"
+static NSString* GiBText(uint64_t bytes, NSLocale* locale)
+{
+  return [NSString stringWithFormat:@"%@ GB", OneDecimal((double)bytes / 1073741824.0, locale)];
+}
+
+// disk, 1000-based as Finder shows it: whole GB below 1000 GB ("412 GB"), else TB ("1.2 TB", "2 TB")
+static NSString* GBText(uint64_t bytes, NSLocale* locale)
+{
+  double gb = round((double)bytes / 1e9);
+  if (gb < 1000.0)
+  {
+    return [[NSString alloc] initWithFormat:@"%.0f GB" locale:locale, gb];
+  }
+  return [NSString stringWithFormat:@"%@ TB", OneDecimal((double)bytes / 1e12, locale)];
+}
+
+// "3d 4h 27m"; under a day "4h 27m", under an hour "27m"
+static NSString* UptimeText(long seconds)
+{
+  if (seconds < 0)
+  {
+    return @"unknown";
+  }
+  long days = seconds / 86400;
+  long hours = (seconds % 86400) / 3600;
+  long minutes = (seconds % 3600) / 60;
+  if (days > 0)
+  {
+    return [NSString stringWithFormat:@"%ldd %ldh %ldm", days, hours, minutes];
+  }
+  if (hours > 0)
+  {
+    return [NSString stringWithFormat:@"%ldh %ldm", hours, minutes];
+  }
+  return [NSString stringWithFormat:@"%ldm", minutes];
+}
+
+static NSString* PressureText(int level)
+{
+  switch (level)
+  {
+    case 1: return @"Normal";
+    case 2: return @"Warning";
+    case 4: return @"Critical";
+    default: return @"unknown";
+  }
 }
 
 #pragma mark - Rows that leave the menu open (Freeze)
@@ -863,10 +977,28 @@ static bool frozen = false;
 static NSMutableDictionary<NSNumber*, NSNumber*>* frozenStarts = nil; // by pid
 static NSImage* freezeOffImage = nil;       // Freeze's image when not frozen: blank, the size of the menu icons
 static NSImage* freezeOnImage = nil;        // and while frozen: a check mark
+static NSMenuItem* freezeItem = nil;        // always shown, so the readings panel finds the open menu by it
 
 static NSPanel* rowTip = nil;               // the helper text box, left of the menu (frozen only)
 static NSTextField* rowTipText = nil;
 static NSMenuItem* rowTipItem = nil;        // the row whose text shows, or is about to
+static NSRect rowTipRow;                    // that row on screen, and the menu's window, while its text shows
+static NSWindow* rowTipMenuWindow = nil;
+
+static NSPanel* infoPanel = nil;            // the readings beside the menu (see "The readings panel beside the menu")
+static NSGlassEffectView* infoGlass = nil;  // its background
+static NSArray<NSTextField*>* infoLabels = nil;
+static NSArray<NSTextField*>* infoValues = nil;
+static NSTimer* infoTimer = nil;            // while the menu is open
+static bool infoPlaced = false;             // the panel was placed in this opening
+static bool infoRetried = false;            // the menu's window was looked for a second time in this opening
+static bool infoSideDecided = false;        // its side is decided once per opening,
+static bool infoOnLeft = true;
+static CGFloat infoWidth = 0.0;             // and it only widens within one
+static NSWindow* infoMenuWindow = nil;      // the menu's window it is placed beside
+static NSUInteger infoGeneration = 0;       // bumped when the menu closes: a disk read for an earlier opening is not shown
+static bool diskReadInFlight = false;
+static NSString* diskText = nil;            // the last reading of the startup volume, nil before the first
 
 static CGFloat tickHeight = 16.0;
 static CGFloat tickWidth = 3.0;
@@ -1450,6 +1582,7 @@ static BOOL spaces_init = NO;
                                                                                                     scale:NSImageSymbolScaleSmall]];
     NSMenuItem* item = [[StayOpenMenuItem alloc] initWithTitle:@"Freeze" action:@selector(toggleFreeze:) keyEquivalent:@""];
     [menu addItem:item];
+    freezeItem = item;
     [item setAttributedTitle:[[NSAttributedString alloc] initWithString:[item title] attributes:attributesStandard]];
     [item setImage:freezeOffImage];
     ShowMenuItemImage(item);
@@ -1615,6 +1748,9 @@ static bool IsLight(NSAppearance* appearance)
 
 - (void)updateCPU:(id)sender
 {
+  // the readings panel's overall CPU, menu open or not, so that it covers the last second the moment the menu opens
+  SystemInfoCpuTick();
+
   [self updateRendererParameters];
   
   // the menu bar's appearance need not be the app's: the graph takes the status item's, the previews their window's
@@ -1870,6 +2006,8 @@ static double RefreshInterval(void)
   timerCPU = nil;
   [timerTop invalidate];
   timerTop = nil;
+  // the overall CPU's window starts again, so that it never spans a pause
+  SystemInfoCpuReset();
   if (paused)
   {
     // nothing can be seen: updatePause starts them again
@@ -2159,6 +2297,9 @@ static double RefreshInterval(void)
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(preferencesBecameKey:)
                                                  name:NSWindowDidBecomeKeyNotification object:self.window];
     [self setupTimers];
+
+    // the readings panel's disk row has a value the first time the menu opens
+    [self readDisk];
 
     // room for the inspector's "Helper of:" line
     [self.procAppName setUsesSingleLineMode:NO];
@@ -2611,6 +2752,17 @@ static double RefreshInterval(void)
 
   // the menu's window is new on every opening; paint it once it is on screen
   [self performSelector:@selector(paintMenuBackground) withObject:nil afterDelay:0 inModes:@[NSRunLoopCommonModes]];
+
+  // the readings panel, frozen too: placed once the menu's window is on screen, then updated every second
+  infoPlaced = false;
+  infoRetried = false;
+  infoSideDecided = false;
+  infoWidth = 0.0;
+  [self performSelector:@selector(showInfoPanel) withObject:nil afterDelay:0 inModes:@[NSRunLoopCommonModes]];
+  [infoTimer invalidate];
+  infoTimer = [NSTimer timerWithTimeInterval:INFO_REFRESH target:self selector:@selector(updateInfoPanel:) userInfo:nil repeats:YES];
+  infoTimer.tolerance = 0.1 * INFO_REFRESH;
+  [[NSRunLoop mainRunLoop] addTimer:infoTimer forMode:NSRunLoopCommonModes];
 }
 
 - (void)paintMenuBackground
@@ -2627,6 +2779,7 @@ static double RefreshInterval(void)
   refreshTop = false;
   [self stopTopTool];
   [self hideRowTip];
+  [self hideInfoPanel];
 
   for (id<MenuRows> rows in menuRows)
   {
@@ -2661,20 +2814,8 @@ static double RefreshInterval(void)
     return;
   }
 
-  NSWindow* window = nil;
   NSRect row = NSZeroRect;
-  for (NSWindow* each in [NSApp windows])
-  {
-    if (each.isVisible && [NSStringFromClass([each class]) containsString:@"Menu"])
-    {
-      row = MenuRowScreenRect(each, menu, item);
-      if (!NSIsEmptyRect(row))
-      {
-        window = each;
-        break;
-      }
-    }
-  }
+  NSWindow* window = OpenMenuWindow(menu, item, &row);
   if (window == nil)
   {
     static bool logged = false;
@@ -2712,23 +2853,283 @@ static double RefreshInterval(void)
   NSSize size = [rowTipText sizeThatFits:NSMakeSize(ROW_TIP_MAX_WIDTH, CGFLOAT_MAX)];
   size = NSMakeSize(ceil(size.width), ceil(size.height));
   rowTipText.frame = NSMakeRect(6.0, 4.0, size.width, size.height);
-  NSRect frame = NSMakeRect(0, 0, size.width + 12.0, size.height + 8.0);
-  frame.origin.x = NSMinX(window.frame) - ROW_TIP_GAP - NSWidth(frame);
-  frame.origin.y = NSMidY(row) - NSHeight(frame)/2.0;
-  // kept on screen, even when that means covering the menu
-  NSScreen* screen = window.screen ?: [NSScreen mainScreen];
-  NSRect visible = screen.visibleFrame;
-  frame.origin.x = MAX(frame.origin.x, NSMinX(visible));
-  frame.origin.y = MIN(MAX(frame.origin.y, NSMinY(visible)), NSMaxY(visible) - NSHeight(frame));
-  [rowTip setFrame:frame display:YES];
+  [rowTip setFrame:NSMakeRect(0, 0, size.width + 12.0, size.height + 8.0) display:NO];
+  rowTipRow = row;
+  rowTipMenuWindow = window;
+  [self placeRowTip];
   [rowTip orderFrontRegardless];
+}
+
+// left of the menu, level with its row; where the readings panel is on that side and level with the box too, left of
+// the panel instead; kept on screen, even when that means covering the menu or the panel
+- (void)placeRowTip
+{
+  NSRect frame = rowTip.frame;
+  NSScreen* screen = rowTipMenuWindow.screen ?: [NSScreen mainScreen];
+  NSRect visible = screen.visibleFrame;
+  frame.origin.y = NSMidY(rowTipRow) - NSHeight(frame)/2.0;
+  frame.origin.y = MIN(MAX(frame.origin.y, NSMinY(visible)), NSMaxY(visible) - NSHeight(frame));
+  frame.origin.x = NSMinX(rowTipMenuWindow.frame) - ROW_TIP_GAP - NSWidth(frame);
+  if (infoPlaced && infoOnLeft && infoPanel.isVisible)
+  {
+    NSRect panel = infoPanel.frame;
+    if ((NSMinY(frame) < NSMaxY(panel)) && (NSMaxY(frame) > NSMinY(panel)))
+    {
+      frame.origin.x = NSMinX(panel) - ROW_TIP_GAP - NSWidth(frame);
+    }
+  }
+  frame.origin.x = MAX(frame.origin.x, NSMinX(visible));
+  [rowTip setFrame:frame display:YES];
 }
 
 - (void)hideRowTip
 {
   [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(showRowTip) object:nil];
   rowTipItem = nil;
+  rowTipMenuWindow = nil;
   [rowTip orderOut:nil];
+}
+
+#pragma mark - The readings panel beside the menu
+
+- (void)makeInfoPanel
+{
+  infoPanel = [[NSPanel alloc] initWithContentRect:NSMakeRect(0, 0, 100, 100) styleMask:(NSWindowStyleMaskBorderless | NSWindowStyleMaskNonactivatingPanel) backing:NSBackingStoreBuffered defer:YES];
+  infoPanel.level = CGWindowLevelForKey(kCGPopUpMenuWindowLevelKey);
+  infoPanel.ignoresMouseEvents = YES;
+  infoPanel.hidesOnDeactivate = NO;
+  infoPanel.hasShadow = YES;
+  infoPanel.opaque = NO;
+  infoPanel.backgroundColor = [NSColor clearColor];
+  infoPanel.collectionBehavior = NSWindowCollectionBehaviorCanJoinAllSpaces | NSWindowCollectionBehaviorTransient | NSWindowCollectionBehaviorFullScreenAuxiliary;
+  // glass as the menu's, shaped and painted like it at each opening (matchInfoPanelToMenu:)
+  infoGlass = [[NSGlassEffectView alloc] init];
+  infoGlass.cornerRadius = INFO_CORNER_RADIUS;
+  NSView* background = [[NSView alloc] init];
+  background.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+  background.accessibilityRole = NSAccessibilityGroupRole;
+  background.accessibilityLabel = @"Readings";
+  infoGlass.contentView = background;
+  infoPanel.contentView = infoGlass;
+
+  NSFont* font = [NSFont fontWithName:MENU_FONT_NAME size:MENU_ICON_SIZE-2];
+  NSMutableArray<NSTextField*>* labels = [NSMutableArray array];
+  NSMutableArray<NSTextField*>* values = [NSMutableArray array];
+  for (NSString* title in @[@"CPU", @"Memory used", @"Memory free", @"Memory pressure", @"Disk free", @"Uptime", @"LAN IP"])
+  {
+    NSTextField* label = [NSTextField labelWithString:title];
+    label.font = font;
+    label.textColor = [NSColor labelColor];
+    [background addSubview:label];
+    [labels addObject:label];
+    NSTextField* value = [NSTextField labelWithString:@""];
+    value.font = font;
+    value.textColor = [NSColor labelColor];
+    value.alignment = NSTextAlignmentRight;
+    [background addSubview:value];
+    [values addObject:value];
+  }
+  infoLabels = labels;
+  infoValues = values;
+}
+
+// the menu's look, read at each opening since the settings can change in between: its appearance (the menu bar's,
+// which need not be the app's), its glass's shape, style and tint, and the grey it is painted with Reduce
+// Transparency in Dark Mode (PaintOpenMenuBackground)
+- (void)matchInfoPanelToMenu:(NSWindow*)window
+{
+  infoPanel.appearance = window.effectiveAppearance;
+  NSGlassEffectView* menuGlass = FindGlassEffectView(window);
+  if (menuGlass != nil)
+  {
+    infoGlass.cornerRadius = menuGlass.cornerRadius;
+    infoGlass.style = menuGlass.style;
+    infoGlass.tintColor = menuGlass.tintColor;
+  }
+  if (PaintsMenusGrey() && IsDarkAqua(window.effectiveAppearance))
+  {
+    PaintGlassGrey(infoGlass);
+  }
+  else if (infoGlass.contentView.layer != nil)
+  {
+    infoGlass.contentView.layer.backgroundColor = NULL;
+  }
+}
+
+- (void)showInfoPanel
+{
+  NSWindow* window = OpenMenuWindow(menu, freezeItem, NULL);
+  if (window == nil)
+  {
+    if (!infoRetried)
+    {
+      infoRetried = true;
+      [self performSelector:@selector(showInfoPanel) withObject:nil afterDelay:INFO_RETRY_DELAY inModes:@[NSRunLoopCommonModes]];
+      return;
+    }
+    static bool logged = false;
+    if (!logged)
+    {
+      logged = true;
+      NSLog(@"the open menu's window was not found: no readings panel shown");
+    }
+    return;
+  }
+
+  if (infoPanel == nil)
+  {
+    [self makeInfoPanel];
+  }
+  [self matchInfoPanelToMenu:window];
+  infoMenuWindow = window;
+  infoPlaced = true;
+  [self applyInfoValues];
+  [infoPanel orderFrontRegardless];
+}
+
+- (void)updateInfoPanel:(id)sender
+{
+  if (!infoPlaced)
+  {
+    return;
+  }
+  [self readDisk];
+  [self applyInfoValues];
+}
+
+// the seven values as shown, read now; the disk row is the last reading of readDisk
+- (NSArray<NSString*>*)infoTexts
+{
+  NSLocale* locale = [NSLocale currentLocale];
+
+  double busy = SystemInfoCpuBusy(NULL);
+  NSString* cpu = (busy < 0.0) ? @"—" : [[NSString alloc] initWithFormat:@"%ld%%" locale:locale, lround(busy * 100.0)];
+
+  NSString* memoryUsed = @"—";
+  NSString* memoryFree = @"—";
+  uint64_t used = 0;
+  uint64_t total = 0;
+  if (SystemInfoMemory(&used, &total))
+  {
+    memoryUsed = [NSString stringWithFormat:@"%@ of %@", GiBText(used, locale), GiBText(total, locale)];
+    memoryFree = GiBText((total > used) ? (total - used) : 0, locale);
+  }
+
+  char address[INET_ADDRSTRLEN];
+  NSString* lan = SystemInfoLanIPv4(address, sizeof(address)) ? [NSString stringWithUTF8String:address] : @"none";
+
+  return @[cpu, memoryUsed, memoryFree, PressureText(SystemInfoMemoryPressure()), diskText ?: @"—",
+           UptimeText(SystemInfoUptimeSeconds()), lan ?: @"none"];
+}
+
+// sets the values, then sizes and places the panel: left of the menu and level with its top, or right of it when the
+// left has no room; kept on screen, even when that means covering the menu. The side is decided once per opening and
+// the panel only widens within one, so a row tip placed left of it stays clear of it.
+- (void)applyInfoValues
+{
+  if (!infoPlaced || (infoPanel == nil))
+  {
+    return;
+  }
+
+  NSArray<NSString*>* texts = [self infoTexts];
+  CGFloat labelWidth = 0.0;
+  CGFloat valueWidth = 0.0;
+  for (NSUInteger i=0; i<infoValues.count; i++)
+  {
+    infoValues[i].stringValue = texts[i];
+    [infoValues[i] sizeToFit];
+    [infoLabels[i] sizeToFit];
+    labelWidth = MAX(labelWidth, NSWidth(infoLabels[i].frame));
+    valueWidth = MAX(valueWidth, NSWidth(infoValues[i].frame));
+  }
+  CGFloat width = ceil(INFO_INSET + labelWidth + INFO_COLUMN_GAP + valueWidth + INFO_INSET);
+  bool widened = (width > infoWidth);
+  width = MAX(width, infoWidth);
+  infoWidth = width;
+  CGFloat height = (CGFloat)infoValues.count * INFO_ROW_HEIGHT + 2.0 * INFO_VERTICAL_INSET;
+
+  for (NSUInteger i=0; i<infoValues.count; i++)
+  {
+    CGFloat y = height - INFO_VERTICAL_INSET - (CGFloat)(i + 1) * INFO_ROW_HEIGHT;
+    NSRect label = infoLabels[i].frame;
+    infoLabels[i].frame = NSMakeRect(INFO_INSET, y + floor((INFO_ROW_HEIGHT - NSHeight(label))/2.0), NSWidth(label), NSHeight(label));
+    NSRect value = infoValues[i].frame;
+    infoValues[i].frame = NSMakeRect(width - INFO_INSET - valueWidth, y + floor((INFO_ROW_HEIGHT - NSHeight(value))/2.0), valueWidth, NSHeight(value));
+  }
+
+  NSRect menuFrame = infoMenuWindow.frame;
+  NSScreen* screen = infoMenuWindow.screen ?: [NSScreen mainScreen];
+  NSRect visible = screen.visibleFrame;
+  if (!infoSideDecided)
+  {
+    infoSideDecided = true;
+    bool leftFits = (NSMinX(menuFrame) - ROW_TIP_GAP - width) >= NSMinX(visible);
+    bool rightFits = (NSMaxX(menuFrame) + ROW_TIP_GAP + width) <= NSMaxX(visible);
+    // neither: left, clamped onto the screen below
+    infoOnLeft = leftFits || !rightFits;
+  }
+  NSRect frame = NSMakeRect(0, 0, width, height);
+  frame.origin.x = infoOnLeft ? (NSMinX(menuFrame) - ROW_TIP_GAP - width) : (NSMaxX(menuFrame) + ROW_TIP_GAP);
+  frame.origin.y = NSMaxY(menuFrame) - height;
+  frame.origin.x = MIN(MAX(frame.origin.x, NSMinX(visible)), NSMaxX(visible) - width);
+  frame.origin.y = MIN(MAX(frame.origin.y, NSMinY(visible)), NSMaxY(visible) - height);
+  [infoPanel setFrame:frame display:YES];
+  infoGlass.contentView.frame = infoGlass.bounds;
+
+  if (widened && (rowTipMenuWindow != nil) && rowTip.isVisible)
+  {
+    [self placeRowTip];
+  }
+}
+
+- (void)hideInfoPanel
+{
+  [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(showInfoPanel) object:nil];
+  [infoTimer invalidate];
+  infoTimer = nil;
+  infoGeneration++;
+  infoPlaced = false;
+  infoMenuWindow = nil;
+  [infoPanel orderOut:nil];
+}
+
+// the startup volume's free space as Finder shows it (purgeable space included), read off the main thread: one read
+// takes tens of milliseconds. One read at a time; a read for an earlier opening is kept but not shown.
+- (void)readDisk
+{
+  if (diskReadInFlight)
+  {
+    return;
+  }
+  diskReadInFlight = true;
+  NSUInteger generation = infoGeneration;
+  dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+    // a new URL each time: an NSURL keeps the resource values it has read
+    NSURL* root = [NSURL fileURLWithPath:@"/" isDirectory:YES];
+    NSDictionary<NSURLResourceKey, id>* volume = [root resourceValuesForKeys:@[NSURLVolumeAvailableCapacityForImportantUsageKey, NSURLVolumeTotalCapacityKey] error:NULL];
+    NSNumber* available = volume[NSURLVolumeAvailableCapacityForImportantUsageKey];
+    NSNumber* total = volume[NSURLVolumeTotalCapacityKey];
+    dispatch_async(dispatch_get_main_queue(), ^{
+      diskReadInFlight = false;
+      if ((available == nil) || (total == nil))
+      {
+        static bool logged = false;
+        if (!logged)
+        {
+          logged = true;
+          NSLog(@"the startup volume's free space could not be read: the disk row keeps its last value");
+        }
+        return;
+      }
+      NSLocale* locale = [NSLocale currentLocale];
+      diskText = [NSString stringWithFormat:@"%@ of %@", GBText(available.unsignedLongLongValue, locale), GBText(total.unsignedLongLongValue, locale)];
+      if (generation == infoGeneration)
+      {
+        [self applyInfoValues];
+      }
+    });
+  });
 }
 
 - (void)tabView:(NSTabView *)tabView didSelectTabViewItem:(nullable NSTabViewItem *)tabViewItem

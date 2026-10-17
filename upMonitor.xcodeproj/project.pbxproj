@@ -17,6 +17,8 @@
 		D5BBD70D242A3E3700D0D53A /* ServiceManagement.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D5BBD70C242A3E3700D0D53A /* ServiceManagement.framework */; };
 		0A95BBC14B4938CEF70C3760 /* UniformTypeIdentifiers.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = EE1958CC2E405B265729211C /* UniformTypeIdentifiers.framework */; };
 		D5E340DF2415258A00BD045D /* Top.c in Sources */ = {isa = PBXBuildFile; fileRef = D5E340DE2415258A00BD045D /* Top.c */; };
+		E6C299EE59A48123388B7F6F /* SystemInfo.c in Sources */ = {isa = PBXBuildFile; fileRef = B942C7661FE2A67926626466 /* SystemInfo.c */; };
+		9A11DE13637E3426F30F5472 /* SystemConfiguration.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BC4B3CB161A784474BC8C04F /* SystemConfiguration.framework */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -39,6 +41,9 @@
 		D5E340DD2415258A00BD045D /* Top.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = Top.h; sourceTree = "<group>"; };
 		D5A7C3E1F20B4D6A8E9C1F02 /* MenuRows.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MenuRows.h; sourceTree = "<group>"; };
 		D5E340DE2415258A00BD045D /* Top.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = Top.c; sourceTree = "<group>"; };
+		87604E9276990C906AEC773D /* SystemInfo.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = SystemInfo.h; sourceTree = "<group>"; };
+		B942C7661FE2A67926626466 /* SystemInfo.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = SystemInfo.c; sourceTree = "<group>"; };
+		BC4B3CB161A784474BC8C04F /* SystemConfiguration.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SystemConfiguration.framework; path = System/Library/Frameworks/SystemConfiguration.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -47,6 +52,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				D5BBD70D242A3E3700D0D53A /* ServiceManagement.framework in Frameworks */,
+				9A11DE13637E3426F30F5472 /* SystemConfiguration.framework in Frameworks */,
 				0A95BBC14B4938CEF70C3760 /* UniformTypeIdentifiers.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -82,6 +88,8 @@
 				D5E340DD2415258A00BD045D /* Top.h */,
 				D5A7C3E1F20B4D6A8E9C1F02 /* MenuRows.h */,
 				D5E340DE2415258A00BD045D /* Top.c */,
+				87604E9276990C906AEC773D /* SystemInfo.h */,
+				B942C7661FE2A67926626466 /* SystemInfo.c */,
 				D540B2A923FA2F5400752C7F /* AppDelegate.h */,
 				D540B2AA23FA2F5400752C7F /* AppDelegate.mm */,
 				D540B2AC23FA2F5800752C7F /* Assets.xcassets */,
@@ -98,6 +106,7 @@
 			isa = PBXGroup;
 			children = (
 				D5BBD70C242A3E3700D0D53A /* ServiceManagement.framework */,
+				BC4B3CB161A784474BC8C04F /* SystemConfiguration.framework */,
 				EE1958CC2E405B265729211C /* UniformTypeIdentifiers.framework */,
 			);
 			name = Frameworks;
@@ -202,6 +211,7 @@
 				D540B2AB23FA2F5400752C7F /* AppDelegate.mm in Sources */,
 				D540B2C023FB0C7100752C7F /* CpuSampler.c in Sources */,
 				D5E340DF2415258A00BD045D /* Top.c in Sources */,
+				E6C299EE59A48123388B7F6F /* SystemInfo.c in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
