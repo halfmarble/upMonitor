@@ -1864,7 +1864,7 @@ static NSUInteger topToolGeneration = 0;
 
   NSTask* task = [[NSTask alloc] init];
   [task setExecutableURL:[NSURL fileURLWithPath:@"/usr/bin/top"]];
-  [task setArguments:@[@"-l", @"0", @"-s", @"1", @"-o", @"cpu", @"-stats", @"pid,cpu", @"-n", [NSString stringWithFormat:@"%d", TOP_TOOL_ROWS]]];
+  [task setArguments:@[@"-l", @"0", @"-s", @"2", @"-o", @"cpu", @"-stats", @"pid,cpu", @"-n", [NSString stringWithFormat:@"%d", TOP_TOOL_ROWS]]];
   // the decimal separator is '.' whatever the user's locale
   NSMutableDictionary* environment = [NSMutableDictionary dictionaryWithObject:@"C" forKey:@"LC_ALL"];
   NSString* path = [[[NSProcessInfo processInfo] environment] objectForKey:@"PATH"];
@@ -2746,7 +2746,8 @@ static double RefreshInterval(void)
   // frozen: the rows keep what they showed, and neither top nor a sample runs
   if (!frozen)
   {
-    // other users' processes join when top's second sample arrives, about a second later
+    // other users' processes join when top's second sample arrives, about two and a half seconds later: a sample every
+    // 2 s, which costs top half the CPU of one a second
     [self startTopTool];
 
     refreshTop = true;
