@@ -27,7 +27,6 @@
 #import <pwd.h>
 #import <sys/types.h>
 #import <unistd.h>
-#import <netinet/in.h>
 #import <getopt.h>
 #import <stdlib.h>
 #import <cxxabi.h>
@@ -275,9 +274,9 @@ static NSWindow* OpenMenuWindow(NSMenu* menu, NSMenuItem* item, NSRect* row)
 
 #pragma mark - The readings panel beside the menu
 
-// While the status menu is open, a panel beside it shows overall CPU, memory, the startup volume's free space, uptime
-// and the primary interface's IPv4 address, all read on this Mac. It is placed left of the menu, level with its top,
-// or right of it when there is no room on the left; it updates every second, frozen too, and closes with the menu.
+// While the status menu is open, a panel beside it shows overall CPU, memory, how full the startup volume is and
+// uptime, all read on this Mac. It is placed left of the menu, level with its top, or right of it when there is no
+// room on the left; it updates every second, frozen too, and closes with the menu.
 
 #define INFO_REFRESH                (1.0)   // s between updates
 #define INFO_RETRY_DELAY            (0.1)   // s before a second look for the menu's window
@@ -286,6 +285,7 @@ static NSWindow* OpenMenuWindow(NSMenu* menu, NSMenuItem* item, NSRect* row)
 #define INFO_COLUMN_GAP             (24.0)  // pt at least between a label and its value
 #define INFO_VERTICAL_INSET         (5.0)
 #define INFO_CORNER_RADIUS          (8.0)
+#define INFO_SEPARATOR_HEIGHT       (11.0)  // pt, as a native menu separator (a menu grows 11 pt with one, measured)
 
 // one decimal, none when the rounded value is whole, with the locale's separator: "9.8", "16", "9,8"
 static NSString* OneDecimal(double value, NSLocale* locale)
@@ -315,6 +315,23 @@ static NSString* GBText(uint64_t bytes, NSLocale* locale)
   return [NSString stringWithFormat:@"%@ TB", OneDecimal((double)bytes / 1e12, locale)];
 }
 
+// "57%": part of whole as a whole percentage, 0% to 100%; "—" when whole is 0
+static NSString* PercentText(uint64_t part, uint64_t whole, NSLocale* locale)
+{
+  if (whole == 0)
+  {
+    return @"—";
+  }
+  long percent = MIN(MAX(lround(100.0 * (double)part / (double)whole), 0L), 100L);
+  return [[NSString alloc] initWithFormat:@"%ld%%" locale:locale, percent];
+}
+
+// "16GB Memory usage:": a row's title led by its whole, written without a space ("16 GB" -> "16GB")
+static NSString* TotalTitle(NSString* wholeText, NSString* name)
+{
+  return [NSString stringWithFormat:@"%@ %@", [wholeText stringByReplacingOccurrencesOfString:@" " withString:@""], name];
+}
+
 // "3d 4h 27m"; under a day "4h 27m", under an hour "27m"
 static NSString* UptimeText(long seconds)
 {
@@ -334,17 +351,6 @@ static NSString* UptimeText(long seconds)
     return [NSString stringWithFormat:@"%ldh %ldm", hours, minutes];
   }
   return [NSString stringWithFormat:@"%ldm", minutes];
-}
-
-static NSString* PressureText(int level)
-{
-  switch (level)
-  {
-    case 1: return @"Normal";
-    case 2: return @"Warning";
-    case 4: return @"Critical";
-    default: return @"unknown";
-  }
 }
 
 #pragma mark - Rows that leave the menu open (Freeze)
@@ -989,6 +995,8 @@ static NSPanel* infoPanel = nil;            // the readings beside the menu (see
 static NSGlassEffectView* infoGlass = nil;  // its background
 static NSArray<NSTextField*>* infoLabels = nil;
 static NSArray<NSTextField*>* infoValues = nil;
+static NSBox* infoSeparator = nil;          // a menu-style line above the row infoSeparatorRow (Uptime:)
+static NSUInteger infoSeparatorRow = 0;
 static NSTimer* infoTimer = nil;            // while the menu is open
 static bool infoPlaced = false;             // the panel was placed in this opening
 static bool infoRetried = false;            // the menu's window was looked for a second time in this opening
@@ -999,6 +1007,7 @@ static NSWindow* infoMenuWindow = nil;      // the menu's window it is placed be
 static NSUInteger infoGeneration = 0;       // bumped when the menu closes: a disk read for an earlier opening is not shown
 static bool diskReadInFlight = false;
 static NSString* diskText = nil;            // the last reading of the startup volume, nil before the first
+static NSString* diskTitle = nil;           // its title, with the volume's size ("995GB Disk usage:")
 
 static CGFloat tickHeight = 16.0;
 static CGFloat tickWidth = 3.0;
@@ -2915,7 +2924,9 @@ static double RefreshInterval(void)
   NSFont* font = [NSFont fontWithName:MENU_FONT_NAME size:MENU_ICON_SIZE-2];
   NSMutableArray<NSTextField*>* labels = [NSMutableArray array];
   NSMutableArray<NSTextField*>* values = [NSMutableArray array];
-  for (NSString* title in @[@"CPU", @"Memory used", @"Memory free", @"Memory pressure", @"Disk free", @"Uptime", @"LAN IP"])
+  NSString* uptimeTitle = @"Uptime:";  // the separator goes above this row
+  NSArray<NSString*>* titles = @[@"CPU:", @"Memory usage:", @"Disk usage:", uptimeTitle];
+  for (NSString* title in titles)
   {
     NSTextField* label = [NSTextField labelWithString:title];
     label.font = font;
@@ -2931,6 +2942,11 @@ static double RefreshInterval(void)
   }
   infoLabels = labels;
   infoValues = values;
+
+  infoSeparator = [[NSBox alloc] init];
+  infoSeparator.boxType = NSBoxSeparator;
+  [background addSubview:infoSeparator];
+  infoSeparatorRow = [titles indexOfObject:uptimeTitle];
 }
 
 // the menu's look, read at each opening since the settings can change in between: its appearance (the menu bar's,
@@ -2997,29 +3013,26 @@ static double RefreshInterval(void)
   [self applyInfoValues];
 }
 
-// the seven values as shown, read now; the disk row is the last reading of readDisk
-- (NSArray<NSString*>*)infoTexts
+// the four rows as shown, each its title and value, read now; the disk row is the last reading of readDisk
+- (NSArray<NSArray<NSString*>*>*)infoRows
 {
   NSLocale* locale = [NSLocale currentLocale];
 
   double busy = SystemInfoCpuBusy(NULL);
   NSString* cpu = (busy < 0.0) ? @"—" : [[NSString alloc] initWithFormat:@"%ld%%" locale:locale, lround(busy * 100.0)];
 
+  NSString* memoryTitle = @"Memory usage:";
   NSString* memoryUsed = @"—";
-  NSString* memoryFree = @"—";
   uint64_t used = 0;
   uint64_t total = 0;
   if (SystemInfoMemory(&used, &total))
   {
-    memoryUsed = [NSString stringWithFormat:@"%@ of %@", GiBText(used, locale), GiBText(total, locale)];
-    memoryFree = GiBText((total > used) ? (total - used) : 0, locale);
+    memoryTitle = TotalTitle(GiBText(total, locale), @"Memory usage:");
+    memoryUsed = PercentText(used, total, locale);
   }
 
-  char address[INET_ADDRSTRLEN];
-  NSString* lan = SystemInfoLanIPv4(address, sizeof(address)) ? [NSString stringWithUTF8String:address] : @"none";
-
-  return @[cpu, memoryUsed, memoryFree, PressureText(SystemInfoMemoryPressure()), diskText ?: @"—",
-           UptimeText(SystemInfoUptimeSeconds()), lan ?: @"none"];
+  return @[@[@"CPU:", cpu], @[memoryTitle, memoryUsed], @[diskTitle ?: @"Disk usage:", diskText ?: @"—"],
+           @[@"Uptime:", UptimeText(SystemInfoUptimeSeconds())]];
 }
 
 // sets the values, then sizes and places the panel: left of the menu and level with its top, or right of it when the
@@ -3032,12 +3045,13 @@ static double RefreshInterval(void)
     return;
   }
 
-  NSArray<NSString*>* texts = [self infoTexts];
+  NSArray<NSArray<NSString*>*>* rows = [self infoRows];
   CGFloat labelWidth = 0.0;
   CGFloat valueWidth = 0.0;
   for (NSUInteger i=0; i<infoValues.count; i++)
   {
-    infoValues[i].stringValue = texts[i];
+    infoLabels[i].stringValue = rows[i][0];
+    infoValues[i].stringValue = rows[i][1];
     [infoValues[i] sizeToFit];
     [infoLabels[i] sizeToFit];
     labelWidth = MAX(labelWidth, NSWidth(infoLabels[i].frame));
@@ -3047,16 +3061,20 @@ static double RefreshInterval(void)
   bool widened = (width > infoWidth);
   width = MAX(width, infoWidth);
   infoWidth = width;
-  CGFloat height = (CGFloat)infoValues.count * INFO_ROW_HEIGHT + 2.0 * INFO_VERTICAL_INSET;
+  CGFloat height = (CGFloat)infoValues.count * INFO_ROW_HEIGHT + INFO_SEPARATOR_HEIGHT + 2.0 * INFO_VERTICAL_INSET;
 
   for (NSUInteger i=0; i<infoValues.count; i++)
   {
-    CGFloat y = height - INFO_VERTICAL_INSET - (CGFloat)(i + 1) * INFO_ROW_HEIGHT;
+    CGFloat y = height - INFO_VERTICAL_INSET - (CGFloat)(i + 1) * INFO_ROW_HEIGHT - ((i >= infoSeparatorRow) ? INFO_SEPARATOR_HEIGHT : 0.0);
     NSRect label = infoLabels[i].frame;
     infoLabels[i].frame = NSMakeRect(INFO_INSET, y + floor((INFO_ROW_HEIGHT - NSHeight(label))/2.0), NSWidth(label), NSHeight(label));
     NSRect value = infoValues[i].frame;
     infoValues[i].frame = NSMakeRect(width - INFO_INSET - valueWidth, y + floor((INFO_ROW_HEIGHT - NSHeight(value))/2.0), valueWidth, NSHeight(value));
   }
+
+  // a line through the middle of the gap above the separator's row, inset as the rows' text
+  CGFloat line = height - INFO_VERTICAL_INSET - (CGFloat)infoSeparatorRow * INFO_ROW_HEIGHT - INFO_SEPARATOR_HEIGHT/2.0;
+  infoSeparator.frame = NSMakeRect(INFO_INSET, floor(line), width - 2.0 * INFO_INSET, 1.0);
 
   NSRect menuFrame = infoMenuWindow.frame;
   NSScreen* screen = infoMenuWindow.screen ?: [NSScreen mainScreen];
@@ -3094,8 +3112,9 @@ static double RefreshInterval(void)
   [infoPanel orderOut:nil];
 }
 
-// the startup volume's free space as Finder shows it (purgeable space included), read off the main thread: one read
-// takes tens of milliseconds. One read at a time; a read for an earlier opening is kept but not shown.
+// how full the startup volume is, from its free space as Finder shows it (purgeable space included), read off the
+// main thread: one read takes tens of milliseconds. One read at a time; a read for an earlier opening is kept but not
+// shown.
 - (void)readDisk
 {
   if (diskReadInFlight)
@@ -3123,7 +3142,10 @@ static double RefreshInterval(void)
         return;
       }
       NSLocale* locale = [NSLocale currentLocale];
-      diskText = [NSString stringWithFormat:@"%@ of %@", GBText(available.unsignedLongLongValue, locale), GBText(total.unsignedLongLongValue, locale)];
+      uint64_t wholeBytes = total.unsignedLongLongValue;
+      uint64_t freeBytes = available.unsignedLongLongValue;
+      diskTitle = TotalTitle(GBText(wholeBytes, locale), @"Disk usage:");
+      diskText = PercentText((wholeBytes > freeBytes) ? (wholeBytes - freeBytes) : 0, wholeBytes, locale);
       if (generation == infoGeneration)
       {
         [self applyInfoValues];

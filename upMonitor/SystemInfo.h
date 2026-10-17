@@ -24,7 +24,6 @@
 #define SystemInfo_h
 
 #include <stdbool.h>
-#include <stddef.h>
 #include <stdint.h>
 #include <sys/cdefs.h>
 
@@ -44,15 +43,9 @@ double SystemInfoCpuBusy(double* span);
 // memory used as Activity Monitor counts it (app memory, wired and compressed) and the physical memory, in bytes
 bool SystemInfoMemory(uint64_t* used, uint64_t* total);
 
-// kern.memorystatus_vm_pressure_level: 1 normal, 2 warning, 4 critical; -1 when it cannot be read
-int SystemInfoMemoryPressure(void);
-
 // seconds since the last boot, sleep included, past the first minute rounded to the nearest minute as uptime(1)
 // does; -1 when the kernel cannot be read
 long SystemInfoUptimeSeconds(void);
-
-// the IPv4 address of the primary network interface, e.g. "192.168.1.23"; false when there is none
-bool SystemInfoLanIPv4(char* buffer, size_t size);
 
 __END_DECLS
 

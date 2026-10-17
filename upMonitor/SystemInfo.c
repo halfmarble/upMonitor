@@ -22,17 +22,9 @@
 
 #include "SystemInfo.h"
 
-#include <arpa/inet.h>
-#include <ifaddrs.h>
 #include <mach/mach.h>
-#include <net/if.h>
-#include <netinet/in.h>
-#include <string.h>
-#include <sys/socket.h>
 #include <sys/sysctl.h>
 #include <time.h>
-
-#include <SystemConfiguration/SystemConfiguration.h>
 
 // taken once and kept, as CpuSampler.c keeps its port: each mach_host_self() adds a reference to the port
 static mach_port_t HostPort(void)
@@ -157,17 +149,6 @@ bool SystemInfoMemory(uint64_t* used, uint64_t* total)
   return true;
 }
 
-int SystemInfoMemoryPressure(void)
-{
-  int level = 0;
-  size_t size = sizeof(level);
-  if (sysctlbyname("kern.memorystatus_vm_pressure_level", &level, &size, NULL, 0) != 0)
-  {
-    return -1;
-  }
-  return level;
-}
-
 #pragma mark - Uptime
 
 long SystemInfoUptimeSeconds(void)
@@ -189,52 +170,4 @@ long SystemInfoUptimeSeconds(void)
     seconds += 30;
   }
   return seconds;
-}
-
-#pragma mark - LAN IP
-
-// the BSD name of the interface the system routes IPv4 through ("en0"), from the dynamic store
-static bool PrimaryInterface(char* name, size_t size)
-{
-  bool found = false;
-  CFPropertyListRef global = SCDynamicStoreCopyValue(NULL, CFSTR("State:/Network/Global/IPv4"));
-  if ((global != NULL) && (CFGetTypeID(global) == CFDictionaryGetTypeID()))
-  {
-    CFTypeRef primary = CFDictionaryGetValue((CFDictionaryRef)global, CFSTR("PrimaryInterface"));
-    if ((primary != NULL) && (CFGetTypeID(primary) == CFStringGetTypeID()))
-    {
-      found = CFStringGetCString((CFStringRef)primary, name, (CFIndex)size, kCFStringEncodingUTF8);
-    }
-  }
-  if (global != NULL)
-  {
-    CFRelease(global);
-  }
-  return found;
-}
-
-bool SystemInfoLanIPv4(char* buffer, size_t size)
-{
-  char primary[IF_NAMESIZE+1];
-  if (!PrimaryInterface(primary, sizeof(primary)))
-  {
-    return false;
-  }
-
-  struct ifaddrs* list = NULL;
-  if (getifaddrs(&list) != 0)
-  {
-    return false;
-  }
-  bool found = false;
-  for (struct ifaddrs* each=list; (each != NULL) && !found; each=each->ifa_next)
-  {
-    if ((each->ifa_addr != NULL) && (each->ifa_addr->sa_family == AF_INET) && (strcmp(each->ifa_name, primary) == 0))
-    {
-      const struct sockaddr_in* address = (const struct sockaddr_in*)(const void*)each->ifa_addr;
-      found = (inet_ntop(AF_INET, &address->sin_addr, buffer, (socklen_t)size) != NULL);
-    }
-  }
-  freeifaddrs(list);
-  return found;
 }
