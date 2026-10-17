@@ -1971,11 +1971,11 @@ static NSUInteger topToolGeneration = 0;
     [userDefaults synchronize];
 }
 
-// the refresh interval the Preferences offer: 0.1, 0.2 or 0.5 s; any other stored value counts as 0.1
+// the refresh interval the Preferences offer: 0.1, 0.2 or 0.5 s; any other stored value counts as 0.5, the default
 static double RefreshInterval(void)
 {
   double interval = [[NSUserDefaults standardUserDefaults] doubleForKey:RefreshKey];
-  return ((interval == 0.2) || (interval == 0.5)) ? interval : 0.1;
+  return ((interval == 0.1) || (interval == 0.2)) ? interval : 0.5;
 }
 
 - (void)setupPreferences
@@ -1985,7 +1985,8 @@ static double RefreshInterval(void)
 #endif
   
   [[NSUserDefaults standardUserDefaults] registerDefaults:@{GranularityKey:@2}];
-  [[NSUserDefaults standardUserDefaults] registerDefaults:@{RefreshKey:@0.1}];
+  // 2 frames a second by default: each frame costs AppKit far more than it costs to draw
+  [[NSUserDefaults standardUserDefaults] registerDefaults:@{RefreshKey:@0.5}];
   [[NSUserDefaults standardUserDefaults] registerDefaults:@{StyleKey:@1}];
   [[NSUserDefaults standardUserDefaults] registerDefaults:@{TickLineKey:@1}];
   [[NSUserDefaults standardUserDefaults] registerDefaults:@{TickWidthKey:@3.0}];
