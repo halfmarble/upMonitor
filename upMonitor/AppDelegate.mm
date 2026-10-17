@@ -276,9 +276,11 @@ static NSWindow* OpenMenuWindow(NSMenu* menu, NSMenuItem* item, NSRect* row)
 
 // While the status menu is open, a panel beside it shows overall CPU, memory, how full the startup volume is and
 // uptime, all read on this Mac. It is placed left of the menu, level with its top, or right of it when there is no
-// room on the left; it updates every second, frozen too, and closes with the menu.
+// room on the left; it updates every second, frozen too, and closes with the menu. The disk row is read when the menu
+// opens and then every 30 s: each read asks another process for the volume's purgeable space.
 
 #define INFO_REFRESH                (1.0)   // s between updates
+#define DISK_REFRESH                (30.0)  // s between disk reads while the menu stays open
 #define INFO_RETRY_DELAY            (0.1)   // s before a second look for the menu's window
 #define INFO_ROW_HEIGHT             (22.0)  // pt, as a native row
 #define INFO_INSET                  (14.0)  // pt left and right, as a title-only row
@@ -1006,6 +1008,7 @@ static CGFloat infoWidth = 0.0;             // and it only widens within one
 static NSWindow* infoMenuWindow = nil;      // the menu's window it is placed beside
 static NSUInteger infoGeneration = 0;       // bumped when the menu closes: a disk read for an earlier opening is not shown
 static bool diskReadInFlight = false;
+static NSTimeInterval lastDiskRead = 0.0;   // when the last disk read started, system uptime
 static NSString* diskText = nil;            // the last reading of the startup volume, nil before the first
 static NSString* diskTitle = nil;           // its title, with the volume's size ("995GB Disk usage:")
 
@@ -2769,6 +2772,7 @@ static double RefreshInterval(void)
   infoSideDecided = false;
   infoWidth = 0.0;
   [self performSelector:@selector(showInfoPanel) withObject:nil afterDelay:0 inModes:@[NSRunLoopCommonModes]];
+  [self readDisk];
   [infoTimer invalidate];
   infoTimer = [NSTimer timerWithTimeInterval:INFO_REFRESH target:self selector:@selector(updateInfoPanel:) userInfo:nil repeats:YES];
   infoTimer.tolerance = 0.1 * INFO_REFRESH;
@@ -3010,7 +3014,11 @@ static double RefreshInterval(void)
   {
     return;
   }
-  [self readDisk];
+  // half a tick early, so that a tick firing a little late does not put the read off by a whole second
+  if (([[NSProcessInfo processInfo] systemUptime] - lastDiskRead) >= (DISK_REFRESH - 0.5*INFO_REFRESH))
+  {
+    [self readDisk];
+  }
   [self applyInfoValues];
 }
 
@@ -3123,6 +3131,7 @@ static double RefreshInterval(void)
     return;
   }
   diskReadInFlight = true;
+  lastDiskRead = [[NSProcessInfo processInfo] systemUptime];
   NSUInteger generation = infoGeneration;
   dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
     // a new URL each time: an NSURL keeps the resource values it has read
@@ -3134,6 +3143,7 @@ static double RefreshInterval(void)
       diskReadInFlight = false;
       if ((available == nil) || (total == nil))
       {
+        lastDiskRead = 0.0; // the next tick tries again
         static bool logged = false;
         if (!logged)
         {
