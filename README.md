@@ -8,7 +8,7 @@ A lightweight, highly customizable CPU monitoring tool designed specifically for
 
 ![upMonitor Screenshot](Screenshot-menu.png)
 
-* **showing preferences and processes:**
+* **showing preferences, readings and processes:**
 
 ![upMonitor Screenshot](Screenshot-menu-preferences.png)
 
