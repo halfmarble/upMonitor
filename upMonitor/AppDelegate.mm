@@ -282,7 +282,7 @@ static NSWindow* OpenMenuWindow(NSMenu* menu, NSMenuItem* item, NSRect* row)
 #define INFO_REFRESH                (1.0)   // s between updates
 #define DISK_REFRESH                (30.0)  // s between disk reads while the menu stays open
 #define INFO_RETRY_DELAY            (0.1)   // s before a second look for the menu's window
-#define INFO_ROW_HEIGHT             (22.0)  // pt, as a native row
+#define INFO_ROW_HEIGHT             (22.0)  // pt, 2 pt shorter than a native row (a menu grows 24 pt with one, measured)
 #define INFO_INSET                  (14.0)  // pt left and right, as a title-only row
 #define INFO_COLUMN_GAP             (24.0)  // pt at least between a label and its value
 #define INFO_VERTICAL_INSET         (5.0)
