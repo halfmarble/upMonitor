@@ -43,6 +43,7 @@
                 <outlet property="procThreadsScrollView" destination="cYH-Me-xrm" id="ucS-tw-FHS"/>
                 <outlet property="procThreadsTextView" destination="VxJ-xf-Edp" id="e2Q-f6-TVc"/>
                 <outlet property="realDemoView" destination="gVk-nX-pyM" id="HVq-Wx-Srz"/>
+                <outlet property="showBarsButton" destination="sB4-rs-Btn" id="sB4-rs-Out"/>
                 <outlet property="sineDemoView" destination="hg7-21-NjN" id="kcw-4f-9yd"/>
                 <outlet property="slowButton" destination="5i3-Hm-ue0" id="XAk-Bm-HkG"/>
                 <outlet property="solidButton" destination="tjP-iA-yt8" id="wCa-U0-vGm"/>
@@ -1069,6 +1070,17 @@
                         </buttonCell>
                         <connections>
                             <action selector="loginButtonClicked:" target="Voe-Tx-rLC" id="i8L-og-Act"/>
+                        </connections>
+                    </button>
+                    <button verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="sB4-rs-Btn">
+                        <rect key="frame" x="206" y="48" width="232" height="18"/>
+                        <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
+                        <buttonCell key="cell" type="check" title="Show CPU, memory and disk bars" bezelStyle="regularSquare" imagePosition="left" alignment="left" inset="2" id="sB4-rs-Cel">
+                            <behavior key="behavior" changeContents="YES" doesNotDimImage="YES" lightByContents="YES"/>
+                            <font key="font" metaFont="system"/>
+                        </buttonCell>
+                        <connections>
+                            <action selector="showBarsButtonClicked:" target="Voe-Tx-rLC" id="sB4-rs-Act"/>
                         </connections>
                     </button>
                     <textField horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" textCompletion="NO" translatesAutoresizingMaskIntoConstraints="NO" id="Ty1-Ll-nkm">

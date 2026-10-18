@@ -59,6 +59,7 @@
 @property (weak) IBOutlet NSButton *blueButton;
 
 @property (weak) IBOutlet NSButton *loginButton;
+@property (weak) IBOutlet NSButton *showBarsButton;
 
 @property (weak) IBOutlet NSTextField *buildLabel;
 

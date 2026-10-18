@@ -37,8 +37,21 @@ enum Theme
   THEME_BLUE,
 };
 
+// each 0..1; below 0, not read: only the track is drawn
+struct CpuReadings
+{
+  double cpu;
+  double memory;
+  double disk;
+} typedef CpuReadings;
+
+// the readings block at the left of the image, and the clear gap before the core graph
+#define CPU_RENDER_READINGS_WIDTH (32.0)
+#define CPU_RENDER_READINGS_GAP (4.0)
+
 void CpuRenderInit(void);
-void CpuRender(CpuSummaryInfo* cpu_info, CGContextRef ctx, bool light, int granularity, bool bar, bool stripped, bool colored, CGFloat tickWidth, CGFloat tickTotalWidth, CGFloat imageWidth, int theme);
+// readings NULL: no block, the core graph starts at x = 0; else it starts after the block and the gap
+void CpuRender(CpuSummaryInfo* cpu_info, CGContextRef ctx, bool light, int granularity, bool bar, bool stripped, bool colored, CGFloat tickWidth, CGFloat tickTotalWidth, CGFloat imageWidth, int theme, const CpuReadings* readings);
 void CpuRenderDemo(CGContextRef ctx, CGFloat width, CGFloat height, int tint);
 
 __END_DECLS

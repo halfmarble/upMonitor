@@ -140,7 +140,48 @@ rgb _color(int cool, double t)
   return _hsv2rgb(hsv);
 }
 
-void CpuRender(CpuSummaryInfo* cpu_info, CGContextRef ctx, bool light, int granularity, bool bar, bool stripped, bool colored, CGFloat tickWidth, CGFloat tickTotalWidth, CGFloat imageWidth, int theme)
+// one 4-pt bar of the readings block at y: a faint full-length track, then the fill as a core bar at that value;
+// below 0 or NaN is not read (track only), above 1 is 1
+static void _render_reading(CGContextRef ctx, double value, CGFloat y, CGFloat color, CGFloat range, bool bar, bool colored, int theme)
+{
+  CGContextSetGrayFillColor(ctx, color, range*0.25);
+  CGContextFillRect(ctx, CGRectMake(0, y, CPU_RENDER_READINGS_WIDTH, 4));
+  
+  if (!(value >= 0.0))
+  {
+    return;
+  }
+  if (value > 1.0)
+  {
+    value = 1.0;
+  }
+  
+  CGFloat alpha = (range*value)+(1.0-range);
+  if (!bar)
+  {
+    alpha = 1.0f;
+  }
+  if (colored)
+  {
+    rgb rgb = _color(theme, value);
+    CGContextSetRGBFillColor(ctx, rgb.r, rgb.g, rgb.b, alpha);
+  }
+  else
+  {
+    CGContextSetGrayFillColor(ctx, color, alpha);
+  }
+  CGContextFillRect(ctx, CGRectMake(0, y, value*CPU_RENDER_READINGS_WIDTH, 4));
+}
+
+// CPU on top, then memory, then disk
+static void _render_readings(CGContextRef ctx, const CpuReadings* readings, CGFloat color, CGFloat range, bool bar, bool colored, int theme)
+{
+  _render_reading(ctx, readings->cpu, 12, color, range, bar, colored, theme);
+  _render_reading(ctx, readings->memory, 6, color, range, bar, colored, theme);
+  _render_reading(ctx, readings->disk, 0, color, range, bar, colored, theme);
+}
+
+void CpuRender(CpuSummaryInfo* cpu_info, CGContextRef ctx, bool light, int granularity, bool bar, bool stripped, bool colored, CGFloat tickWidth, CGFloat tickTotalWidth, CGFloat imageWidth, int theme, const CpuReadings* readings)
 {
   CGContextClearRect(ctx, CGRectMake(0, 0, imageWidth, 16));
   
@@ -151,10 +192,19 @@ void CpuRender(CpuSummaryInfo* cpu_info, CGContextRef ctx, bool light, int granu
   }
   
   const CGFloat range = 0.75;
+  
+  // the core graph starts after the readings block and its gap
+  CGFloat offset = 0.0;
+  if (readings)
+  {
+    offset = CPU_RENDER_READINGS_WIDTH + CPU_RENDER_READINGS_GAP;
+    _render_readings(ctx, readings, color, range, bar, colored, theme);
+  }
+  
   if (bar)
   {
     CGContextSetGrayFillColor(ctx, color, range*0.25);
-    CGContextFillRect(ctx, CGRectMake(0, 0, imageWidth, 1));
+    CGContextFillRect(ctx, CGRectMake(offset, 0, imageWidth-offset, 1));
   }
   
   natural_t count = CpuSamplerGetCount(granularity); // at least 1
@@ -191,23 +241,24 @@ void CpuRender(CpuSummaryInfo* cpu_info, CGContextRef ctx, bool light, int granu
     
     if (bar)
     {
-      CGContextFillRect(ctx, CGRectMake(i*tickTotalWidth, 0, tickWidth, load*16));
+      CGContextFillRect(ctx, CGRectMake(offset+(i*tickTotalWidth), 0, tickWidth, load*16));
     }
     else
     {
       double w = tickWidth + 5.0;
       CGContextSetGrayFillColor(ctx, color, range*1.25);
-      CGContextFillEllipseInRect(ctx, CGRectMake(i*tickTotalWidth, ((14.0-w)/2.0), w+1.0, w+1.0));
+      CGContextFillEllipseInRect(ctx, CGRectMake(offset+(i*tickTotalWidth), ((14.0-w)/2.0), w+1.0, w+1.0));
       CGContextSetRGBFillColor(ctx, rgb.r, rgb.g, rgb.b, alpha);
-      CGContextFillEllipseInRect(ctx, CGRectMake(i*tickTotalWidth+1.0, ((14.0-w)/2.0)+1.0, w-1.0, w-1.0));
+      CGContextFillEllipseInRect(ctx, CGRectMake(offset+(i*tickTotalWidth)+1.0, ((14.0-w)/2.0)+1.0, w-1.0, w-1.0));
     }
   }
 
+  // the readings block stays solid
   if (bar && stripped)
   {
     for (natural_t i=1; i<16; i+=3)
     {
-      CGContextClearRect(ctx, CGRectMake(0, i, imageWidth, 1));
+      CGContextClearRect(ctx, CGRectMake(offset, i, imageWidth-offset, 1));
     }
   }
 }

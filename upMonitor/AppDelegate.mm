@@ -70,6 +70,7 @@ static NSString* TickLineKey = @"TickLineKey";
 static NSString* TickWidthKey = @"TickWidthKey";
 static NSString* AppearanceKey = @"AppearanceKey";
 static NSString* ThemeKey = @"ThemeKey";
+static NSString* ShowBarsKey = @"ShowBarsKey";
 
 #pragma mark - C APIs
 
@@ -277,10 +278,12 @@ static NSWindow* OpenMenuWindow(NSMenu* menu, NSMenuItem* item, NSRect* row)
 // While the status menu is open, a panel beside it shows overall CPU, memory, how full the startup volume is and
 // uptime, all read on this Mac. It is placed left of the menu, level with its top, or right of it when there is no
 // room on the left; it updates every second, frozen too, and closes with the menu. The disk row is read when the menu
-// opens and then every 30 s: each read asks another process for the volume's purgeable space.
+// opens and then every 30 s: each read asks another process for the volume's purgeable space. With the menu closed
+// and the menu bar's bars on, the graph's timer reads it every 60 s instead.
 
 #define INFO_REFRESH                (1.0)   // s between updates
 #define DISK_REFRESH                (30.0)  // s between disk reads while the menu stays open
+#define MENUBAR_DISK_REFRESH        (60.0)  // s between disk reads for the menu bar's disk bar
 #define INFO_RETRY_DELAY            (0.1)   // s before a second look for the menu's window
 #define INFO_ROW_HEIGHT             (22.0)  // pt, 2 pt shorter than a native row (a menu grows 24 pt with one, measured)
 #define INFO_INSET                  (14.0)  // pt left and right, as a title-only row
@@ -369,6 +372,7 @@ static NSString* UptimeText(long seconds)
 #define STAY_OPEN_ROW_HEIGHT        (24.0)
 
 static bool IsLight(NSAppearance* appearance);
+static double RefreshInterval(void);
 
 @interface StayOpenMenuItem : NSMenuItem
 {
@@ -1009,6 +1013,8 @@ static NSWindow* infoMenuWindow = nil;      // the menu's window it is placed be
 static NSUInteger infoGeneration = 0;       // bumped when the menu closes: a disk read for an earlier opening is not shown
 static bool diskReadInFlight = false;
 static NSTimeInterval lastDiskRead = 0.0;   // when the last disk read started, system uptime
+static NSTimeInterval lastDiskAttempt = 0.0; // when the last disk read started, never reset: a failing read is retried once a minute
+static double diskFraction = -1.0;          // how full the volume was at the last reading, 0..1, -1 before the first
 static NSString* diskText = nil;            // the last reading of the startup volume, nil before the first
 static NSString* diskTitle = nil;           // its title, with the volume's size ("995GB Disk usage:")
 
@@ -1017,6 +1023,7 @@ static CGFloat tickWidth = 3.0;
 static CGFloat tickSpaceWidth = 1.0;
 static CGFloat tickTotalWidth = 0.0;
 static CGFloat imageWidth = 0.0;
+static CGFloat graphWidth = 0.0;     // the core graph alone, as the sine and flat previews draw it: imageWidth without the bars
 static CGFloat drawWidth = 3.0;      // the width each bar or dot is drawn: the bar width, 4 for the one package bar, 3 for dots
 
 static int granularity = 0;
@@ -1027,6 +1034,8 @@ static bool stripped = true;
 
 static bool colored = false;
 static int theme = THEME_YELLOW;
+
+static bool showBars = true;         // the CPU, memory and disk bars left of the graph
 
 static float speed = 1.0f;
 
@@ -1149,6 +1158,11 @@ static NSMutableSet<NSTask*>* runningTasks = nil;
   {
     imageWidth += 1.0;
   }
+  graphWidth = imageWidth;
+  if (showBars)
+  {
+    imageWidth += CPU_RENDER_READINGS_WIDTH + CPU_RENDER_READINGS_GAP;
+  }
 }
 
 - (void)updateUI
@@ -1177,6 +1191,8 @@ static NSMutableSet<NSTask*>* runningTasks = nil;
   [self.yellowButton setState:NSControlStateValueOff];
   [self.greenButton setState:NSControlStateValueOff];
   [self.blueButton setState:NSControlStateValueOff];
+
+  [self.showBarsButton setState:showBars ? NSControlStateValueOn : NSControlStateValueOff];
     
   if (granularity == 0)
   {
@@ -1645,7 +1661,7 @@ static bool IsLight(NSAppearance* appearance)
   return ![name isEqualToString:NSAppearanceNameDarkAqua];
 }
 
-- (void)renderMenubarWithLight:(BOOL)light
+- (void)renderMenubarWithLight:(BOOL)light readings:(const CpuReadings*)readings
 {
   CpuSamplerUpdate(&cpu_info);
   static NSImage* image = nil;
@@ -1666,14 +1682,14 @@ static bool IsLight(NSAppearance* appearance)
     [image lockFocus];
     {
       CGContextRef ctx = [[NSGraphicsContext currentContext] CGContext];
-      CpuRender(&cpu_info, ctx, light, granularity, bar, stripped, colored, drawWidth, tickTotalWidth, imageWidth, theme);
+      CpuRender(&cpu_info, ctx, light, granularity, bar, stripped, colored, drawWidth, tickTotalWidth, imageWidth, theme, readings);
     }
     [image unlockFocus];
   }
   self.statusItem.button.image = image;
 }
 
-- (void)renderPrefsRealWithLight:(BOOL)light
+- (void)renderPrefsRealWithLight:(BOOL)light readings:(const CpuReadings*)readings
 {
   [self.realDemoView setBoundsSize:NSMakeSize(imageWidth, tickHeight)];
   [self.realDemoView setFrameSize:NSMakeSize(imageWidth, tickHeight)];
@@ -1693,7 +1709,7 @@ static bool IsLight(NSAppearance* appearance)
     [image lockFocus];
     {
       CGContextRef ctx = [[NSGraphicsContext currentContext] CGContext];
-      CpuRender(&cpu_info, ctx, light, granularity, bar, stripped, colored, drawWidth, tickTotalWidth, imageWidth, theme);
+      CpuRender(&cpu_info, ctx, light, granularity, bar, stripped, colored, drawWidth, tickTotalWidth, imageWidth, theme, readings);
     }
     [image unlockFocus];
   }
@@ -1704,15 +1720,15 @@ static bool IsLight(NSAppearance* appearance)
 {
   CpuSamplerSineDemoUpdate(&cpu_sine_demo_info, speed);
 
-  [self.sineDemoView setBoundsSize:NSMakeSize(imageWidth, tickHeight)];
-  [self.sineDemoView setFrameSize:NSMakeSize(imageWidth, tickHeight)];
+  [self.sineDemoView setBoundsSize:NSMakeSize(graphWidth, tickHeight)];
+  [self.sineDemoView setFrameSize:NSMakeSize(graphWidth, tickHeight)];
   NSRect imgFrame = [self.sineDemoView frame];
-  [self.sineDemoView setFrameOrigin:NSMakePoint((int)(([self.window frame].size.width-imageWidth)/2.0), imgFrame.origin.y)];
+  [self.sineDemoView setFrameOrigin:NSMakePoint((int)(([self.window frame].size.width-graphWidth)/2.0), imgFrame.origin.y)];
   static NSImage* image = nil;
   {
 //    if (image == nil)
     {
-      image = [[NSImage alloc] initWithSize:NSMakeSize(imageWidth, tickHeight)];
+      image = [[NSImage alloc] initWithSize:NSMakeSize(graphWidth, tickHeight)];
     }
 //    else
 //    {
@@ -1722,7 +1738,7 @@ static bool IsLight(NSAppearance* appearance)
     [image lockFocus];
     {
       CGContextRef ctx = [[NSGraphicsContext currentContext] CGContext];
-      CpuRender(&cpu_sine_demo_info, ctx, light, granularity, bar, stripped, colored, drawWidth, tickTotalWidth, imageWidth, theme);
+      CpuRender(&cpu_sine_demo_info, ctx, light, granularity, bar, stripped, colored, drawWidth, tickTotalWidth, graphWidth, theme, NULL);
     }
     [image unlockFocus];
   }
@@ -1733,15 +1749,15 @@ static bool IsLight(NSAppearance* appearance)
 {
   CpuSamplerFlatDemoUpdate(&cpu_flat_demo_info, speed);
   
-  [self.flatDemoView setBoundsSize:NSMakeSize(imageWidth, tickHeight)];
-  [self.flatDemoView setFrameSize:NSMakeSize(imageWidth, tickHeight)];
+  [self.flatDemoView setBoundsSize:NSMakeSize(graphWidth, tickHeight)];
+  [self.flatDemoView setFrameSize:NSMakeSize(graphWidth, tickHeight)];
   NSRect imgFrame = [self.flatDemoView frame];
-  [self.flatDemoView setFrameOrigin:NSMakePoint((int)((([self.window frame].size.width-imageWidth)/2.0)+125.0), imgFrame.origin.y)];
+  [self.flatDemoView setFrameOrigin:NSMakePoint((int)((([self.window frame].size.width-graphWidth)/2.0)+125.0), imgFrame.origin.y)];
   static NSImage* image = nil;
   {
 //    if (image == nil)
     {
-      image = [[NSImage alloc] initWithSize:NSMakeSize(imageWidth, tickHeight)];
+      image = [[NSImage alloc] initWithSize:NSMakeSize(graphWidth, tickHeight)];
     }
 //    else
 //    {
@@ -1751,7 +1767,7 @@ static bool IsLight(NSAppearance* appearance)
     [image lockFocus];
     {
       CGContextRef ctx = [[NSGraphicsContext currentContext] CGContext];
-      CpuRender(&cpu_flat_demo_info, ctx, light, granularity, bar, stripped, colored, drawWidth, tickTotalWidth, imageWidth, theme);
+      CpuRender(&cpu_flat_demo_info, ctx, light, granularity, bar, stripped, colored, drawWidth, tickTotalWidth, graphWidth, theme, NULL);
     }
     [image unlockFocus];
   }
@@ -1764,13 +1780,33 @@ static bool IsLight(NSAppearance* appearance)
   SystemInfoCpuTick();
 
   [self updateRendererParameters];
+
+  // one set of readings per tick, for the menu bar and the real-time preview; CPU or memory that cannot be read is -1,
+  // and its bar shows only the track; the disk keeps its last reading, -1 before the first
+  CpuReadings readings = {-1.0, -1.0, diskFraction};
+  if (showBars)
+  {
+    readings.cpu = SystemInfoCpuBusy(NULL);
+    uint64_t used = 0;
+    uint64_t total = 0;
+    if (SystemInfoMemory(&used, &total) && (total > 0))
+    {
+      readings.memory = MIN((double)used / (double)total, 1.0);
+    }
+    // half a tick early, so that a tick firing a little late does not put the read off by a whole tick
+    if (([[NSProcessInfo processInfo] systemUptime] - lastDiskAttempt) >= (MENUBAR_DISK_REFRESH - 0.5*RefreshInterval()))
+    {
+      [self readDisk];
+    }
+  }
+  const CpuReadings* shown = showBars ? &readings : NULL;
   
   // the menu bar's appearance need not be the app's: the graph takes the status item's, the previews their window's
-  [self renderMenubarWithLight:IsLight(self.statusItem.button.effectiveAppearance)];
+  [self renderMenubarWithLight:IsLight(self.statusItem.button.effectiveAppearance) readings:shown];
   if ([self.window isVisible])
   {
     bool light = IsLight(self.window.effectiveAppearance);
-    [self renderPrefsRealWithLight:light];
+    [self renderPrefsRealWithLight:light readings:shown];
     [self renderPrefsSinWithLight:light];
     [self renderPrefsFlatWithLight:light];
   }
@@ -1995,6 +2031,7 @@ static double RefreshInterval(void)
   [[NSUserDefaults standardUserDefaults] registerDefaults:@{TickWidthKey:@3.0}];
   [[NSUserDefaults standardUserDefaults] registerDefaults:@{AppearanceKey:@1}];
   [[NSUserDefaults standardUserDefaults] registerDefaults:@{ThemeKey:@2}];
+  [[NSUserDefaults standardUserDefaults] registerDefaults:@{ShowBarsKey:@YES}];
 
   granularity = (int)[[NSUserDefaults standardUserDefaults] integerForKey:GranularityKey];
   speed = 10.0 * RefreshInterval();
@@ -2003,6 +2040,7 @@ static double RefreshInterval(void)
   tickWidth = [[NSUserDefaults standardUserDefaults] doubleForKey:TickWidthKey];
   colored = [[NSUserDefaults standardUserDefaults] boolForKey:AppearanceKey];
   theme = (int)[[NSUserDefaults standardUserDefaults] integerForKey:ThemeKey];
+  showBars = [[NSUserDefaults standardUserDefaults] boolForKey:ShowBarsKey];
 
   [self updateRendererParameters];
   [self updateUI];
@@ -2673,6 +2711,14 @@ static double RefreshInterval(void)
   [[NSUserDefaults standardUserDefaults] setDouble:theme forKey:ThemeKey];
 }
 
+- (IBAction)showBarsButtonClicked:(id)sender
+{
+  showBars = (self.showBarsButton.state == NSControlStateValueOn);
+  [[NSUserDefaults standardUserDefaults] setBool:showBars forKey:ShowBarsKey];
+  [self updateRendererParameters];
+  [self updateUI];
+}
+
 // Launch at login: macOS keeps the setting (System Settings, Login Items), so the checkbox shows what macOS
 // reports.
 - (void)updateLoginButton
@@ -3133,6 +3179,7 @@ static double RefreshInterval(void)
   }
   diskReadInFlight = true;
   lastDiskRead = [[NSProcessInfo processInfo] systemUptime];
+  lastDiskAttempt = lastDiskRead;
   NSUInteger generation = infoGeneration;
   dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
     // a new URL each time: an NSURL keeps the resource values it has read
@@ -3158,6 +3205,7 @@ static double RefreshInterval(void)
       uint64_t freeBytes = available.unsignedLongLongValue;
       diskTitle = TotalTitle(GBText(wholeBytes, locale), @"Disk usage:");
       diskText = PercentText((wholeBytes > freeBytes) ? (wholeBytes - freeBytes) : 0, wholeBytes, locale);
+      diskFraction = (wholeBytes > 0) ? ((double)((wholeBytes > freeBytes) ? (wholeBytes - freeBytes) : 0) / (double)wholeBytes) : -1.0;
       if (generation == infoGeneration)
       {
         [self applyInfoValues];
