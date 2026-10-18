@@ -1161,7 +1161,7 @@ static NSMutableSet<NSTask*>* runningTasks = nil;
   graphWidth = imageWidth;
   if (showBars)
   {
-    imageWidth += CPU_RENDER_READINGS_WIDTH + CPU_RENDER_READINGS_GAP;
+    imageWidth += CpuRenderReadingsWidth(bar, drawWidth, tickTotalWidth);
   }
 }
 
@@ -1782,7 +1782,7 @@ static bool IsLight(NSAppearance* appearance)
   [self updateRendererParameters];
 
   // one set of readings per tick, for the menu bar and the real-time preview; CPU or memory that cannot be read is -1,
-  // and its bar shows only the track; the disk keeps its last reading, -1 before the first
+  // and its bar shows only its background (no dot in Dot style); the disk keeps its last reading, -1 before the first
   CpuReadings readings = {-1.0, -1.0, diskFraction};
   if (showBars)
   {

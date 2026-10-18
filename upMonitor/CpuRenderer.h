@@ -37,7 +37,7 @@ enum Theme
   THEME_BLUE,
 };
 
-// each 0..1; below 0, not read: only the track is drawn
+// each 0..1; below 0, not read: only the bar's background is drawn, and in Dot style nothing
 struct CpuReadings
 {
   double cpu;
@@ -45,11 +45,14 @@ struct CpuReadings
   double disk;
 } typedef CpuReadings;
 
-// the readings block at the left of the image, and the clear gap before the core graph
-#define CPU_RENDER_READINGS_WIDTH (32.0)
+// the readings block at the left of the image, three bars drawn as the core graph's but twice as wide (disk, memory,
+// CPU from the left; in Dot style three dots as the graph's), then a clear gap before the core graph
+#define CPU_RENDER_READINGS_COUNT (3)
 #define CPU_RENDER_READINGS_GAP (4.0)
 
 void CpuRenderInit(void);
+// the width the readings block and its gap add to the image, for the core graph's style, bar width and tick spacing
+CGFloat CpuRenderReadingsWidth(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth);
 // readings NULL: no block, the core graph starts at x = 0; else it starts after the block and the gap
 void CpuRender(CpuSummaryInfo* cpu_info, CGContextRef ctx, bool light, int granularity, bool bar, bool stripped, bool colored, CGFloat tickWidth, CGFloat tickTotalWidth, CGFloat imageWidth, int theme, const CpuReadings* readings);
 void CpuRenderDemo(CGContextRef ctx, CGFloat width, CGFloat height, int tint);

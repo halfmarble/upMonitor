@@ -140,45 +140,62 @@ rgb _color(int cool, double t)
   return _hsv2rgb(hsv);
 }
 
-// one 4-pt bar of the readings block at y: a faint full-length track, then the fill as a core bar at that value;
-// below 0 or NaN is not read (track only), above 1 is 1
-static void _render_reading(CGContextRef ctx, double value, CGFloat y, CGFloat color, CGFloat range, bool bar, bool colored, int theme)
+// a reading's slot: a bar twice the core bars' width and the same space after it; a dot's slot as the graph's
+static CGFloat _readings_slot(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth)
 {
-  CGContextSetGrayFillColor(ctx, color, range*0.25);
-  CGContextFillRect(ctx, CGRectMake(0, y, CPU_RENDER_READINGS_WIDTH, 4));
-  
-  if (!(value >= 0.0))
+  return bar ? (tickTotalWidth + tickWidth) : tickTotalWidth;
+}
+
+CGFloat CpuRenderReadingsWidth(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth)
+{
+  // as the core graph's own width: a slot per reading, and 1 pt more for dots
+  return (CPU_RENDER_READINGS_COUNT*_readings_slot(bar, tickWidth, tickTotalWidth)) + (bar ? 0.0 : 1.0) + CPU_RENDER_READINGS_GAP;
+}
+
+// a bar's full-height background: 100%, in a light grey
+static void _render_background(CGContextRef ctx, CGFloat x, CGFloat tickWidth, CGFloat color, bool light)
+{
+  CGContextSetGrayFillColor(ctx, color, light ? 0.12 : 0.3);
+  CGContextFillRect(ctx, CGRectMake(x, 0, tickWidth, 16));
+}
+
+// one bar (or dot) of the graph at x, at load 0..1; a bar over its background
+static void _render_group(CGContextRef ctx, CGFloat x, CGFloat load, CGFloat color, CGFloat range, bool bar, bool colored, int theme, CGFloat tickWidth, bool light)
+{
+  if (bar)
   {
-    return;
-  }
-  if (value > 1.0)
-  {
-    value = 1.0;
+    _render_background(ctx, x, tickWidth, color, light);
   }
   
-  CGFloat alpha = (range*value)+(1.0-range);
+  CGFloat alpha = (range*load)+(1.0-range);
   if (!bar)
   {
     alpha = 1.0f;
   }
+  
+  rgb rgb = {color, color, color}; // dots without colour (the Preferences never ask for them) draw grey
   if (colored)
   {
-    rgb rgb = _color(theme, value);
+    rgb = _color(theme, load);
     CGContextSetRGBFillColor(ctx, rgb.r, rgb.g, rgb.b, alpha);
   }
   else
   {
     CGContextSetGrayFillColor(ctx, color, alpha);
   }
-  CGContextFillRect(ctx, CGRectMake(0, y, value*CPU_RENDER_READINGS_WIDTH, 4));
-}
-
-// disk on top, then memory, then CPU
-static void _render_readings(CGContextRef ctx, const CpuReadings* readings, CGFloat color, CGFloat range, bool bar, bool colored, int theme)
-{
-  _render_reading(ctx, readings->disk, 12, color, range, bar, colored, theme);
-  _render_reading(ctx, readings->memory, 6, color, range, bar, colored, theme);
-  _render_reading(ctx, readings->cpu, 0, color, range, bar, colored, theme);
+  
+  if (bar)
+  {
+    CGContextFillRect(ctx, CGRectMake(x, 0, tickWidth, load*16));
+  }
+  else
+  {
+    double w = tickWidth + 5.0;
+    CGContextSetGrayFillColor(ctx, color, range*1.25);
+    CGContextFillEllipseInRect(ctx, CGRectMake(x, ((14.0-w)/2.0), w+1.0, w+1.0));
+    CGContextSetRGBFillColor(ctx, rgb.r, rgb.g, rgb.b, alpha);
+    CGContextFillEllipseInRect(ctx, CGRectMake(x+1.0, ((14.0-w)/2.0)+1.0, w-1.0, w-1.0));
+  }
 }
 
 void CpuRender(CpuSummaryInfo* cpu_info, CGContextRef ctx, bool light, int granularity, bool bar, bool stripped, bool colored, CGFloat tickWidth, CGFloat tickTotalWidth, CGFloat imageWidth, int theme, const CpuReadings* readings)
@@ -197,8 +214,28 @@ void CpuRender(CpuSummaryInfo* cpu_info, CGContextRef ctx, bool light, int granu
   CGFloat offset = 0.0;
   if (readings)
   {
-    offset = CPU_RENDER_READINGS_WIDTH + CPU_RENDER_READINGS_GAP;
-    _render_readings(ctx, readings, color, range, bar, colored, theme);
+    offset = CpuRenderReadingsWidth(bar, tickWidth, tickTotalWidth);
+    CGFloat slot = _readings_slot(bar, tickWidth, tickTotalWidth);
+    if (bar)
+    {
+      CGContextSetGrayFillColor(ctx, color, range*0.25);
+      CGContextFillRect(ctx, CGRectMake(0, 0, offset-CPU_RENDER_READINGS_GAP, 1));
+    }
+    // disk, memory, CPU from the left; a value below 0 or NaN is not read and draws only the bar's background, one above
+    // 1 draws as 1
+    const double values[CPU_RENDER_READINGS_COUNT] = {readings->disk, readings->memory, readings->cpu};
+    const CGFloat width = bar ? 2.0*tickWidth : tickWidth;
+    for (int i=0; i<CPU_RENDER_READINGS_COUNT; i++)
+    {
+      if (values[i] >= 0.0)
+      {
+        _render_group(ctx, i*slot, fmin(values[i], 1.0), color, range, bar, colored, theme, width, light);
+      }
+      else if (bar)
+      {
+        _render_background(ctx, i*slot, width, color, light);
+      }
+    }
   }
   
   if (bar)
@@ -221,44 +258,15 @@ void CpuRender(CpuSummaryInfo* cpu_info, CGContextRef ctx, bool light, int granu
       }
       load /= (CGFloat)group;
     }
-    
-    CGFloat alpha = (range*load)+(1.0-range);
-    if (!bar)
-    {
-      alpha = 1.0f;
-    }
-    
-    rgb rgb = {color, color, color}; // dots without colour (the Preferences never ask for them) draw grey
-    if (colored)
-    {
-      rgb = _color(theme, load);
-      CGContextSetRGBFillColor(ctx, rgb.r, rgb.g, rgb.b, alpha);
-    }
-    else
-    {
-      CGContextSetGrayFillColor(ctx, color, alpha);
-    }
-    
-    if (bar)
-    {
-      CGContextFillRect(ctx, CGRectMake(offset+(i*tickTotalWidth), 0, tickWidth, load*16));
-    }
-    else
-    {
-      double w = tickWidth + 5.0;
-      CGContextSetGrayFillColor(ctx, color, range*1.25);
-      CGContextFillEllipseInRect(ctx, CGRectMake(offset+(i*tickTotalWidth), ((14.0-w)/2.0), w+1.0, w+1.0));
-      CGContextSetRGBFillColor(ctx, rgb.r, rgb.g, rgb.b, alpha);
-      CGContextFillEllipseInRect(ctx, CGRectMake(offset+(i*tickTotalWidth)+1.0, ((14.0-w)/2.0)+1.0, w-1.0, w-1.0));
-    }
+    _render_group(ctx, offset+(i*tickTotalWidth), load, color, range, bar, colored, theme, tickWidth, light);
   }
 
-  // the readings block stays solid
+  // dashed, the readings' bars as well as the cores'
   if (bar && stripped)
   {
     for (natural_t i=1; i<16; i+=3)
     {
-      CGContextClearRect(ctx, CGRectMake(offset, i, imageWidth-offset, 1));
+      CGContextClearRect(ctx, CGRectMake(0, i, imageWidth, 1));
     }
   }
 }
