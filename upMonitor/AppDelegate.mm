@@ -44,6 +44,7 @@
 #pragma mark Constants
 
 #define TOP_COUNT                   (15)
+#define TOP_REFRESH_RATE            (2.5)   // s between process samples, whatever the Refresh setting
 #define TOP_TOOL_ROWS               (2*TOP_COUNT) // headroom: 2x the rows shown
 
 //   32 space bar  3.333984
@@ -277,12 +278,13 @@ static NSWindow* OpenMenuWindow(NSMenu* menu, NSMenuItem* item, NSRect* row)
 // While the status menu is open, a panel beside it shows how full the startup volume is, memory, overall CPU and
 // uptime, all read on this Mac. It is placed left of the menu, level with its top, or right of it when there is no
 // room on the left; it updates every second, frozen too, and closes with the menu. The disk row is read when the menu
-// opens and then every 30 s: each read asks another process for the volume's purgeable space. With the menu closed
+// opens and then every 10 s: each read asks another process for the volume's purgeable space. With the menu closed
 // and the menu bar's bars on, the graph's timer reads it every 60 s instead.
 
 #define INFO_REFRESH                (1.0)   // s between updates
-#define DISK_REFRESH                (30.0)  // s between disk reads while the menu stays open
+#define DISK_REFRESH                (10.0)  // s between disk reads while the menu stays open
 #define MENUBAR_DISK_REFRESH        (60.0)  // s between disk reads for the menu bar's disk bar
+#define READINGS_REFRESH            (5.0)   // s between reads of overall CPU and memory, for the bars and the panel
 #define INFO_RETRY_DELAY            (0.1)   // s before a second look for the menu's window
 #define INFO_ROW_HEIGHT             (22.0)  // pt, 2 pt shorter than a native row (a menu grows 24 pt with one, measured)
 #define INFO_INSET                  (14.0)  // pt left and right, as a title-only row
@@ -591,6 +593,7 @@ NSMenuItem* MenuRowsStayOpenItem(NSString* title, SEL action, id target, NSDicti
   double cpus[TOP_TOOL_ROWS];
   bool loggedExit;
   bool loggedEmpty;
+  bool drawn;                   // a block of this run has redrawn the rows
 }
 @end
 
@@ -1016,6 +1019,11 @@ static NSTimeInterval lastDiskAttempt = 0.0; // when the last disk read started,
 static double diskFraction = -1.0;          // how full the volume was at the last reading, 0..1, -1 before the first
 static NSString* diskText = nil;            // the last reading of the startup volume, nil before the first
 static NSString* diskTitle = nil;           // its title, with the volume's size ("995GB Disk usage:")
+static NSTimeInterval lastReadings = 0.0;   // when overall CPU and memory were last read, system uptime; 0: read soon
+static double readingsCpu = -1.0;           // overall CPU over the 5 s before it (after a reset, one tick), 0..1, -1 before the first
+static bool readingsMemory = false;         // memory could be read, as these two bytes
+static uint64_t readingsMemoryUsed = 0;
+static uint64_t readingsMemoryTotal = 0;
 
 static CGFloat tickHeight = 16.0;
 static CGFloat tickWidth = 3.0;
@@ -1775,8 +1783,21 @@ static bool IsLight(NSAppearance* appearance)
 
 - (void)updateCPU:(id)sender
 {
-  // the readings panel's overall CPU, menu open or not, so that it covers the last second the moment the menu opens
+  // overall CPU, menu open or not, so that its window is full the moment the menu opens
   SystemInfoCpuTick();
+  // overall CPU and memory, for the bars and the panel, every READINGS_REFRESH s, half a tick early, so that a tick
+  // firing a little late does not put the read off by a whole tick; while CPU cannot be read yet (fewer than two
+  // samples, after a reset) both keep their last reading and are tried again on the next tick
+  if (([[NSProcessInfo processInfo] systemUptime] - lastReadings) >= (READINGS_REFRESH - 0.5*RefreshInterval()))
+  {
+    double cpu = SystemInfoCpuBusy(NULL);
+    if (cpu >= 0.0)
+    {
+      readingsCpu = cpu;
+      readingsMemory = SystemInfoMemory(&readingsMemoryUsed, &readingsMemoryTotal);
+      lastReadings = [[NSProcessInfo processInfo] systemUptime];
+    }
+  }
 
   [self updateRendererParameters];
 
@@ -1785,12 +1806,10 @@ static bool IsLight(NSAppearance* appearance)
   CpuReadings readings = {-1.0, -1.0, diskFraction};
   if (showBars)
   {
-    readings.cpu = SystemInfoCpuBusy(NULL);
-    uint64_t used = 0;
-    uint64_t total = 0;
-    if (SystemInfoMemory(&used, &total) && (total > 0))
+    readings.cpu = readingsCpu;
+    if (readingsMemory && (readingsMemoryTotal > 0))
     {
-      readings.memory = MIN((double)used / (double)total, 1.0);
+      readings.memory = MIN((double)readingsMemoryUsed / (double)readingsMemoryTotal, 1.0);
     }
     // half a tick early, so that a tick firing a little late does not put the read off by a whole tick
     if (([[NSProcessInfo processInfo] systemUptime] - lastDiskAttempt) >= (MENUBAR_DISK_REFRESH - 0.5*RefreshInterval()))
@@ -1899,9 +1918,8 @@ static NSUInteger topToolGeneration = 0;
 
   NSTask* task = [[NSTask alloc] init];
   [task setExecutableURL:[NSURL fileURLWithPath:@"/usr/bin/top"]];
-  // a sample every twice the Refresh interval, in whole seconds (top's unit), at least 1 s: 1 s at all three settings
-  NSString* seconds = [NSString stringWithFormat:@"%ld", MAX(1L, lround(2.0 * RefreshInterval()))];
-  [task setArguments:@[@"-l", @"0", @"-s", seconds, @"-o", @"cpu", @"-stats", @"pid,cpu", @"-n", [NSString stringWithFormat:@"%d", TOP_TOOL_ROWS]]];
+  // a sample every 2 s, whatever the Refresh setting: top takes whole seconds, and 2 s costs it about half the CPU of 1 s
+  [task setArguments:@[@"-l", @"0", @"-s", @"2", @"-o", @"cpu", @"-stats", @"pid,cpu", @"-n", [NSString stringWithFormat:@"%d", TOP_TOOL_ROWS]]];
   // the decimal separator is '.' whatever the user's locale
   NSMutableDictionary* environment = [NSMutableDictionary dictionaryWithObject:@"C" forKey:@"LC_ALL"];
   NSString* path = [[[NSProcessInfo processInfo] environment] objectForKey:@"PATH"];
@@ -1969,8 +1987,11 @@ static NSUInteger topToolGeneration = 0;
   }
   TopSetOthersCpu((const pid_t*)[pids bytes], (const double*)[cpus bytes], (int)([pids length] / sizeof(pid_t)));
   [self collectTopList];
-  if (refreshTop)
+  // the rows redraw at each process sample (updateTop:), every 2.5 s; of top's blocks (every 2 s) only the run's first
+  // redraws them, so that other users' processes join without waiting for the next sample, which shows the later ones
+  if (refreshTop && !session->drawn)
   {
+    session->drawn = true;
     [self updateMenuTop];
   }
 }
@@ -2018,10 +2039,10 @@ static double RefreshInterval(void)
   return ((interval == 0.1) || (interval == 0.2)) ? interval : 0.5;
 }
 
-// the process sample's interval: twice the Refresh interval while the menu is open, four times while it is closed
+// the process sample's interval: 2.5 s, whatever the Refresh setting, with the menu open or closed
 static double TopInterval(void)
 {
-  return (menuIsOpen ? 2.0 : 4.0) * RefreshInterval();
+  return TOP_REFRESH_RATE;
 }
 
 - (void)setupPreferences
@@ -2058,17 +2079,24 @@ static double TopInterval(void)
   [self.buildLabel setStringValue:[NSString stringWithFormat:@"b%@", build]];
 }
 
+// both timers, at launch and after a pause; none while paused (nothing can be seen: updatePause starts them again)
 - (void)setupTimers
+{
+  // the overall CPU's window starts again, so that it never spans a pause, and CPU and memory are read again soon
+  SystemInfoCpuReset();
+  lastReadings = 0.0;
+  [self startGraphTimer];
+  [self startTopTimer:TopInterval()];
+}
+
+// (re)starts the graph's timer at the Refresh interval, none while paused; a Refresh change restarts only this one, so
+// that the process sample, the overall CPU's window and the readings carry on at their own rates
+- (void)startGraphTimer
 {
   [timerCPU invalidate];
   timerCPU = nil;
-  [timerTop invalidate];
-  timerTop = nil;
-  // the overall CPU's window starts again, so that it never spans a pause
-  SystemInfoCpuReset();
   if (paused)
   {
-    // nothing can be seen: updatePause starts them again
     return;
   }
 
@@ -2078,11 +2106,9 @@ static double TopInterval(void)
   timerCPU = [NSTimer timerWithTimeInterval:interval target:self selector:@selector(updateCPU:) userInfo:nil repeats:YES];
   timerCPU.tolerance = 0.1 * interval;
   [[NSRunLoop mainRunLoop] addTimer:timerCPU forMode:NSRunLoopCommonModes];
-
-  [self startTopTimer:TopInterval()];
 }
 
-// (re)starts the process sample's timer at the interval for the menu's state (TopInterval), its next sample in delay s
+// (re)starts the process sample's timer at its interval (TopInterval), its next sample in delay s
 - (void)startTopTimer:(NSTimeInterval)delay
 {
   [timerTop invalidate];
@@ -2099,7 +2125,7 @@ static double TopInterval(void)
 }
 
 // the delay to the next process sample: one interval after the last sample (now if that is past), or the timer's own
-// next sample when that comes sooner (the soon one after a pause or an unfreeze; at a close, the open menu's next)
+// next sample when that comes sooner (the soon one after a pause or an unfreeze)
 static NSTimeInterval TopDelay(void)
 {
   NSTimeInterval delay = MAX(0.0, lastTopSample + TopInterval() - [[NSProcessInfo processInfo] systemUptime]);
@@ -2613,7 +2639,7 @@ static NSTimeInterval TopDelay(void)
   [[NSUserDefaults standardUserDefaults] setDouble:0.1 forKey:RefreshKey];
 
   [self updateUI];
-  [self setupTimers];
+  [self startGraphTimer];
 }
 
 - (IBAction)normalButtonClicked:(id)sender
@@ -2623,7 +2649,7 @@ static NSTimeInterval TopDelay(void)
   [[NSUserDefaults standardUserDefaults] setDouble:0.2 forKey:RefreshKey];
 
   [self updateUI];
-  [self setupTimers];
+  [self startGraphTimer];
 }
 
 - (IBAction)slowButtonClicked:(id)sender
@@ -2633,7 +2659,7 @@ static NSTimeInterval TopDelay(void)
   [[NSUserDefaults standardUserDefaults] setDouble:0.5 forKey:RefreshKey];
 
   [self updateUI];
-  [self setupTimers];
+  [self startGraphTimer];
 }
 
 - (IBAction)barButtonClicked:(id)sender
@@ -2825,7 +2851,7 @@ static NSTimeInterval TopDelay(void)
   // frozen: the rows keep what they showed, and neither top nor a sample runs
   if (!frozen)
   {
-    // other users' processes join when top's second sample arrives, a second after its first (startTopTool)
+    // other users' processes join when top's second sample arrives, two seconds after its first (startTopTool)
     [self startTopTool];
 
     refreshTop = true;
@@ -2834,21 +2860,19 @@ static NSTimeInterval TopDelay(void)
     if (!topListValid || (([[NSProcessInfo processInfo] systemUptime] - lastTopSample) >= TOP_MIN_INTERVAL))
     {
       [self updateTop:nil];
-      // the samples come at the open menu's interval, the next one a whole interval after this one, so that its
-      // CPU% never covers a shorter window
+      // the next sample a whole interval after this one, so that its CPU% never covers a shorter window
       [self startTopTimer:TopInterval()];
     }
     else
     {
       [self updateMenuTop];
-      // the samples come at the open menu's interval, the next one an interval after the last, or at the timer's
-      // own fire when that comes sooner (TopDelay)
+      // the next sample an interval after the last, or at the timer's own fire when that comes sooner (TopDelay)
       [self startTopTimer:TopDelay()];
     }
   }
   else
   {
-    // frozen: no sample, but the rows a build adds tick at the open menu's interval
+    // frozen: no sample, but the rows a build adds tick at the process sample's interval
     [self startTopTimer:TopInterval()];
   }
 
@@ -2881,8 +2905,7 @@ static NSTimeInterval TopDelay(void)
   menuIsOpen = false;
   refreshTop = false;
   [self stopTopTool];
-  // the samples come at the closed menu's interval, the next one an interval after the last, or at the open timer's
-  // own fire when that comes sooner (TopDelay)
+  // the next sample an interval after the last, or at the timer's own fire when that comes sooner (TopDelay)
   [self startTopTimer:TopDelay()];
   [self hideRowTip];
   [self hideInfoPanel];
@@ -3114,22 +3137,21 @@ static NSTimeInterval TopDelay(void)
   [self applyInfoValues];
 }
 
-// the four rows as shown, each its title and value, read now; the disk row is the last reading of readDisk
+// the four rows as shown, each its title and value; CPU and memory are their last reading (updateCPU:), the disk row
+// the last reading of readDisk, uptime read now
 - (NSArray<NSArray<NSString*>*>*)infoRows
 {
   NSLocale* locale = [NSLocale currentLocale];
 
-  double busy = SystemInfoCpuBusy(NULL);
+  double busy = readingsCpu;
   NSString* cpu = (busy < 0.0) ? @"—" : [[NSString alloc] initWithFormat:@"%ld%%" locale:locale, lround(busy * 100.0)];
 
   NSString* memoryTitle = @"Memory usage:";
   NSString* memoryUsed = @"—";
-  uint64_t used = 0;
-  uint64_t total = 0;
-  if (SystemInfoMemory(&used, &total))
+  if (readingsMemory)
   {
-    memoryTitle = TotalTitle(GiBText(total, locale), @"Memory usage:");
-    memoryUsed = PercentText(used, total, locale);
+    memoryTitle = TotalTitle(GiBText(readingsMemoryTotal, locale), @"Memory usage:");
+    memoryUsed = PercentText(readingsMemoryUsed, readingsMemoryTotal, locale);
   }
 
   return @[@[diskTitle ?: @"Disk usage:", diskText ?: @"—"], @[memoryTitle, memoryUsed], @[@"CPU:", cpu],

@@ -39,8 +39,8 @@ static mach_port_t HostPort(void)
 
 #pragma mark - CPU
 
-#define CPU_RING_SIZE   (32)    // 3.2 s at the fastest refresh (0.1 s), enough for a 1 s window at every setting
-#define CPU_WINDOW      (1.0)   // s
+#define CPU_RING_SIZE   (64)    // 6.3 s at the fastest refresh (0.1 s), enough for a 5 s window at every setting
+#define CPU_WINDOW      (5.0)   // s
 
 struct CpuSample
 {

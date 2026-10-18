@@ -32,7 +32,7 @@ __BEGIN_DECLS
 // The readings of the panel beside the status menu, all read on this Mac. Main thread only, as the other modules.
 
 // Overall CPU: SystemInfoCpuTick stores the system-wide ticks on every graph tick; SystemInfoCpuBusy gives the busy
-// share (0..1) between the newest stored sample and the newest one at least a second older (an older one where the
+// share (0..1) between the newest stored sample and the newest one at least 5 s older (an older one where the
 // host's counters had not moved since), or -1 with fewer than two samples or no ticks in them; *span, when span is
 // not NULL, gets the window's length in seconds (0 with -1). SystemInfoCpuReset forgets the samples (after a pause,
 // so that a window never spans one).
