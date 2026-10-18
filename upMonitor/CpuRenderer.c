@@ -173,12 +173,12 @@ static void _render_reading(CGContextRef ctx, double value, CGFloat y, CGFloat c
   CGContextFillRect(ctx, CGRectMake(0, y, value*CPU_RENDER_READINGS_WIDTH, 4));
 }
 
-// CPU on top, then memory, then disk
+// disk on top, then memory, then CPU
 static void _render_readings(CGContextRef ctx, const CpuReadings* readings, CGFloat color, CGFloat range, bool bar, bool colored, int theme)
 {
-  _render_reading(ctx, readings->cpu, 12, color, range, bar, colored, theme);
+  _render_reading(ctx, readings->disk, 12, color, range, bar, colored, theme);
   _render_reading(ctx, readings->memory, 6, color, range, bar, colored, theme);
-  _render_reading(ctx, readings->disk, 0, color, range, bar, colored, theme);
+  _render_reading(ctx, readings->cpu, 0, color, range, bar, colored, theme);
 }
 
 void CpuRender(CpuSummaryInfo* cpu_info, CGContextRef ctx, bool light, int granularity, bool bar, bool stripped, bool colored, CGFloat tickWidth, CGFloat tickTotalWidth, CGFloat imageWidth, int theme, const CpuReadings* readings)

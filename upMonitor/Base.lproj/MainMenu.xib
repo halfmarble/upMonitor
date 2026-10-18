@@ -726,10 +726,10 @@
         <window title="upMonitor Preferences" allowsToolTipsWhenApplicationIsInactive="NO" autorecalculatesKeyViewLoop="NO" releasedWhenClosed="NO" visibleAtLaunch="NO" animationBehavior="default" id="QvC-M9-y7g">
             <windowStyleMask key="styleMask" titled="YES" closable="YES"/>
             <windowPositionMask key="initialPositionMask" leftStrut="YES" rightStrut="YES" topStrut="YES" bottomStrut="YES"/>
-            <rect key="contentRect" x="335" y="390" width="485" height="431"/>
+            <rect key="contentRect" x="335" y="390" width="485" height="453"/>
             <rect key="screenRect" x="0.0" y="0.0" width="3440" height="1415"/>
             <view key="contentView" id="EiT-Mj-1SZ">
-                <rect key="frame" x="0.0" y="0.0" width="485" height="431"/>
+                <rect key="frame" x="0.0" y="0.0" width="485" height="453"/>
                 <autoresizingMask key="autoresizingMask"/>
                 <subviews>
                     <imageView horizontalHuggingPriority="251" verticalHuggingPriority="251" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="gVk-nX-pyM">
@@ -754,7 +754,7 @@
                     <textField horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" textCompletion="NO" translatesAutoresizingMaskIntoConstraints="NO" id="qlE-63-n7D">
                         <rect key="frame" x="191" y="373" width="101" height="14"/>
                         <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
-                        <textFieldCell key="cell" controlSize="small" lineBreakMode="clipping" enabled="NO" alignment="center" title="(sine wave demo)" usesSingleLineMode="YES" id="PRL-zg-Rm2">
+                        <textFieldCell key="cell" controlSize="small" lineBreakMode="clipping" enabled="NO" alignment="center" title="(sine wave)" usesSingleLineMode="YES" id="PRL-zg-Rm2">
                             <font key="font" metaFont="label" size="11"/>
                             <color key="textColor" name="tertiaryLabelColor" catalog="System" colorSpace="catalog"/>
                             <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
@@ -766,7 +766,19 @@
                     <textField horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" textCompletion="NO" translatesAutoresizingMaskIntoConstraints="NO" id="r3Q-iK-9uo">
                         <rect key="frame" x="324" y="373" width="96" height="14"/>
                         <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
-                        <textFieldCell key="cell" controlSize="small" lineBreakMode="clipping" enabled="NO" alignment="center" title="(flat wave demo)" usesSingleLineMode="YES" id="QhX-Ay-8WL">
+                        <textFieldCell key="cell" controlSize="small" lineBreakMode="clipping" enabled="NO" alignment="center" title="(flat wave)" usesSingleLineMode="YES" id="QhX-Ay-8WL">
+                            <font key="font" metaFont="label" size="11"/>
+                            <color key="textColor" name="tertiaryLabelColor" catalog="System" colorSpace="catalog"/>
+                            <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+                            <allowedInputSourceLocales>
+                                <string>NSAllRomanInputSourcesLocaleIdentifier</string>
+                            </allowedInputSourceLocales>
+                        </textFieldCell>
+                    </textField>
+                    <textField horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" textCompletion="NO" translatesAutoresizingMaskIntoConstraints="NO" id="dM0-lb-Txt">
+                        <rect key="frame" x="275" y="419" width="60" height="14"/>
+                        <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
+                        <textFieldCell key="cell" controlSize="small" lineBreakMode="clipping" enabled="NO" alignment="center" title="DEMO" usesSingleLineMode="YES" id="dM0-lb-Cel">
                             <font key="font" metaFont="label" size="11"/>
                             <color key="textColor" name="tertiaryLabelColor" catalog="System" colorSpace="catalog"/>
                             <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
@@ -1075,7 +1087,7 @@
                     <button verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="sB4-rs-Btn">
                         <rect key="frame" x="206" y="48" width="232" height="18"/>
                         <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
-                        <buttonCell key="cell" type="check" title="Show CPU, memory and disk bars" bezelStyle="regularSquare" imagePosition="left" alignment="left" inset="2" id="sB4-rs-Cel">
+                        <buttonCell key="cell" type="check" title="Show Disk, RAM, CPU usage bars" bezelStyle="regularSquare" imagePosition="left" alignment="left" inset="2" id="sB4-rs-Cel">
                             <behavior key="behavior" changeContents="YES" doesNotDimImage="YES" lightByContents="YES"/>
                             <font key="font" metaFont="system"/>
                         </buttonCell>

@@ -275,7 +275,7 @@ static NSWindow* OpenMenuWindow(NSMenu* menu, NSMenuItem* item, NSRect* row)
 
 #pragma mark - The readings panel beside the menu
 
-// While the status menu is open, a panel beside it shows overall CPU, memory, how full the startup volume is and
+// While the status menu is open, a panel beside it shows how full the startup volume is, memory, overall CPU and
 // uptime, all read on this Mac. It is placed left of the menu, level with its top, or right of it when there is no
 // room on the left; it updates every second, frozen too, and closes with the menu. The disk row is read when the menu
 // opens and then every 30 s: each read asks another process for the volume's purgeable space. With the menu closed
@@ -1035,7 +1035,7 @@ static bool stripped = true;
 static bool colored = false;
 static int theme = THEME_YELLOW;
 
-static bool showBars = true;         // the CPU, memory and disk bars left of the graph
+static bool showBars = true;         // the disk, memory and CPU bars left of the graph
 
 static float speed = 1.0f;
 
@@ -2977,7 +2977,7 @@ static double RefreshInterval(void)
   NSMutableArray<NSTextField*>* labels = [NSMutableArray array];
   NSMutableArray<NSTextField*>* values = [NSMutableArray array];
   NSString* uptimeTitle = @"Uptime:";  // the separator goes above this row
-  NSArray<NSString*>* titles = @[@"CPU:", @"Memory usage:", @"Disk usage:", uptimeTitle];
+  NSArray<NSString*>* titles = @[@"Disk usage:", @"Memory usage:", @"CPU:", uptimeTitle];
   for (NSString* title in titles)
   {
     NSTextField* label = [NSTextField labelWithString:title];
@@ -3087,7 +3087,7 @@ static double RefreshInterval(void)
     memoryUsed = PercentText(used, total, locale);
   }
 
-  return @[@[@"CPU:", cpu], @[memoryTitle, memoryUsed], @[diskTitle ?: @"Disk usage:", diskText ?: @"—"],
+  return @[@[diskTitle ?: @"Disk usage:", diskText ?: @"—"], @[memoryTitle, memoryUsed], @[@"CPU:", cpu],
            @[@"Uptime:", UptimeText(SystemInfoUptimeSeconds())]];
 }
 

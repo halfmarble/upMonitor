@@ -16,9 +16,9 @@ A lightweight, highly customizable CPU monitoring tool designed specifically for
 
 `upMonitor` provides real-time insights into your system's CPU usage with a focus on aesthetics and customization.
 
-* **Real-time Menu Bar Visualization:** View your CPU activity at a glance with a live-updating graph right in your macOS menu bar, beside three small bars for overall CPU, memory and disk use (switchable in Preferences).
+* **Real-time Menu Bar Visualization:** View your CPU activity at a glance with a live-updating graph right in your macOS menu bar, beside three small bars for disk, memory and overall CPU use (switchable in Preferences).
 * **Top Process Tracking:** Quickly identify which processes are consuming the most CPU with a ranked list of "Top CPU Processes", including those of other users and of macOS itself, such as WindowServer.
-* **System readings:** when the menu opens, a panel beside it shows overall CPU, memory and startup-volume usage as percentages with their sizes, and uptime, all read on the Mac; nothing is sent over the network.
+* **System readings:** when the menu opens, a panel beside it shows startup-volume, memory and overall CPU usage as percentages with their sizes, and uptime, all read on the Mac; nothing is sent over the network.
 * **Freeze:** pause the process list to examine it while the CPU graph keeps running; while frozen, rest on a ↳ row to see what it is a helper of.
 * **Launch at login:** tick it in Preferences to open upMonitor when you log in.
 * **Highly Customizable:**
