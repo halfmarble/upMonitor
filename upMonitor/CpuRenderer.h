@@ -53,6 +53,8 @@ struct CpuReadings
 void CpuRenderInit(void);
 // the width the readings block and its gap add to the image, for the core graph's style, bar width and tick spacing
 CGFloat CpuRenderReadingsWidth(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth);
+// the x step from one reading to the next (disk at 0, memory at one step, CPU at two)
+CGFloat CpuRenderReadingsSlot(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth);
 // readings NULL: no block, the core graph starts at x = 0; else it starts after the block and the gap
 void CpuRender(CpuSummaryInfo* cpu_info, CGContextRef ctx, bool light, int granularity, bool bar, bool stripped, bool colored, CGFloat tickWidth, CGFloat tickTotalWidth, CGFloat imageWidth, int theme, const CpuReadings* readings);
 void CpuRenderDemo(CGContextRef ctx, CGFloat width, CGFloat height, int tint);

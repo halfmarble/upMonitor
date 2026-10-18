@@ -205,6 +205,9 @@ static void PaintOpenMenuBackground(void)
 #define ROW_TIP_DELAY               (0.4)   // s on a row before its text shows
 #define ROW_TIP_GAP                 (6.0)   // pt between the box and the menu
 #define ROW_TIP_MAX_WIDTH           (400.0)
+#define BAR_TIP_DELAY               (1.0)   // s on a menu-bar reading before its label shows
+#define BAR_TIP_WATCH               (0.25)  // s between looks at the pointer while a label is armed or shown
+#define BAR_TIP_GAP                 (4.0)   // pt between the menu bar and the label
 
 // the item's row on screen, NSZeroRect when the window's row views do not match the menu: top first,
 // they are the menu's shown items in order, separators included
@@ -284,7 +287,7 @@ static NSWindow* OpenMenuWindow(NSMenu* menu, NSMenuItem* item, NSRect* row)
 #define INFO_REFRESH                (1.0)   // s between updates
 #define DISK_REFRESH                (10.0)  // s between disk reads while the menu stays open
 #define MENUBAR_DISK_REFRESH        (60.0)  // s between disk reads for the menu bar's disk bar
-#define READINGS_REFRESH            (5.0)   // s between reads of overall CPU and memory, for the bars and the panel
+#define READINGS_TICKS              (2.0)   // Refresh intervals between reads of overall CPU and memory, for the bars and the panel
 #define INFO_RETRY_DELAY            (0.1)   // s before a second look for the menu's window
 #define INFO_ROW_HEIGHT             (22.0)  // pt, 2 pt shorter than a native row (a menu grows 24 pt with one, measured)
 #define INFO_INSET                  (14.0)  // pt left and right, as a title-only row
@@ -1021,7 +1024,7 @@ static double diskFraction = -1.0;          // how full the volume was at the la
 static NSString* diskText = nil;            // the last reading of the startup volume, nil before the first
 static NSString* diskTitle = nil;           // its title, with the volume's size ("995GB Disk usage:")
 static NSTimeInterval lastReadings = 0.0;   // when overall CPU and memory were last read, system uptime; 0: read soon
-static double readingsCpu = -1.0;           // overall CPU over the 5 s before it (after a reset, one tick), 0..1, -1 before the first
+static double readingsCpu = -1.0;           // overall CPU over the 1 s before it (after a reset, one tick), 0..1, -1 before the first
 static bool readingsMemory = false;         // memory could be read, as these two bytes
 static uint64_t readingsMemoryUsed = 0;
 static uint64_t readingsMemoryTotal = 0;
@@ -1695,6 +1698,161 @@ static bool IsLight(NSAppearance* appearance)
     [image unlockFocus];
   }
   self.statusItem.button.image = image;
+  [self updateBarTips:(readings != NULL)];
+}
+
+// a tooltip-style label under each reading's bar (or dot) in the status item: disk, memory, CPU, worded as the panel's
+// rows. On macOS 27 no tooltip showed on the status item when tried (a tooltip rect was never asked for its text), but
+// the pointer reaches the button, so the label is the app's own panel. updateBarTips: records where the readings are
+// after each render; the pointer's entry and moves start a watch timer that follows the pointer while it is on the
+// item, since no exit was delivered either, and a reading under it arms the label (BAR_TIP_DELAY)
+static NSPanel* NewTipPanel(NSTextField* __strong * label);
+static void SetTipText(NSPanel* panel, NSTextField* label, NSString* text);
+static NSRect barTipLayout = {{-1.0, -1.0}, {-1.0, -1.0}}; // x: the image's left in the button, width: a slot; none: -1
+static NSInteger barTipIndex = -1;          // the reading under the pointer, armed or shown: 0 disk, 1 memory, 2 CPU, -1 none
+static NSPanel* barTip = nil;
+static NSTextField* barTipText = nil;
+static NSTimer* barTipWatch = nil;
+
+- (void)updateBarTips:(BOOL)shown
+{
+  NSStatusBarButton* button = self.statusItem.button;
+  static NSTrackingArea* tracking = nil;
+  if (tracking == nil)
+  {
+    tracking = [[NSTrackingArea alloc] initWithRect:NSZeroRect options:(NSTrackingMouseEnteredAndExited | NSTrackingMouseMoved | NSTrackingActiveAlways | NSTrackingInVisibleRect) owner:self userInfo:nil];
+    [button addTrackingArea:tracking];
+  }
+  NSRect layout = NSMakeRect(-1.0, -1.0, -1.0, -1.0);
+  if (shown)
+  {
+    NSRect bounds = button.bounds;
+    layout = NSMakeRect(round(NSMidX(bounds) - imageWidth/2.0), NSMinY(bounds), CpuRenderReadingsSlot(bar, drawWidth, tickTotalWidth), NSHeight(bounds));
+  }
+  if (!NSEqualRects(layout, barTipLayout))
+  {
+    barTipLayout = layout;
+    [self hideBarTip];
+  }
+}
+
+// the reading under the pointer, from where it is now: 0 disk, 1 memory, 2 CPU; -1 on the item but on none of them;
+// -2 off the item, or no readings shown
+- (NSInteger)barTipIndexNow
+{
+  NSStatusBarButton* button = self.statusItem.button;
+  if ((barTipLayout.size.width <= 0.0) || (button.window == nil))
+  {
+    return -2;
+  }
+  NSPoint p = [button convertPoint:[button.window convertPointFromScreen:[NSEvent mouseLocation]] fromView:nil];
+  if (!NSPointInRect(p, button.bounds))
+  {
+    return -2;
+  }
+  CGFloat x = p.x - barTipLayout.origin.x;
+  if ((x < 0.0) || (x >= 3.0*barTipLayout.size.width))
+  {
+    return -1;
+  }
+  return (NSInteger)floor(x / barTipLayout.size.width);
+}
+
+// a reading's text, as its panel row: "995GB Disk usage: 72%"
+- (NSString*)barTipTextAt:(NSInteger)index
+{
+  NSArray<NSArray<NSString*>*>* rows = [self infoRows];
+  if ((index < 0) || (index >= (NSInteger)MIN(rows.count, 3)))
+  {
+    return @"";
+  }
+  return [NSString stringWithFormat:@"%@ %@", rows[index][0], rows[index][1]];
+}
+
+// follows the pointer: off the item (or the menu open), everything stops; on it, the watch runs; another reading, or
+// none, hides the label and arms the new one; the same one keeps the label, laid out again only when its text changed
+- (void)trackBarTip
+{
+  NSInteger index = menuIsOpen ? -2 : [self barTipIndexNow];
+  if (index == -2)
+  {
+    [self hideBarTip];
+    return;
+  }
+  if (barTipWatch == nil)
+  {
+    barTipWatch = [NSTimer timerWithTimeInterval:BAR_TIP_WATCH target:self selector:@selector(watchBarTip:) userInfo:nil repeats:YES];
+    [[NSRunLoop currentRunLoop] addTimer:barTipWatch forMode:NSRunLoopCommonModes];
+  }
+  if (index != barTipIndex)
+  {
+    [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(showBarTip) object:nil];
+    [barTip orderOut:nil];
+    barTipIndex = index;
+    if (index >= 0)
+    {
+      [self performSelector:@selector(showBarTip) withObject:nil afterDelay:BAR_TIP_DELAY inModes:@[NSRunLoopCommonModes]];
+    }
+  }
+  else if ((index >= 0) && barTip.isVisible && ![[self barTipTextAt:index] isEqualToString:barTipText.stringValue])
+  {
+    [self showBarTip];
+  }
+}
+
+- (void)watchBarTip:(NSTimer*)timer
+{
+  [self trackBarTip];
+}
+
+- (void)mouseEntered:(NSEvent*)event
+{
+  [self trackBarTip];
+}
+
+- (void)mouseMoved:(NSEvent*)event
+{
+  [self trackBarTip];
+}
+
+- (void)mouseExited:(NSEvent*)event
+{
+  [self hideBarTip];
+}
+
+// the label below the menu bar, centred under its reading, kept on screen; not when the pointer has left that reading
+// since it was armed (the watch hides and re-arms at its next look)
+- (void)showBarTip
+{
+  NSStatusBarButton* button = self.statusItem.button;
+  if (menuIsOpen || (barTipIndex < 0) || (button.window == nil) || ([self barTipIndexNow] != barTipIndex))
+  {
+    return;
+  }
+  if (barTip == nil)
+  {
+    barTip = NewTipPanel(&barTipText);
+  }
+  SetTipText(barTip, barTipText, [self barTipTextAt:barTipIndex]);
+  NSRect slot = NSMakeRect(barTipLayout.origin.x + barTipIndex*barTipLayout.size.width, barTipLayout.origin.y, barTipLayout.size.width, barTipLayout.size.height);
+  NSRect onScreen = [button.window convertRectToScreen:[button convertRect:slot toView:nil]];
+  NSRect item = button.window.frame;
+  NSRect frame = barTip.frame;
+  NSRect visible = (button.window.screen ?: [NSScreen mainScreen]).frame;
+  frame.origin.x = round(NSMidX(onScreen) - NSWidth(frame)/2.0);
+  frame.origin.x = MIN(MAX(frame.origin.x, NSMinX(visible)), NSMaxX(visible) - NSWidth(frame));
+  frame.origin.y = NSMinY(item) - BAR_TIP_GAP - NSHeight(frame);
+  [barTip setFrame:frame display:YES];
+  [barTip orderFrontRegardless];
+}
+
+- (void)hideBarTip
+{
+  [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(showBarTip) object:nil];
+  [barTipWatch invalidate];
+  barTipWatch = nil;
+  barTipIndex = -1;
+  [barTip orderOut:nil];
 }
 
 - (void)renderPrefsRealWithLight:(BOOL)light readings:(const CpuReadings*)readings
@@ -1786,10 +1944,10 @@ static bool IsLight(NSAppearance* appearance)
 {
   // overall CPU, menu open or not, so that its window is full the moment the menu opens
   SystemInfoCpuTick();
-  // overall CPU and memory, for the bars and the panel, every READINGS_REFRESH s, half a tick early, so that a tick
+  // overall CPU and memory, for the bars and the panel, every READINGS_TICKS ticks, half a tick early, so that a tick
   // firing a little late does not put the read off by a whole tick; while CPU cannot be read yet (fewer than two
   // samples, after a reset) both keep their last reading and are tried again on the next tick
-  if (([[NSProcessInfo processInfo] systemUptime] - lastReadings) >= (READINGS_REFRESH - 0.5*RefreshInterval()))
+  if (([[NSProcessInfo processInfo] systemUptime] - lastReadings) >= ((READINGS_TICKS - 0.5)*RefreshInterval()))
   {
     double cpu = SystemInfoCpuBusy(NULL);
     if (cpu >= 0.0)
@@ -2836,6 +2994,7 @@ static NSTimeInterval TopDelay(void)
 - (void)menuWillOpen:(NSMenu *)menu
 {
   menuIsOpen = true;
+  [self hideBarTip];
   if (paused)
   {
     // the menu is open, so something can be seen: a wake was missed
@@ -2950,6 +3109,41 @@ static NSTimeInterval TopDelay(void)
   }
 }
 
+// a tooltip-style box: a borderless panel at help level in the tooltip material, its label in the tooltip font
+static NSPanel* NewTipPanel(NSTextField* __strong * label)
+{
+  NSPanel* panel = [[NSPanel alloc] initWithContentRect:NSMakeRect(0, 0, 100, 20) styleMask:(NSWindowStyleMaskBorderless | NSWindowStyleMaskNonactivatingPanel) backing:NSBackingStoreBuffered defer:YES];
+  panel.level = CGWindowLevelForKey(kCGHelpWindowLevelKey);
+  panel.ignoresMouseEvents = YES;
+  panel.hidesOnDeactivate = NO;
+  panel.hasShadow = YES;
+  panel.opaque = NO;
+  panel.backgroundColor = [NSColor clearColor];
+  panel.collectionBehavior = NSWindowCollectionBehaviorCanJoinAllSpaces | NSWindowCollectionBehaviorTransient | NSWindowCollectionBehaviorFullScreenAuxiliary;
+  NSVisualEffectView* background = [[NSVisualEffectView alloc] init];
+  background.material = NSVisualEffectMaterialToolTip;
+  background.state = NSVisualEffectStateActive;
+  background.wantsLayer = YES;
+  background.layer.cornerRadius = 5.0;
+  background.layer.masksToBounds = YES;
+  panel.contentView = background;
+  *label = [NSTextField wrappingLabelWithString:@""];
+  (*label).font = [NSFont toolTipsFontOfSize:0];
+  [background addSubview:*label];
+  return panel;
+}
+
+// the box's text, the box sized to it at its present origin
+static void SetTipText(NSPanel* panel, NSTextField* label, NSString* text)
+{
+  label.stringValue = text;
+  NSSize size = [label sizeThatFits:NSMakeSize(ROW_TIP_MAX_WIDTH, CGFLOAT_MAX)];
+  size = NSMakeSize(ceil(size.width), ceil(size.height));
+  label.frame = NSMakeRect(6.0, 4.0, size.width, size.height);
+  NSRect frame = panel.frame;
+  [panel setFrame:NSMakeRect(NSMinX(frame), NSMaxY(frame) - (size.height + 8.0), size.width + 12.0, size.height + 8.0) display:panel.isVisible];
+}
+
 - (void)showRowTip
 {
   NSMenuItem* item = rowTipItem;
@@ -2973,31 +3167,10 @@ static NSTimeInterval TopDelay(void)
 
   if (rowTip == nil)
   {
-    rowTip = [[NSPanel alloc] initWithContentRect:NSMakeRect(0, 0, 100, 20) styleMask:(NSWindowStyleMaskBorderless | NSWindowStyleMaskNonactivatingPanel) backing:NSBackingStoreBuffered defer:YES];
-    rowTip.level = CGWindowLevelForKey(kCGHelpWindowLevelKey);
-    rowTip.ignoresMouseEvents = YES;
-    rowTip.hidesOnDeactivate = NO;
-    rowTip.hasShadow = YES;
-    rowTip.opaque = NO;
-    rowTip.backgroundColor = [NSColor clearColor];
-    rowTip.collectionBehavior = NSWindowCollectionBehaviorCanJoinAllSpaces | NSWindowCollectionBehaviorTransient | NSWindowCollectionBehaviorFullScreenAuxiliary;
-    NSVisualEffectView* background = [[NSVisualEffectView alloc] init];
-    background.material = NSVisualEffectMaterialToolTip;
-    background.state = NSVisualEffectStateActive;
-    background.wantsLayer = YES;
-    background.layer.cornerRadius = 5.0;
-    background.layer.masksToBounds = YES;
-    rowTip.contentView = background;
-    rowTipText = [NSTextField wrappingLabelWithString:@""];
-    rowTipText.font = [NSFont toolTipsFontOfSize:0];
-    [background addSubview:rowTipText];
+    rowTip = NewTipPanel(&rowTipText);
   }
 
-  rowTipText.stringValue = item.representedObject;
-  NSSize size = [rowTipText sizeThatFits:NSMakeSize(ROW_TIP_MAX_WIDTH, CGFLOAT_MAX)];
-  size = NSMakeSize(ceil(size.width), ceil(size.height));
-  rowTipText.frame = NSMakeRect(6.0, 4.0, size.width, size.height);
-  [rowTip setFrame:NSMakeRect(0, 0, size.width + 12.0, size.height + 8.0) display:NO];
+  SetTipText(rowTip, rowTipText, item.representedObject);
   rowTipRow = row;
   rowTipMenuWindow = window;
   [self placeRowTip];

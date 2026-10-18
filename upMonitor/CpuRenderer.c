@@ -146,6 +146,11 @@ static CGFloat _readings_slot(bool bar, CGFloat tickWidth, CGFloat tickTotalWidt
   return bar ? (tickTotalWidth + tickWidth) : tickTotalWidth;
 }
 
+CGFloat CpuRenderReadingsSlot(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth)
+{
+  return _readings_slot(bar, tickWidth, tickTotalWidth);
+}
+
 CGFloat CpuRenderReadingsWidth(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth)
 {
   // as the core graph's own width: a slot per reading, and 1 pt more for dots

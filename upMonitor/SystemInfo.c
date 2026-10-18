@@ -39,8 +39,8 @@ static mach_port_t HostPort(void)
 
 #pragma mark - CPU
 
-#define CPU_RING_SIZE   (64)    // 6.3 s at the fastest refresh (0.1 s), enough for a 5 s window at every setting
-#define CPU_WINDOW      (5.0)   // s
+#define CPU_RING_SIZE   (64)    // 6.3 s at the fastest refresh (0.1 s), enough for a 1 s window at every setting
+#define CPU_WINDOW      (1.0)   // s
 
 struct CpuSample
 {
@@ -92,12 +92,16 @@ double SystemInfoCpuBusy(double* span)
     return -1.0;
   }
   const CpuSample* now = &cpuRing[cpuNewest];
-  // walk back from the newest to the first sample at least CPU_WINDOW older, and on while the host's counters have
-  // not moved since it (they can stall for most of a second, then catch up); none that old: the oldest stored
+  // half a tick, from the newest two samples: a tick firing a little early must not push the window a whole tick past
+  // CPU_WINDOW, as the readings' own threshold allows the same
+  const double slack = 0.5 * (now->time - cpuRing[(cpuNewest - 1 + CPU_RING_SIZE) % CPU_RING_SIZE].time);
+  // walk back from the newest to the first sample at least CPU_WINDOW older, less that half tick, and on while the
+  // host's counters have not moved since it (they can stall for most of a second, then catch up); none that old: the
+  // oldest stored
   for (int back=1; back<cpuCount; back++)
   {
     const CpuSample* then = &cpuRing[(cpuNewest - back + CPU_RING_SIZE) % CPU_RING_SIZE];
-    if (((now->time - then->time) < CPU_WINDOW) && (back < (cpuCount - 1)))
+    if (((now->time - then->time) < (CPU_WINDOW - slack)) && (back < (cpuCount - 1)))
     {
       continue;
     }
