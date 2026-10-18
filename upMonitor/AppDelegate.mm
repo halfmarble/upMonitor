@@ -374,6 +374,7 @@ static NSString* UptimeText(long seconds)
 
 static bool IsLight(NSAppearance* appearance);
 static double RefreshInterval(void);
+static double TopInterval(void);
 
 @interface StayOpenMenuItem : NSMenuItem
 {
@@ -593,7 +594,7 @@ NSMenuItem* MenuRowsStayOpenItem(NSString* title, SEL action, id target, NSDicti
   double cpus[TOP_TOOL_ROWS];
   bool loggedExit;
   bool loggedEmpty;
-  bool drawn;                   // a block of this run has redrawn the rows
+  bool drawn;                   // this run's first block with rows has come (applyTopTool:)
 }
 @end
 
@@ -1987,12 +1988,18 @@ static NSUInteger topToolGeneration = 0;
   }
   TopSetOthersCpu((const pid_t*)[pids bytes], (const double*)[cpus bytes], (int)([pids length] / sizeof(pid_t)));
   [self collectTopList];
-  // the rows redraw at each process sample (updateTop:), every 2.5 s; of top's blocks (every 2 s) only the run's first
-  // redraws them, so that other users' processes join without waiting for the next sample, which shows the later ones
+  // the rows redraw at each process sample (updateTop:), every 2.5 s, which shows top's latest block (every 2 s). At
+  // the run's first block the sample is taken then, so that other users' processes join with it and the rows change
+  // once, and the timer runs on from it; after a sample less than half an interval old (the timer's came first), or
+  // while paused, they join at the next one
   if (refreshTop && !session->drawn)
   {
     session->drawn = true;
-    [self updateMenuTop];
+    if (!paused && (([[NSProcessInfo processInfo] systemUptime] - lastTopSample) >= (0.5 * TopInterval())))
+    {
+      [self updateTop:nil];
+      [self startTopTimer:TopInterval()];
+    }
   }
 }
 
@@ -2856,18 +2863,26 @@ static NSTimeInterval TopDelay(void)
 
     refreshTop = true;
 
+    // with top running, the next sample is the one its first block takes (applyTopTool:), about 2.5 s from now, or the
+    // timer's soon fire left by a resume or an unfreeze (below); the timer waits two intervals, in case that block
+    // never comes
+    bool joining = (topToolSession != nil);
+
     // take a fresh sample, unless the timer has just taken one: a very short interval gives noisy CPU%
     if (!topListValid || (([[NSProcessInfo processInfo] systemUptime] - lastTopSample) >= TOP_MIN_INTERVAL))
     {
       [self updateTop:nil];
-      // the next sample a whole interval after this one, so that its CPU% never covers a shorter window
-      [self startTopTimer:TopInterval()];
+      // without top, the next sample a whole interval after this one, so that its CPU% never covers a shorter window
+      [self startTopTimer:(joining ? (2.0 * TopInterval()) : TopInterval())];
     }
     else
     {
       [self updateMenuTop];
-      // the next sample an interval after the last, or at the timer's own fire when that comes sooner (TopDelay)
-      [self startTopTimer:TopDelay()];
+      // without top, the next sample an interval after the last, or at the timer's own fire when that comes sooner
+      // (TopDelay); with top too when that fire is the soon one after a pause or an unfreeze, so that the rows do not
+      // show the average over it until top's first block
+      NSTimeInterval delay = TopDelay();
+      [self startTopTimer:((joining && (delay > TOP_MIN_INTERVAL)) ? (2.0 * TopInterval()) : delay)];
     }
   }
   else
