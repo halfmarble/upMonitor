@@ -776,11 +776,11 @@
                         </textFieldCell>
                     </textField>
                     <textField horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" textCompletion="NO" translatesAutoresizingMaskIntoConstraints="NO" id="dM0-lb-Txt">
-                        <rect key="frame" x="212" y="419" width="61" height="14"/>
+                        <rect key="frame" x="212" y="419" width="61" height="15"/>
                         <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
-                        <textFieldCell key="cell" controlSize="small" lineBreakMode="clipping" enabled="NO" alignment="center" title="DEMO" usesSingleLineMode="YES" id="dM0-lb-Cel">
-                            <font key="font" metaFont="label" size="11"/>
-                            <color key="textColor" name="tertiaryLabelColor" catalog="System" colorSpace="catalog"/>
+                        <textFieldCell key="cell" controlSize="small" lineBreakMode="clipping" enabled="NO" alignment="center" title="DEMO:" usesSingleLineMode="YES" id="dM0-lb-Cel">
+                            <font key="font" size="13" name="HelveticaNeue"/>
+                            <color key="textColor" name="secondaryLabelColor" catalog="System" colorSpace="catalog"/>
                             <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
                             <allowedInputSourceLocales>
                                 <string>NSAllRomanInputSourcesLocaleIdentifier</string>
