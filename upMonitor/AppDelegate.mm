@@ -44,7 +44,6 @@
 #pragma mark Constants
 
 #define TOP_COUNT                   (15)
-#define TOP_REFRESH_RATE            (2.5)
 #define TOP_TOOL_ROWS               (2*TOP_COUNT) // headroom: 2x the rows shown
 
 //   32 space bar  3.333984
@@ -1900,7 +1899,9 @@ static NSUInteger topToolGeneration = 0;
 
   NSTask* task = [[NSTask alloc] init];
   [task setExecutableURL:[NSURL fileURLWithPath:@"/usr/bin/top"]];
-  [task setArguments:@[@"-l", @"0", @"-s", @"2", @"-o", @"cpu", @"-stats", @"pid,cpu", @"-n", [NSString stringWithFormat:@"%d", TOP_TOOL_ROWS]]];
+  // a sample every twice the Refresh interval, in whole seconds (top's unit), at least 1 s: 1 s at all three settings
+  NSString* seconds = [NSString stringWithFormat:@"%ld", MAX(1L, lround(2.0 * RefreshInterval()))];
+  [task setArguments:@[@"-l", @"0", @"-s", seconds, @"-o", @"cpu", @"-stats", @"pid,cpu", @"-n", [NSString stringWithFormat:@"%d", TOP_TOOL_ROWS]]];
   // the decimal separator is '.' whatever the user's locale
   NSMutableDictionary* environment = [NSMutableDictionary dictionaryWithObject:@"C" forKey:@"LC_ALL"];
   NSString* path = [[[NSProcessInfo processInfo] environment] objectForKey:@"PATH"];
@@ -2017,6 +2018,12 @@ static double RefreshInterval(void)
   return ((interval == 0.1) || (interval == 0.2)) ? interval : 0.5;
 }
 
+// the process sample's interval: twice the Refresh interval while the menu is open, four times while it is closed
+static double TopInterval(void)
+{
+  return (menuIsOpen ? 2.0 : 4.0) * RefreshInterval();
+}
+
 - (void)setupPreferences
 {
 #if 0
@@ -2072,9 +2079,35 @@ static double RefreshInterval(void)
   timerCPU.tolerance = 0.1 * interval;
   [[NSRunLoop mainRunLoop] addTimer:timerCPU forMode:NSRunLoopCommonModes];
 
-  timerTop = [NSTimer timerWithTimeInterval:TOP_REFRESH_RATE target:self selector:@selector(updateTop:) userInfo:nil repeats:YES];
-  timerTop.tolerance = 0.1 * TOP_REFRESH_RATE;
+  [self startTopTimer:TopInterval()];
+}
+
+// (re)starts the process sample's timer at the interval for the menu's state (TopInterval), its next sample in delay s
+- (void)startTopTimer:(NSTimeInterval)delay
+{
+  [timerTop invalidate];
+  timerTop = nil;
+  if (paused)
+  {
+    return;
+  }
+  double interval = TopInterval();
+  timerTop = [NSTimer timerWithTimeInterval:interval target:self selector:@selector(updateTop:) userInfo:nil repeats:YES];
+  timerTop.tolerance = 0.1 * interval;
+  [timerTop setFireDate:[NSDate dateWithTimeIntervalSinceNow:delay]];
   [[NSRunLoop mainRunLoop] addTimer:timerTop forMode:NSRunLoopCommonModes];
+}
+
+// the delay to the next process sample: one interval after the last sample (now if that is past), or the timer's own
+// next sample when that comes sooner (the soon one after a pause or an unfreeze; at a close, the open menu's next)
+static NSTimeInterval TopDelay(void)
+{
+  NSTimeInterval delay = MAX(0.0, lastTopSample + TopInterval() - [[NSProcessInfo processInfo] systemUptime]);
+  if (timerTop != nil)
+  {
+    delay = MIN(delay, MAX(0.0, [[timerTop fireDate] timeIntervalSinceNow]));
+  }
+  return delay;
 }
 
 - (void)workspaceChanged:(NSNotification*)notification
@@ -2136,8 +2169,8 @@ static double RefreshInterval(void)
     CpuSamplerUpdate(&cpu_info);
     [self updateTop:nil];
     [self setupTimers];
-    // and the next process sample soon, so that an open menu does not show the pause's average for 2.5 s
-    [timerTop setFireDate:[NSDate dateWithTimeIntervalSinceNow:TOP_MIN_INTERVAL]];
+    // and the next process sample soon, so that an open menu does not show the pause's average for a whole interval
+    [self startTopTimer:MIN(TOP_MIN_INTERVAL, TopInterval())];
     NSLog(@"running again");
   }
 }
@@ -2531,11 +2564,11 @@ static double RefreshInterval(void)
       // as at an opening: top runs, and the rows refresh from the next sample, taken soon
       [self startTopTool];
       refreshTop = true;
-      [timerTop setFireDate:[NSDate dateWithTimeIntervalSinceNow:TOP_MIN_INTERVAL]];
+      [self startTopTimer:MIN(TOP_MIN_INTERVAL, TopInterval())];
     }
     else
     {
-      [timerTop setFireDate:[NSDate dateWithTimeIntervalSinceNow:TOP_REFRESH_RATE]];
+      [self startTopTimer:TopInterval()];
     }
   }
 }
@@ -2792,8 +2825,7 @@ static double RefreshInterval(void)
   // frozen: the rows keep what they showed, and neither top nor a sample runs
   if (!frozen)
   {
-    // other users' processes join when top's second sample arrives, about two and a half seconds later: a sample every
-    // 2 s, which costs top half the CPU of one a second
+    // other users' processes join when top's second sample arrives, a second after its first (startTopTool)
     [self startTopTool];
 
     refreshTop = true;
@@ -2802,12 +2834,22 @@ static double RefreshInterval(void)
     if (!topListValid || (([[NSProcessInfo processInfo] systemUptime] - lastTopSample) >= TOP_MIN_INTERVAL))
     {
       [self updateTop:nil];
-      [timerTop setFireDate:[NSDate dateWithTimeIntervalSinceNow:TOP_REFRESH_RATE]];
+      // the samples come at the open menu's interval, the next one a whole interval after this one, so that its
+      // CPU% never covers a shorter window
+      [self startTopTimer:TopInterval()];
     }
     else
     {
       [self updateMenuTop];
+      // the samples come at the open menu's interval, the next one an interval after the last, or at the timer's
+      // own fire when that comes sooner (TopDelay)
+      [self startTopTimer:TopDelay()];
     }
+  }
+  else
+  {
+    // frozen: no sample, but the rows a build adds tick at the open menu's interval
+    [self startTopTimer:TopInterval()];
   }
 
   // the menu's window is new on every opening; paint it once it is on screen
@@ -2839,6 +2881,9 @@ static double RefreshInterval(void)
   menuIsOpen = false;
   refreshTop = false;
   [self stopTopTool];
+  // the samples come at the closed menu's interval, the next one an interval after the last, or at the open timer's
+  // own fire when that comes sooner (TopDelay)
+  [self startTopTimer:TopDelay()];
   [self hideRowTip];
   [self hideInfoPanel];
 
