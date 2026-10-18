@@ -776,7 +776,7 @@
                         </textFieldCell>
                     </textField>
                     <textField horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" textCompletion="NO" translatesAutoresizingMaskIntoConstraints="NO" id="dM0-lb-Txt">
-                        <rect key="frame" x="275" y="419" width="60" height="14"/>
+                        <rect key="frame" x="212" y="419" width="61" height="14"/>
                         <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
                         <textFieldCell key="cell" controlSize="small" lineBreakMode="clipping" enabled="NO" alignment="center" title="DEMO" usesSingleLineMode="YES" id="dM0-lb-Cel">
                             <font key="font" metaFont="label" size="11"/>
