@@ -151,10 +151,15 @@ CGFloat CpuRenderReadingsSlot(bool bar, CGFloat tickWidth, CGFloat tickTotalWidt
   return _readings_slot(bar, tickWidth, tickTotalWidth);
 }
 
-CGFloat CpuRenderReadingsWidth(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth)
+static int _readings_count(int extraCount)
+{
+  return CPU_RENDER_READINGS_COUNT + ((extraCount < 0) ? 0 : ((extraCount > CPU_RENDER_EXTRA_MAX) ? CPU_RENDER_EXTRA_MAX : extraCount));
+}
+
+CGFloat CpuRenderReadingsWidth(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth, int extraCount)
 {
   // as the core graph's own width: a slot per reading, and 1 pt more for dots
-  return (CPU_RENDER_READINGS_COUNT*_readings_slot(bar, tickWidth, tickTotalWidth)) + (bar ? 0.0 : 1.0) + CPU_RENDER_READINGS_GAP;
+  return (_readings_count(extraCount)*_readings_slot(bar, tickWidth, tickTotalWidth)) + (bar ? 0.0 : 1.0) + CPU_RENDER_READINGS_GAP;
 }
 
 // a bar's full-height background: 100%, in a light grey
@@ -219,18 +224,23 @@ void CpuRender(CpuSummaryInfo* cpu_info, CGContextRef ctx, bool light, int granu
   CGFloat offset = 0.0;
   if (readings)
   {
-    offset = CpuRenderReadingsWidth(bar, tickWidth, tickTotalWidth);
+    offset = CpuRenderReadingsWidth(bar, tickWidth, tickTotalWidth, readings->extraCount);
     CGFloat slot = _readings_slot(bar, tickWidth, tickTotalWidth);
+    const int count = _readings_count(readings->extraCount);
     if (bar)
     {
       CGContextSetGrayFillColor(ctx, color, range*0.25);
       CGContextFillRect(ctx, CGRectMake(0, 0, offset-CPU_RENDER_READINGS_GAP, 1));
     }
-    // disk, memory, CPU from the left; a value below 0 or NaN is not read and draws only the bar's background, one above
-    // 1 draws as 1
-    const double values[CPU_RENDER_READINGS_COUNT] = {readings->disk, readings->memory, readings->cpu};
+    // disk, memory, CPU from the left, then the extra readings; a value below 0 or NaN is not read and draws only the
+    // bar's background, one above 1 draws as 1
+    double values[CPU_RENDER_READINGS_COUNT+CPU_RENDER_EXTRA_MAX] = {readings->disk, readings->memory, readings->cpu};
+    for (int i=CPU_RENDER_READINGS_COUNT; i<count; i++)
+    {
+      values[i] = readings->extra[i-CPU_RENDER_READINGS_COUNT];
+    }
     const CGFloat width = bar ? 2.0*tickWidth : tickWidth;
-    for (int i=0; i<CPU_RENDER_READINGS_COUNT; i++)
+    for (int i=0; i<count; i++)
     {
       if (values[i] >= 0.0)
       {

@@ -939,6 +939,10 @@ static bool colored = false;
 static int theme = THEME_YELLOW;
 
 static bool showBars = true;         // the disk, memory and CPU bars left of the graph
+static int extraBarCount = 0;        // the bars the MenuRows classes add after them, read at each tick (collectExtraBars)
+static double extraBars[CPU_RENDER_EXTRA_MAX];
+static NSUInteger extraBarOwner[CPU_RENDER_EXTRA_MAX]; // each one's class, as its index in menuRows,
+static NSUInteger extraBarItem[CPU_RENDER_EXTRA_MAX];  // and its index in that class's barReadings and barLabels
 
 static float speed = 1.0f;
 
@@ -1059,7 +1063,7 @@ static NSMutableSet<NSTask*>* runningTasks = nil;
   graphWidth = imageWidth;
   if (showBars)
   {
-    imageWidth += CpuRenderReadingsWidth(bar, drawWidth, tickTotalWidth);
+    imageWidth += CpuRenderReadingsWidth(bar, drawWidth, tickTotalWidth, extraBarCount);
   }
 }
 
@@ -1666,23 +1670,27 @@ static bool IsLight(NSAppearance* appearance)
     [image unlockFocus];
   }
   self.statusItem.button.image = image;
-  [self updateBarTips:(readings != NULL)];
+  [self updateBarTips:(readings != NULL) ? (CPU_RENDER_READINGS_COUNT + readings->extraCount) : 0];
 }
 
 // a tooltip-style label under each reading's bar (or dot) in the status item: disk, memory, CPU, worded as the panel's
-// rows. On macOS 27 no tooltip showed on the status item when tried (a tooltip rect was never asked for its text), but
-// the pointer reaches the button, so the label is the app's own panel. updateBarTips: records where the readings are
-// after each render; the pointer's entry and moves start a watch timer that follows the pointer while it is on the
-// item, since no exit was delivered either, and a reading under it arms the label (BAR_TIP_DELAY)
+// rows, and each extra bar's, worded by its class (barLabels). On macOS 27 no tooltip showed on the status item when
+// tried (a tooltip rect was never asked for its text), but the pointer reaches the button, so the label is the app's
+// own panel. updateBarTips: records where the readings are after each render; the pointer's entry and moves start a
+// watch timer that follows the pointer while it is on the item, since no exit was delivered either, and a reading
+// under it arms the label (BAR_TIP_DELAY)
 static NSPanel* NewTipPanel(NSTextField* __strong * label);
 static void SetTipText(NSPanel* panel, NSTextField* label, NSString* text);
 static NSRect barTipLayout = {{-1.0, -1.0}, {-1.0, -1.0}}; // x: the image's left in the button, width: a slot; none: -1
-static NSInteger barTipIndex = -1;          // the reading under the pointer, armed or shown: 0 disk, 1 memory, 2 CPU, -1 none
+static NSInteger barTipCount = 0;           // the readings drawn: the three, and the extra bars; none: 0
+static NSInteger barTipIndex = -1;          // the reading under the pointer, armed or shown: 0 disk, 1 memory, 2 CPU, 3 on
+                                            // the extra bars, -1 none
 static NSPanel* barTip = nil;
 static NSTextField* barTipText = nil;
 static NSTimer* barTipWatch = nil;
 
-- (void)updateBarTips:(BOOL)shown
+// count: the readings drawn, 0 when none
+- (void)updateBarTips:(NSInteger)count
 {
   NSStatusBarButton* button = self.statusItem.button;
   static NSTrackingArea* tracking = nil;
@@ -1692,19 +1700,21 @@ static NSTimer* barTipWatch = nil;
     [button addTrackingArea:tracking];
   }
   NSRect layout = NSMakeRect(-1.0, -1.0, -1.0, -1.0);
-  if (shown)
+  if (count > 0)
   {
     NSRect bounds = button.bounds;
     layout = NSMakeRect(round(NSMidX(bounds) - imageWidth/2.0), NSMinY(bounds), CpuRenderReadingsSlot(bar, drawWidth, tickTotalWidth), NSHeight(bounds));
   }
-  if (!NSEqualRects(layout, barTipLayout))
+  if (!NSEqualRects(layout, barTipLayout) || (count != barTipCount))
   {
     barTipLayout = layout;
+    barTipCount = count;
     [self hideBarTip];
   }
 }
 
-// the reading under the pointer, from where it is now: 0 disk, 1 memory, 2 CPU; -1 on the item but on none of them;
+// the reading under the pointer, from where it is now: 0 disk, 1 memory, 2 CPU, 3 on the extra bars; -1 on the item
+// but on none of them;
 // -2 off the item, or no readings shown
 - (NSInteger)barTipIndexNow
 {
@@ -1719,16 +1729,29 @@ static NSTimer* barTipWatch = nil;
     return -2;
   }
   CGFloat x = p.x - barTipLayout.origin.x;
-  if ((x < 0.0) || (x >= 3.0*barTipLayout.size.width))
+  if ((x < 0.0) || (x >= barTipCount*barTipLayout.size.width))
   {
     return -1;
   }
   return (NSInteger)floor(x / barTipLayout.size.width);
 }
 
-// a reading's text, as its panel row: "995GB Disk usage: 72%"
+// a reading's text, as its panel row: "995GB Disk usage: 72%"; an extra bar's, its class's barLabels entry; empty when
+// there is none
 - (NSString*)barTipTextAt:(NSInteger)index
 {
+  if (index >= CPU_RENDER_READINGS_COUNT)
+  {
+    NSInteger extra = index - CPU_RENDER_READINGS_COUNT;
+    if ((extra >= extraBarCount) || (extraBarOwner[extra] >= menuRows.count))
+    {
+      return @"";
+    }
+    id<MenuRows> rows = menuRows[extraBarOwner[extra]];
+    NSArray<NSString*>* labels = [rows respondsToSelector:@selector(barLabels)] ? [rows barLabels] : nil;
+    NSString* label = (extraBarItem[extra] < labels.count) ? labels[extraBarItem[extra]] : nil;
+    return [label isKindOfClass:[NSString class]] ? label : @"";
+  }
   NSArray<NSArray<NSString*>*>* rows = [self readingRows];
   if ((index < 0) || (index >= (NSInteger)rows.count))
   {
@@ -1797,11 +1820,17 @@ static NSTimer* barTipWatch = nil;
   {
     return;
   }
+  NSString* text = [self barTipTextAt:barTipIndex];
+  if (text.length == 0)
+  {
+    [barTip orderOut:nil];
+    return;
+  }
   if (barTip == nil)
   {
     barTip = NewTipPanel(&barTipText);
   }
-  SetTipText(barTip, barTipText, [self barTipTextAt:barTipIndex]);
+  SetTipText(barTip, barTipText, text);
   NSRect slot = NSMakeRect(barTipLayout.origin.x + barTipIndex*barTipLayout.size.width, barTipLayout.origin.y, barTipLayout.size.width, barTipLayout.size.height);
   NSRect onScreen = [button.window convertRectToScreen:[button convertRect:slot toView:nil]];
   NSRect item = button.window.frame;
@@ -1908,6 +1937,34 @@ static NSTimer* barTipWatch = nil;
   self.flatDemoView.image = image;
 }
 
+// the bars the MenuRows classes add after the CPU bar, in their order, at most CPU_RENDER_EXTRA_MAX in all; none while
+// the bars are off. A value that is not a number is not read (-1)
+- (void)collectExtraBars
+{
+  extraBarCount = 0;
+  if (!showBars)
+  {
+    return;
+  }
+  for (NSUInteger owner=0; owner<menuRows.count; owner++)
+  {
+    id<MenuRows> rows = menuRows[owner];
+    NSArray<NSNumber*>* values = [rows respondsToSelector:@selector(barReadings)] ? [rows barReadings] : nil;
+    for (NSUInteger item=0; item<values.count; item++)
+    {
+      if (extraBarCount >= CPU_RENDER_EXTRA_MAX)
+      {
+        return;
+      }
+      NSNumber* value = values[item];
+      extraBars[extraBarCount] = [value isKindOfClass:[NSNumber class]] ? value.doubleValue : -1.0;
+      extraBarOwner[extraBarCount] = owner;
+      extraBarItem[extraBarCount] = item;
+      extraBarCount++;
+    }
+  }
+}
+
 - (void)updateCPU:(id)sender
 {
   // overall CPU, menu open or not, so that its window is full the moment the menu opens
@@ -1926,11 +1983,17 @@ static NSTimer* barTipWatch = nil;
     }
   }
 
+  [self collectExtraBars];
   [self updateRendererParameters];
 
   // one set of readings per tick, for the menu bar and the real-time preview; CPU or memory that cannot be read is -1,
   // and its bar shows only its background (no dot in Dot style); the disk keeps its last reading, -1 before the first
   CpuReadings readings = {-1.0, -1.0, diskFraction};
+  readings.extraCount = extraBarCount;
+  for (int i=0; i<extraBarCount; i++)
+  {
+    readings.extra[i] = extraBars[i];
+  }
   if (showBars)
   {
     readings.cpu = readingsCpu;
@@ -2986,15 +3049,28 @@ static void SetTipText(NSPanel* panel, NSTextField* label, NSString* text)
   background.accessibilityLabel = @"Readings";
   infoGlass.contentView = background;
   infoPanel.contentView = infoGlass;
+  // the rows are made by applyInfoValues (makeInfoRows:starts:)
+}
 
+// a label and a value for each of count rows, and a separator for each section start: the ones there are kept, the
+// missing ones added at the end, the extra ones removed from the end, so the panel follows a build's rows when their
+// number changes (MenuRows' panelRows); applyInfoValues sets their text
+- (void)makeInfoRows:(NSUInteger)count starts:(NSIndexSet*)starts
+{
+  NSView* background = infoGlass.contentView;
   NSFont* font = [NSFont fontWithName:MENU_FONT_NAME size:MENU_ICON_SIZE-2];
-  NSMutableArray<NSTextField*>* labels = [NSMutableArray array];
-  NSMutableArray<NSTextField*>* values = [NSMutableArray array];
-  NSMutableIndexSet* starts = [NSMutableIndexSet indexSet];
-  NSArray<NSArray<NSString*>*>* rows = [self infoRowsWithStarts:starts];
-  for (NSArray<NSString*>* row in rows)
+  NSMutableArray<NSTextField*>* labels = [NSMutableArray arrayWithArray:infoLabels ?: @[]];
+  NSMutableArray<NSTextField*>* values = [NSMutableArray arrayWithArray:infoValues ?: @[]];
+  while (labels.count > count)
   {
-    NSTextField* label = [NSTextField labelWithString:row[0]];
+    [labels.lastObject removeFromSuperview];
+    [labels removeLastObject];
+    [values.lastObject removeFromSuperview];
+    [values removeLastObject];
+  }
+  while (labels.count < count)
+  {
+    NSTextField* label = [NSTextField labelWithString:@""];
     label.font = font;
     label.textColor = [NSColor labelColor];
     [background addSubview:label];
@@ -3009,8 +3085,13 @@ static void SetTipText(NSPanel* panel, NSTextField* label, NSString* text)
   infoLabels = labels;
   infoValues = values;
 
-  NSMutableArray<NSBox*>* separators = [NSMutableArray array];
-  for (NSUInteger i=0; i<starts.count; i++)
+  NSMutableArray<NSBox*>* separators = [NSMutableArray arrayWithArray:infoSeparators ?: @[]];
+  while (separators.count > starts.count)
+  {
+    [separators.lastObject removeFromSuperview];
+    [separators removeLastObject];
+  }
+  while (separators.count < starts.count)
   {
     NSBox* separator = [[NSBox alloc] init];
     separator.boxType = NSBoxSeparator;
@@ -3018,7 +3099,7 @@ static void SetTipText(NSPanel* panel, NSTextField* label, NSString* text)
     [separators addObject:separator];
   }
   infoSeparators = separators;
-  infoSeparatorRows = starts;
+  infoSeparatorRows = [starts copy];
 }
 
 // the menu's look, read at each opening since the settings can change in between: its appearance (the menu bar's,
@@ -3130,7 +3211,8 @@ static void SetTipText(NSPanel* panel, NSTextField* label, NSString* text)
 
 // sets the values, then sizes and places the panel: left of the menu and level with its top, or right of it when the
 // left has no room; kept on screen, even when that means covering the menu. The side is decided once per opening and
-// the panel only widens within one, so a row tip placed left of it stays clear of it.
+// the panel only widens within one, so a row tip placed left of it stays clear of it; its height follows the rows,
+// whose number a build's panelRows may change.
 - (void)applyInfoValues
 {
   if (!infoPlaced || (infoPanel == nil))
@@ -3138,8 +3220,13 @@ static void SetTipText(NSPanel* panel, NSTextField* label, NSString* text)
     return;
   }
 
-  NSArray<NSArray<NSString*>*>* rows = [self infoRowsWithStarts:nil];
-  NSUInteger count = MIN(rows.count, infoValues.count);
+  NSMutableIndexSet* starts = [NSMutableIndexSet indexSet];
+  NSArray<NSArray<NSString*>*>* rows = [self infoRowsWithStarts:starts];
+  if ((rows.count != infoValues.count) || ![starts isEqualToIndexSet:infoSeparatorRows])
+  {
+    [self makeInfoRows:rows.count starts:starts];
+  }
+  NSUInteger count = rows.count;
   CGFloat labelWidth = 0.0;
   CGFloat valueWidth = 0.0;
   for (NSUInteger i=0; i<count; i++)
@@ -3192,10 +3279,11 @@ static void SetTipText(NSPanel* panel, NSTextField* label, NSString* text)
   frame.origin.y = NSMaxY(menuFrame) - height;
   frame.origin.x = MIN(MAX(frame.origin.x, NSMinX(visible)), NSMaxX(visible) - width);
   frame.origin.y = MIN(MAX(frame.origin.y, NSMinY(visible)), NSMaxY(visible) - height);
+  bool resized = widened || (height != NSHeight(infoPanel.frame));
   [infoPanel setFrame:frame display:YES];
   infoGlass.contentView.frame = infoGlass.bounds;
 
-  if (widened && (rowTipMenuWindow != nil) && rowTip.isVisible)
+  if (resized && (rowTipMenuWindow != nil) && rowTip.isVisible)
   {
     [self placeRowTip];
   }
