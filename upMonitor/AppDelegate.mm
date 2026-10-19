@@ -332,6 +332,17 @@ static NSString* PercentText(uint64_t part, uint64_t whole, NSLocale* locale)
   return [[NSString alloc] initWithFormat:@"%ld%%" locale:locale, percent];
 }
 
+// "512 MB", "1.2 GB": a process's memory, in units of 1024, to the nearest MB under 1 GB
+static NSString* MemoryText(uint64_t bytes)
+{
+  uint64_t mb = (bytes + 524288) / 1048576;
+  if (mb < 1024)
+  {
+    return [NSString stringWithFormat:@"%llu MB", mb];
+  }
+  return [NSString stringWithFormat:@"%.1f GB", (double)bytes / 1073741824.0];
+}
+
 // "16GB Memory usage:": a row's title led by its whole, written without a space ("16 GB" -> "16GB")
 static NSString* TotalTitle(NSString* wholeText, NSString* name)
 {
@@ -841,6 +852,7 @@ static NSTimer* timerTop = nil;
 static TopProcessSample_t topProcceses[TOP_COUNT];
 static NSMenuItem* topMenus[TOP_COUNT];
 static NSMutableDictionary<NSString*, NSString*>* topNameCache = nil; // padded names, by display text
+static NSMutableDictionary<NSString*, NSString*>* topMemCache = nil;  // padded memory texts, by text
 static CFMutableDictionaryRef topCpuHashTable;
 static NSMutableDictionary<NSNumber*, ProcessIconDecision*>* topIconCache = nil; // by pid
 
@@ -851,6 +863,7 @@ static bool menuIsOpen = false;            // from menuWillOpen: to menuDidClose
 static bool baselineOnly = false;
 static bool topListValid = false;
 static int topCount = 0;
+static TopOrder topOrder;                 // the order of the rows; TopOrderCpu (0) until set
 static int topOthersCount = 0;            // other users' processes at the last sample, whose CPU cannot be read
 static NSMenuItem* othersItem = nil;      // the row below the process rows that counts them
 static NSTimeInterval lastTopSample = 0.0;
@@ -930,6 +943,7 @@ static NSDictionary* attributesGrey = nil;
 static NSDictionary* attributesWhite = nil;
 
 static double spaceWidth = 0.0;
+static CGFloat memTarget = 0.0;           // the width of the memory column
 
 static NSNumber *current_process_pid = nil;
 
@@ -1280,6 +1294,21 @@ static BOOL spaces_init = NO;
   //return [NSString stringWithFormat:@"%--s %*c %6.1f%%", name, spaces, SPACE_THIN, cpu];
 }
 
+- (NSString*)getStringForMem:(uint64_t)mem known:(int)known width:(CGFloat)target
+{
+  NSString* text = (known != 0) ? MemoryText(mem) : @"—";
+  NSString* padded = topMemCache[text];
+  if (padded == nil)
+  {
+    NSMutableString* string = [NSMutableString stringWithString:text];
+    int count = MAX([self getSpacesCountFor:string width:target], 0);
+    [string insertString:[NSString stringWithCharacters:&spaces[0] length:count] atIndex:0];
+    padded = [string copy];
+    topMemCache[text] = padded;
+  }
+  return padded;
+}
+
 - (NSString*)getStringForName:(NSString*)name width:(CGFloat)target
 {
   // keyed by the text shown, so a process that exec'd shows its new name
@@ -1351,16 +1380,17 @@ static BOOL spaces_init = NO;
   }
 }
 
-- (void)updateMenuTopFor:(NSMenuItem*)item name:(char*)name pid:(pid_t)pid cpu:(double)cpu width:(CGFloat)target
+- (void)updateMenuTopFor:(NSMenuItem*)item name:(char*)name pid:(pid_t)pid cpu:(double)cpu mem:(uint64_t)mem memKnown:(int)memKnown width:(CGFloat)target
 {
   ProcessIconDecision* decision = [self decisionForPid:pid];
   NSString* shownName = [NSString stringWithFormat:@"%@%@", (decision.helper ? @"↳ " : @""), SampleText(name)];
   NSString* stringName = [self getStringForName:shownName width:target];
   NSString* stringCpu = [self getStringForCpu:cpu width:CPU_STR_SPACE_TARGET];
-  [item setTitle: [NSString stringWithFormat:@"%@ %@", stringName, stringCpu]];
+  NSString* stringMem = [self getStringForMem:mem known:memKnown width:memTarget];
+  [item setTitle: [NSString stringWithFormat:@"%@ %@ %@", stringName, stringCpu, stringMem]];
   
   NSMutableAttributedString* title = [[NSMutableAttributedString alloc] initWithString:[item title] attributes:attributesGrey];
-  [title setAttributes:attributesWhite range:NSMakeRange([stringName length], [stringCpu length]+1)];
+  [title setAttributes:attributesWhite range:NSMakeRange([stringName length], [stringCpu length]+1+[stringMem length]+1)];
 
   
   [item setAttributedTitle:title];
@@ -1379,7 +1409,7 @@ static NSString* OthersRowText(int count)
   {
     return @"";
   }
-  return (count == 1) ? @"1 other user's process: CPU not readable" : [NSString stringWithFormat:@"%d other users' processes: CPU not readable", count];
+  return (count == 1) ? @"1 other user's process: CPU and memory not readable" : [NSString stringWithFormat:@"%d other users' processes: CPU and memory not readable", count];
 }
 
 // the row's title: grey, and in smaller type when its text at four digits would be wider than a process row, so that
@@ -1387,7 +1417,7 @@ static NSString* OthersRowText(int count)
 - (NSAttributedString*)othersTitle:(int)count
 {
   NSString* text = OthersRowText(count);
-  CGFloat room = NAME_STR_SPACE_TARGET + spaceWidth + CPU_STR_SPACE_TARGET;
+  CGFloat room = NAME_STR_SPACE_TARGET + spaceWidth + CPU_STR_SPACE_TARGET + spaceWidth + memTarget;
   CGFloat widest = [OthersRowText(MAX(count, 1000)) sizeWithAttributes:attributesStandard].width;
   if (widest <= room)
   {
@@ -1432,7 +1462,7 @@ static NSString* OthersRowText(int count)
       continue;
     }
     TopProcessSample_t* sample = &topProcceses[i];
-    [self updateMenuTopFor:topMenus[i] name:sample->name pid:sample->pid cpu:sample->cpu width:NAME_STR_SPACE_TARGET];
+    [self updateMenuTopFor:topMenus[i] name:sample->name pid:sample->pid cpu:sample->cpu mem:sample->mem memKnown:sample->mem_known width:NAME_STR_SPACE_TARGET];
     [topMenus[i] setTag:sample->pid];
     [topMenus[i] setHidden:NO];
   }
@@ -1470,6 +1500,12 @@ static NSString* OthersRowText(int count)
   
   unichar unicodeSpace[1] = {SPACE_THIN};
   spaceWidth = [[NSString stringWithCharacters:unicodeSpace length:1] sizeWithAttributes:attributesStandard].width;
+  
+  memTarget = 0.0;
+  for (NSString* sample in @[@"1023 MB", @"999.9 GB", @"—"])
+  {
+    memTarget = MAX(memTarget, [sample sizeWithAttributes:attributesGrey].width);
+  }
   
   NSDictionary* attributesThin = @{
     NSFontAttributeName: [NSFont fontWithName:MENU_FONT_NAME size:1.0],
@@ -1980,8 +2016,9 @@ static NSTimer* barTipWatch = nil;
   const TopProcessSample_t *psample = TopIterate();
   while ((psample != NULL) && (counter < TOP_COUNT))
   {
-    // other users' processes have no CPU figure in the sandbox and are not ranked
-    if (psample->cpu_known != 0)
+    // other users' processes have no CPU or memory figure in the sandbox and are not ranked; in memory order a
+    // process whose memory could not be read is not ranked either
+    if (((topOrder == TopOrderMemory) ? psample->mem_known : psample->cpu_known) != 0)
     {
       topProcceses[counter++] = *psample;
     }
@@ -2228,6 +2265,7 @@ static NSTimeInterval TopDelay(void)
       topCpuHashTable = CFDictionaryCreateMutable(NULL, 0, NULL, &tableCallbacks);
     }
     topNameCache = [NSMutableDictionary dictionary];
+    topMemCache = [NSMutableDictionary dictionary];
     topIconCache = [NSMutableDictionary dictionary];
     frozenStarts = [NSMutableDictionary dictionary];
 

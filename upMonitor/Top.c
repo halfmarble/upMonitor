@@ -90,6 +90,7 @@ static int _top_unreadable_count;
 static rb_tree(_TopProcessInfo_t) _top_pid_tree;
 static rb_tree(_TopProcessInfo_t) _top_sorted_tree;
 static boolean_t _top_is_sorted;
+static TopOrder _top_order = TopOrderCpu;
 static _TopProcessInfo_t* _top_iterator;
 
 static void simpleFree(CFAllocatorRef allocator, const void *value)
@@ -118,6 +119,15 @@ static int _top_compare_cpu_func(const _TopProcessInfo_t *a, const _TopProcessIn
 {
   if (a->sample.cpu > b->sample.cpu) return -1;
   if (a->sample.cpu < b->sample.cpu) return 1;
+  return 0;
+}
+
+// Known memory before unknown, then the larger footprint first; ties keep the pid order of the walk.
+static int _top_compare_mem_func(const _TopProcessInfo_t *a, const _TopProcessInfo_t *b)
+{
+  if (a->sample.mem_known != b->sample.mem_known) return (a->sample.mem_known > b->sample.mem_known) ? -1 : 1;
+  if (a->sample.mem > b->sample.mem) return -1;
+  if (a->sample.mem < b->sample.mem) return 1;
   return 0;
 }
 
@@ -181,10 +191,32 @@ static int __attribute__((noinline)) _top_kinfo_for_pid(struct kinfo_proc* kinfo
   return (0);
 }
 
+// The physical footprint of a process, 1 when read. The task name port is what the App Sandbox allows for
+// the user's own processes, and it is enough for TASK_VM_INFO.
+static int _top_read_footprint(pid_t pid, uint64_t* footprint)
+{
+  mach_port_t port = MACH_PORT_NULL;
+  if (task_name_for_pid(mach_task_self(), pid, &port) != KERN_SUCCESS)
+  {
+    return 0;
+  }
+  task_vm_info_data_t info;
+  mach_msg_type_number_t count = TASK_VM_INFO_COUNT;
+  int read = 0;
+  if ((task_info(port, TASK_VM_INFO, (task_info_t)&info, &count) == KERN_SUCCESS) && (count >= TASK_VM_INFO_REV1_COUNT))
+  {
+    *footprint = info.phys_footprint;
+    read = 1;
+  }
+  mach_port_deallocate(mach_task_self(), port);
+  return read;
+}
+
 // Identity (name, uid, ppid, status) comes from proc_pidinfo(PROC_PIDT_SHORTBSDINFO), which works for
 // every process. CPU time and start time come from proc_pidinfo(PROC_PIDTASKALLINFO), which works only
 // for the user's own processes: other users' processes (root daemons, WindowServer...) are unknown
-// (cpu_known 0). Both are much cheaper than sysctl(KERN_PROC_PID).
+// (cpu_known 0). Both are much cheaper than sysctl(KERN_PROC_PID). Memory comes from the task name port,
+// for the user's own processes too.
 static int __attribute__((noinline)) _top_update_for_pid(pid_t pid)
 {
   struct proc_bsdshortinfo bsdinfo;
@@ -225,6 +257,8 @@ static int __attribute__((noinline)) _top_update_for_pid(pid_t pid)
     // another user's process: macOS gives a sandboxed app no CPU time for it
     sample->cpu = 0.0;
     sample->cpu_known = 0;
+    sample->mem = 0;
+    sample->mem_known = 0;
     sample->start_us = 0;
     sample->last_timens = 0;
     return (0);
@@ -267,6 +301,17 @@ static int __attribute__((noinline)) _top_update_for_pid(pid_t pid)
     sample->cpu = 0.0;
   }
   sample->cpu_known = 1;
+  uint64_t footprint = 0;
+  if (_top_read_footprint(pid, &footprint))
+  {
+    sample->mem = footprint;
+    sample->mem_known = 1;
+  }
+  else
+  {
+    sample->mem = 0;
+    sample->mem_known = 0;
+  }
   sample->total_timens = total_timens;
   sample->last_timens = _timens;
   
@@ -333,7 +378,7 @@ void TopSort(void)
     if (pinfo->sample.sequence == _top_sequence)
     {
       rb_node_new(&_top_sorted_tree, pinfo, node_sorted);
-      rb_insert(&_top_sorted_tree, pinfo, _top_compare_cpu_func, _TopProcessInfo_t, node_sorted);
+      rb_insert(&_top_sorted_tree, pinfo, (_top_order == TopOrderMemory) ? _top_compare_mem_func : _top_compare_cpu_func, _TopProcessInfo_t, node_sorted);
       
       _top_process_count++;
       if ((pinfo->sample.cpu_known == 0) && (pinfo->sample.uid != getuid()))
@@ -345,6 +390,15 @@ void TopSort(void)
     {
       _top_destroy(pinfo);
     }
+  }
+}
+
+void TopSetOrder(TopOrder order)
+{
+  _top_order = (order == TopOrderMemory) ? TopOrderMemory : TopOrderCpu;
+  if (_top_sequence != 0)
+  {
+    TopSort();
   }
 }
 

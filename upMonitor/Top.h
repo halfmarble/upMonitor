@@ -43,6 +43,9 @@ struct TopProcessSample
   double   cpu;          // % of one core since the previous read, 0 when there is no baseline
   int      cpu_known;    // 0 = unknown (the App Sandbox gives no CPU time for another user's process),
                          // 1 = measured
+  uint64_t mem;          // physical footprint in bytes (phys_footprint, the figure footprint(1) reports), 0 when unknown
+  int      mem_known;    // 0 = unknown (another user's process, or the read failed),
+                         // 1 = read
 
   uint32_t sequence;
 
@@ -74,6 +77,10 @@ TopProcessInfo_t* TopGetArgs(pid_t pid);
 TopProcessSample_t* TopGetSample(pid_t pid);
 // The number of other users' processes in the latest sample whose CPU is unknown (cpu_known 0).
 int TopUnreadableCount(void);
+
+typedef enum { TopOrderCpu = 0, TopOrderMemory = 1 } TopOrder;
+// Sets the order TopIterate walks the sample in, and sorts the latest sample again if there is one.
+void TopSetOrder(TopOrder order);
 
 __END_DECLS
 
