@@ -53,6 +53,8 @@
 
 #define MENU_ICON_SIZE              (14.0)
 #define TOP_ICON_SIZE               (48.0)
+#define INSPECTOR_MARGIN            (20.0)  // pt: the icon's own left margin
+#define INSPECTOR_GAP               (8.0)   // pt between the header's views and its text
 #define MENU_FONT_NAME              @"Helvetica"
 #define MENU_TITLE_FONT_NAME        @"Verdana"
 
@@ -568,6 +570,8 @@ static NSMutableArray<Class>* menuRowsClasses = nil;
 
 // one instance of each registered class, made in setupMenus; a menu item's target is weak, so this keeps them alive
 static NSMutableArray<id<MenuRows>>* menuRows = nil;
+// the views the rows add to the inspector's header, made on its first showing; empty unless a build adds rows
+static NSMutableArray<NSView*>* inspectorRowViews = nil;
 
 void MenuRowsRegister(Class<MenuRows> rowsClass)
 {
@@ -2328,6 +2332,53 @@ static NSTimeInterval TopDelay(void)
   NSLog(@"processExplorer");
 }
 
+// the views the rows add to the inspector's header, at its right; with none, nothing here changes the header
+- (void)showInspectorRowsForPid:(pid_t)pid name:(NSString*)name exited:(bool)exited
+{
+  NSView* header = [self.procAppName superview];
+  if (inspectorRowViews == nil)
+  {
+    inspectorRowViews = [[NSMutableArray alloc] init];
+    for (id<MenuRows> rows in menuRows)
+    {
+      if ([rows respondsToSelector:@selector(inspectorViews)])
+      {
+        for (NSView* view in [rows inspectorViews])
+        {
+          // they stay at the right as the window is resized
+          [view setAutoresizingMask:NSViewMinXMargin | NSViewMinYMargin];
+          [header addSubview:view];
+          [inspectorRowViews addObject:view];
+        }
+      }
+    }
+  }
+  for (id<MenuRows> rows in menuRows)
+  {
+    if ([rows respondsToSelector:@selector(inspectorShowsPid:name:exited:)])
+    {
+      [rows inspectorShowsPid:pid name:name exited:exited];
+    }
+  }
+  if ([inspectorRowViews count] == 0)
+  {
+    return;
+  }
+  // right to left from the header's right edge, the margin the icon keeps at the left
+  NSRect nameFrame = [self.procAppName frame];
+  CGFloat x = NSWidth([header bounds]) - INSPECTOR_MARGIN;
+  for (NSView* view in [inspectorRowViews reverseObjectEnumerator])
+  {
+    NSRect frame = [view frame];
+    x -= NSWidth(frame);
+    frame.origin = NSMakePoint(x, round(NSMidY(nameFrame) - (NSHeight(frame) / 2.0)));
+    [view setFrame:frame];
+    x -= INSPECTOR_GAP;
+  }
+  nameFrame.size.width = MAX(0.0, x - NSMinX(nameFrame));
+  [self.procAppName setFrame:nameFrame];
+}
+
 - (void)selectPid:(id)sender
 {
   static NSTabViewItem* descriptionTab = nil;
@@ -2419,6 +2470,7 @@ static NSTimeInterval TopDelay(void)
   frame.size.height = decision.helper ? 32.0 : 16.0;
   frame.origin.y = midY - (frame.size.height / 2.0);
   [self.procAppName setFrame:frame];
+  [self showInspectorRowsForPid:pid name:SampleText(sample->name) exited:exited];
 
   NSString* live = exited ? @"\nN/A (exited)" : @"\npreparing...";
   [self.procDescTextView setString:@"\npreparing..."];

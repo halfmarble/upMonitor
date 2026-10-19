@@ -26,7 +26,8 @@ NS_ASSUME_NONNULL_BEGIN
 
 // Rows that a build adds to the status menu, above Quit, and to the readings panel beside it, above Uptime. A class
 // that adopts MenuRows registers itself with MenuRowsRegister from its +load; upMonitor makes one instance of each
-// when it builds the menu and adds its rows, then a separator, and its panel rows as a section of their own.
+// when it builds the menu and adds its rows, then a separator, and its panel rows as a section of their own. It may
+// also add views to the process inspector's header.
 // Everything here runs on the main thread, +load aside.
 @protocol MenuRows <NSObject>
 // the rows, their titles set in attributes, the menu's own text attributes
@@ -41,6 +42,13 @@ NS_ASSUME_NONNULL_BEGIN
 // the panel's rows, each a title and its value (@[@"Title:", @"value"]), the same number each time; read whenever the
 // panel's values are set: as the menu opens and then every second while it is open, frozen or not
 - (NSArray<NSArray<NSString*>*>*)panelRows;
+// views for the process inspector's header, made once, the first time the inspector shows a process: laid out left to
+// right in this order, the last one ending at the header's right edge, each centred on the header's line; the header's
+// text ends before the first
+- (NSArray<NSView*>*)inspectorViews;
+// each time the inspector shows a process, before its views are laid out: its pid and name, exited when it is a frozen
+// row whose process has exited or whose pid now belongs to another process. A view may change its width here
+- (void)inspectorShowsPid:(pid_t)pid name:(NSString*)name exited:(BOOL)exited;
 @end
 
 __BEGIN_DECLS
