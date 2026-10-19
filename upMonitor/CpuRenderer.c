@@ -156,10 +156,30 @@ static int _readings_count(int extraCount)
   return CPU_RENDER_READINGS_COUNT + ((extraCount < 0) ? 0 : ((extraCount > CPU_RENDER_EXTRA_MAX) ? CPU_RENDER_EXTRA_MAX : extraCount));
 }
 
+// the extra readings' block at the right of the image: its gap, a slot per reading, and 1 pt more for dots; none
+// without extra readings
+static CGFloat _extra_width(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth, int extraCount)
+{
+  const int extra = _readings_count(extraCount) - CPU_RENDER_READINGS_COUNT;
+  return (extra > 0) ? (CPU_RENDER_EXTRA_GAP + (extra*_readings_slot(bar, tickWidth, tickTotalWidth)) + (bar ? 0.0 : 1.0)) : 0.0;
+}
+
+CGFloat CpuRenderReadingX(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth, CGFloat imageWidth, int extraCount, int index)
+{
+  const CGFloat slot = _readings_slot(bar, tickWidth, tickTotalWidth);
+  if (index < CPU_RENDER_READINGS_COUNT)
+  {
+    return index*slot;
+  }
+  return imageWidth - _extra_width(bar, tickWidth, tickTotalWidth, extraCount) + CPU_RENDER_EXTRA_GAP +
+    ((index - CPU_RENDER_READINGS_COUNT)*slot);
+}
+
 CGFloat CpuRenderReadingsWidth(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth, int extraCount)
 {
-  // as the core graph's own width: a slot per reading, and 1 pt more for dots
-  return (_readings_count(extraCount)*_readings_slot(bar, tickWidth, tickTotalWidth)) + (bar ? 0.0 : 1.0) + CPU_RENDER_READINGS_GAP;
+  // as the core graph's own width: a slot per reading, and 1 pt more for dots; then the extra readings' block
+  return (CPU_RENDER_READINGS_COUNT*_readings_slot(bar, tickWidth, tickTotalWidth)) + (bar ? 0.0 : 1.0) + CPU_RENDER_READINGS_GAP +
+    _extra_width(bar, tickWidth, tickTotalWidth, extraCount);
 }
 
 // a bar's full-height background: 100%, in a light grey
@@ -220,17 +240,24 @@ void CpuRender(CpuSummaryInfo* cpu_info, CGContextRef ctx, bool light, int granu
   
   const CGFloat range = 0.75;
   
-  // the core graph starts after the readings block and its gap
+  // the core graph starts after the readings block and its gap, and ends before the extra readings' gap
   CGFloat offset = 0.0;
+  CGFloat end = imageWidth;
   if (readings)
   {
-    offset = CpuRenderReadingsWidth(bar, tickWidth, tickTotalWidth, readings->extraCount);
-    CGFloat slot = _readings_slot(bar, tickWidth, tickTotalWidth);
+    offset = CpuRenderReadingsWidth(bar, tickWidth, tickTotalWidth, 0);
+    end = imageWidth - _extra_width(bar, tickWidth, tickTotalWidth, readings->extraCount);
     const int count = _readings_count(readings->extraCount);
     if (bar)
     {
+      // the base line under the readings, and under the extra readings at the right
       CGContextSetGrayFillColor(ctx, color, range*0.25);
       CGContextFillRect(ctx, CGRectMake(0, 0, offset-CPU_RENDER_READINGS_GAP, 1));
+      if (count > CPU_RENDER_READINGS_COUNT)
+      {
+        CGFloat start = CpuRenderReadingX(bar, tickWidth, tickTotalWidth, imageWidth, readings->extraCount, CPU_RENDER_READINGS_COUNT);
+        CGContextFillRect(ctx, CGRectMake(start, 0, imageWidth-start, 1));
+      }
     }
     // disk, memory, CPU from the left, then the extra readings; a value below 0 or NaN is not read and draws only the
     // bar's background, one above 1 draws as 1
@@ -242,13 +269,14 @@ void CpuRender(CpuSummaryInfo* cpu_info, CGContextRef ctx, bool light, int granu
     const CGFloat width = bar ? 2.0*tickWidth : tickWidth;
     for (int i=0; i<count; i++)
     {
+      CGFloat x = CpuRenderReadingX(bar, tickWidth, tickTotalWidth, imageWidth, readings->extraCount, i);
       if (values[i] >= 0.0)
       {
-        _render_group(ctx, i*slot, fmin(values[i], 1.0), color, range, bar, colored, theme, width, light);
+        _render_group(ctx, x, fmin(values[i], 1.0), color, range, bar, colored, theme, width, light);
       }
       else if (bar)
       {
-        _render_background(ctx, i*slot, width, color, light);
+        _render_background(ctx, x, width, color, light);
       }
     }
   }
@@ -256,9 +284,9 @@ void CpuRender(CpuSummaryInfo* cpu_info, CGContextRef ctx, bool light, int granu
   if (bar)
   {
     CGContextSetGrayFillColor(ctx, color, range*0.25);
-    CGContextFillRect(ctx, CGRectMake(offset, 0, imageWidth-offset, 1));
+    CGContextFillRect(ctx, CGRectMake(offset, 0, end-offset, 1));
   }
-  
+
   natural_t count = CpuSamplerGetCount(granularity); // at least 1
   natural_t group = cpu_info->countLogical / count;  // 0 when no CPU could be read: nothing to average
   for (natural_t i=0; i<count; i++)

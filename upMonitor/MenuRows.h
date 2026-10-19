@@ -24,10 +24,10 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-// Rows that a build adds to the status menu, above Quit, and to the readings panel beside it, above Uptime. A class
-// that adopts MenuRows registers itself with MenuRowsRegister from its +load; upMonitor makes one instance of each
-// when it builds the menu and adds its rows, then a separator, and its panel rows as a section of their own. It may
-// also add views to the process inspector's header, and bars to the menu bar after the CPU bar.
+// Rows that a build adds to the status menu, above Quit, and to the readings panel beside it, after the readings. A
+// class that adopts MenuRows registers itself with MenuRowsRegister from its +load; upMonitor makes one instance of
+// each when it builds the menu and adds its rows, then a separator, and its panel rows as a section of their own. It
+// may also add views to the process inspector's header, and bars to the menu bar, at the right of the core graph.
 // Everything here runs on the main thread, +load aside.
 @protocol MenuRows <NSObject>
 // the rows, their titles set in attributes, the menu's own text attributes
@@ -50,10 +50,10 @@ NS_ASSUME_NONNULL_BEGIN
 // each time the inspector shows a process, before its views are laid out: its pid and name, exited when it is a frozen
 // row whose process has exited or whose pid now belongs to another process. A view may change its width here
 - (void)inspectorShowsPid:(pid_t)pid name:(NSString*)name exited:(BOOL)exited;
-// bars for the menu bar, drawn after the CPU bar in its style, each 0..1 (below 0: not read, only its background in
-// bar style, nothing in Dot style); read at each tick of the graph while the bars are shown, menu open or not. All
-// classes' bars together, at most CPU_RENDER_EXTRA_MAX (4), the rest not drawn; the status item widens or narrows
-// when their number changes
+// bars for the menu bar, drawn right of the core graph in the CPU bar's style, each 0..1 (below 0: not read, only its
+// background in bar style, nothing in Dot style); read at each tick of the graph while the bars are shown, menu open or
+// not. All classes' bars together, at most CPU_RENDER_EXTRA_MAX (4), the rest not drawn; the status item widens or
+// narrows when their number changes
 - (NSArray<NSNumber*>*)barReadings;
 // each bar's text, in the same order, shown below it while the pointer rests on it ("Title: value"); read when the
 // label shows and every 0.25 s while it is shown. A missing or empty text shows no label

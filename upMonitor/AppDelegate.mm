@@ -277,8 +277,8 @@ static NSWindow* OpenMenuWindow(NSMenu* menu, NSMenuItem* item, NSRect* row)
 
 #pragma mark - The readings panel beside the menu
 
-// While the status menu is open, a panel beside it shows how full the startup volume is, memory, overall CPU and
-// uptime, all read on this Mac. It is placed left of the menu, level with its top, or right of it when there is no
+// While the status menu is open, a panel beside it shows uptime, then how full the startup volume is, memory and
+// overall CPU, all read on this Mac. It is placed left of the menu, level with its top, or right of it when there is no
 // room on the left; it updates every second, frozen too, and closes with the menu. The disk row is read when the menu
 // opens and then every 10 s: each read asks another process for the volume's purgeable space. With the menu closed
 // and the menu bar's bars on, the graph's timer reads it every 60 s instead.
@@ -900,7 +900,7 @@ static NSGlassEffectView* infoGlass = nil;  // its background
 static NSArray<NSTextField*>* infoLabels = nil;
 static NSArray<NSTextField*>* infoValues = nil;
 static NSArray<NSBox*>* infoSeparators = nil; // menu-style lines, one above each row of infoSeparatorRows
-static NSIndexSet* infoSeparatorRows = nil; // the first row of each section after the readings (Uptime: the last)
+static NSIndexSet* infoSeparatorRows = nil; // the first row of each section after Uptime, the first row (the readings: 1)
 static NSTimer* infoTimer = nil;            // while the menu is open
 static bool infoPlaced = false;             // the panel was placed in this opening
 static bool infoRetried = false;            // the menu's window was looked for a second time in this opening
@@ -939,7 +939,7 @@ static bool colored = false;
 static int theme = THEME_YELLOW;
 
 static bool showBars = true;         // the disk, memory and CPU bars left of the graph
-static int extraBarCount = 0;        // the bars the MenuRows classes add after them, read at each tick (collectExtraBars)
+static int extraBarCount = 0;        // the bars MenuRows classes add right of the graph, read each tick (collectExtraBars)
 static double extraBars[CPU_RENDER_EXTRA_MAX];
 static NSUInteger extraBarOwner[CPU_RENDER_EXTRA_MAX]; // each one's class, as its index in menuRows,
 static NSUInteger extraBarItem[CPU_RENDER_EXTRA_MAX];  // and its index in that class's barReadings and barLabels
@@ -1728,12 +1728,17 @@ static NSTimer* barTipWatch = nil;
   {
     return -2;
   }
+  // a reading's slot starts where the renderer draws it, the extra bars' after the core graph; a gap is on none of them
   CGFloat x = p.x - barTipLayout.origin.x;
-  if ((x < 0.0) || (x >= barTipCount*barTipLayout.size.width))
+  for (NSInteger index=0; index<barTipCount; index++)
   {
-    return -1;
+    CGFloat start = CpuRenderReadingX(bar, drawWidth, tickTotalWidth, imageWidth, (int)(barTipCount - CPU_RENDER_READINGS_COUNT), (int)index);
+    if ((x >= start) && (x < (start + barTipLayout.size.width)))
+    {
+      return index;
+    }
   }
-  return (NSInteger)floor(x / barTipLayout.size.width);
+  return -1;
 }
 
 // a reading's text, as its panel row: "995GB Disk usage: 72%"; an extra bar's, its class's barLabels entry; empty when
@@ -1831,7 +1836,7 @@ static NSTimer* barTipWatch = nil;
     barTip = NewTipPanel(&barTipText);
   }
   SetTipText(barTip, barTipText, text);
-  NSRect slot = NSMakeRect(barTipLayout.origin.x + barTipIndex*barTipLayout.size.width, barTipLayout.origin.y, barTipLayout.size.width, barTipLayout.size.height);
+  NSRect slot = NSMakeRect(barTipLayout.origin.x + CpuRenderReadingX(bar, drawWidth, tickTotalWidth, imageWidth, (int)(barTipCount - CPU_RENDER_READINGS_COUNT), (int)barTipIndex), barTipLayout.origin.y, barTipLayout.size.width, barTipLayout.size.height);
   NSRect onScreen = [button.window convertRectToScreen:[button convertRect:slot toView:nil]];
   NSRect item = button.window.frame;
   NSRect frame = barTip.frame;
@@ -1937,7 +1942,7 @@ static NSTimer* barTipWatch = nil;
   self.flatDemoView.image = image;
 }
 
-// the bars the MenuRows classes add after the CPU bar, in their order, at most CPU_RENDER_EXTRA_MAX in all; none while
+// the bars the MenuRows classes add right of the core graph, in their order, at most CPU_RENDER_EXTRA_MAX in all; none while
 // the bars are off. A value that is not a number is not read (-1)
 - (void)collectExtraBars
 {
@@ -3190,11 +3195,13 @@ static void SetTipText(NSPanel* panel, NSTextField* label, NSString* text)
   return @[@[diskTitle ?: @"Disk usage:", diskText ?: @"—"], @[memoryTitle, memoryUsed], @[@"CPU:", cpu]];
 }
 
-// the panel's rows as shown: the readings, then each MenuRows' panel rows as a section of their own, then uptime,
-// read now, a section too; starts, when given, gets the first row of each section after the readings
+// the panel's rows as shown: uptime, read now, then the readings as a section, then each MenuRows' panel rows as a
+// section of their own; starts, when given, gets the first row of each section after uptime
 - (NSArray<NSArray<NSString*>*>*)infoRowsWithStarts:(NSMutableIndexSet*)starts
 {
-  NSMutableArray<NSArray<NSString*>*>* rows = [[self readingRows] mutableCopy];
+  NSMutableArray<NSArray<NSString*>*>* rows = [NSMutableArray arrayWithObject:@[@"Uptime:", UptimeText(SystemInfoUptimeSeconds())]];
+  [starts addIndex:rows.count];
+  [rows addObjectsFromArray:[self readingRows]];
   for (id<MenuRows> menuRow in menuRows)
   {
     NSArray<NSArray<NSString*>*>* section = [menuRow respondsToSelector:@selector(panelRows)] ? [menuRow panelRows] : nil;
@@ -3204,8 +3211,6 @@ static void SetTipText(NSPanel* panel, NSTextField* label, NSString* text)
       [rows addObjectsFromArray:section];
     }
   }
-  [starts addIndex:rows.count];
-  [rows addObject:@[@"Uptime:", UptimeText(SystemInfoUptimeSeconds())]];
   return rows;
 }
 
