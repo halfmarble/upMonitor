@@ -29,7 +29,6 @@
 #import <unistd.h>
 #import <getopt.h>
 #import <stdlib.h>
-#import <cxxabi.h>
 #import <ctype.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 
@@ -45,7 +44,6 @@
 
 #define TOP_COUNT                   (15)
 #define TOP_REFRESH_RATE            (2.5)   // s between process samples, whatever the Refresh setting
-#define TOP_TOOL_ROWS               (2*TOP_COUNT) // headroom: 2x the rows shown
 
 //   32 space bar  3.333984
 // 8201 thin space 1.669922
@@ -580,130 +578,6 @@ NSMenuItem* MenuRowsStayOpenItem(NSString* title, SEL action, id target, NSDicti
   return item;
 }
 
-#pragma mark - /usr/bin/top reader
-
-// One /usr/bin/top run per menu opening. Its lines are parsed on the file handle's background queue;
-// only complete blocks of (pid, cpu) rows reach the main thread.
-@interface TopToolSession : NSObject
-{
-@public
-  NSUInteger generation;
-  NSTask* task;
-  NSMutableData* pending;       // bytes after the last newline
-  int blocks;                   // "PID" header lines seen; block 1 is all zeros and is dropped
-  bool inBlock;
-  int rows;
-  pid_t pids[TOP_TOOL_ROWS];
-  double cpus[TOP_TOOL_ROWS];
-  bool loggedExit;
-  bool loggedEmpty;
-  bool drawn;                   // this run's first block with rows has come (applyTopTool:)
-}
-@end
-
-@implementation TopToolSession
-@end
-
-// a row is exactly: spaces, pid, spaces, cpu (digits with an optional fraction), spaces
-static bool ParseTopRow(const char* s, pid_t* pid, double* cpu)
-{
-  while (isspace((unsigned char)*s)) s++;
-  if (!isdigit((unsigned char)*s)) return false;
-  long long p = 0;
-  while (isdigit((unsigned char)*s))
-  {
-    p = (p * 10) + (*s++ - '0');
-    if (p > INT_MAX) return false;
-  }
-  if (!isspace((unsigned char)*s)) return false;
-  while (isspace((unsigned char)*s)) s++;
-  if (!isdigit((unsigned char)*s)) return false;
-  double value = 0.0;
-  while (isdigit((unsigned char)*s))
-  {
-    value = (value * 10.0) + (*s++ - '0');
-  }
-  if (*s == '.')
-  {
-    s++;
-    if (!isdigit((unsigned char)*s)) return false;
-    double scale = 0.1;
-    while (isdigit((unsigned char)*s))
-    {
-      value += (*s++ - '0') * scale;
-      scale /= 10.0;
-    }
-  }
-  while (isspace((unsigned char)*s)) s++;
-  if (*s != '\0') return false;
-  *pid = (pid_t)p;
-  *cpu = value;
-  return true;
-}
-
-// feeds one line to the parser; calls block() for every complete block after the first
-static void TopToolParseLine(TopToolSession* session, const char* line, void (^block)(NSData* pids, NSData* cpus), void (^empty)(void))
-{
-  pid_t pid;
-  double cpu;
-  if (strncmp(line, "PID", 3) == 0)
-  {
-    session->blocks++;
-    session->inBlock = true;
-    session->rows = 0;
-  }
-  else if (strncmp(line, "Processes:", 10) == 0)
-  {
-    if (session->inBlock && (session->blocks > 1))
-    {
-      if (session->rows > 0)
-      {
-        block([NSData dataWithBytes:session->pids length:session->rows * sizeof(pid_t)], [NSData dataWithBytes:session->cpus length:session->rows * sizeof(double)]);
-      }
-      else
-      {
-        empty();
-      }
-    }
-    session->inBlock = false;
-  }
-  else if (session->inBlock && ParseTopRow(line, &pid, &cpu))
-  {
-    session->pids[session->rows] = pid;
-    session->cpus[session->rows] = cpu;
-    session->rows++;
-    if (session->rows == TOP_TOOL_ROWS)
-    {
-      if (session->blocks > 1)
-      {
-        block([NSData dataWithBytes:session->pids length:session->rows * sizeof(pid_t)], [NSData dataWithBytes:session->cpus length:session->rows * sizeof(double)]);
-      }
-      session->inBlock = false;
-    }
-  }
-}
-
-static void TopToolConsume(TopToolSession* session, NSData* data, void (^block)(NSData* pids, NSData* cpus), void (^empty)(void))
-{
-  [session->pending appendData:data];
-  const char* bytes = (const char*)[session->pending bytes];
-  NSUInteger length = [session->pending length];
-  NSUInteger start = 0;
-  for (NSUInteger i=0; i<length; i++)
-  {
-    if (bytes[i] == '\n')
-    {
-      char line[256];
-      NSUInteger n = MIN(i - start, sizeof(line) - 1);
-      memcpy(line, &bytes[start], n);
-      line[n] = '\0';
-      TopToolParseLine(session, line, block, empty);
-      start = i + 1;
-    }
-  }
-  [session->pending replaceBytesInRange:NSMakeRange(0, start) withBytes:NULL length:0];
-}
-
 #pragma mark - Process icons
 
 typedef NS_ENUM(NSInteger, ProcessIconRule)
@@ -978,6 +852,8 @@ static bool menuIsOpen = false;            // from menuWillOpen: to menuDidClose
 static bool baselineOnly = false;
 static bool topListValid = false;
 static int topCount = 0;
+static int topOthersCount = 0;            // other users' processes at the last sample, whose CPU cannot be read
+static NSMenuItem* othersItem = nil;      // the row below the process rows that counts them
 static NSTimeInterval lastTopSample = 0.0;
 #define TOP_MIN_INTERVAL (0.25)
 
@@ -989,7 +865,7 @@ static bool sessionInactive = false;
 static bool paused = false;
 
 // Freeze (an item in the status menu whose check mark is its image): while frozen the rows keep what they
-// showed, nothing is sampled for them and /usr/bin/top is not run; the menu-bar CPU graph keeps moving.
+// showed, nothing is sampled for them; the menu-bar CPU graph keeps moving.
 // frozenStarts holds each row's process start time, read when Freeze was chosen (0 = already gone).
 static bool frozen = false;
 static NSMutableDictionary<NSNumber*, NSNumber*>* frozenStarts = nil; // by pid
@@ -1057,16 +933,10 @@ static NSDictionary* attributesWhite = nil;
 static double spaceWidth = 0.0;
 
 static NSNumber *current_process_pid = nil;
-static NSString *current_process_path = nil;
 
-// The inspector's tools (man, lsof, nm, sample) run on a background queue. Every selection bumps
-// inspectGeneration, and a result that belongs to an older selection is dropped. The *Job values
-// hold the generation of a tool still running for that tab (0 = none). Main thread only.
+// The inspector's man page tool runs on a background queue. Every selection bumps
+// inspectGeneration, and a result that belongs to an older selection is dropped. Main thread only.
 static NSUInteger inspectGeneration = 0;
-static NSUInteger lsofJob = 0;
-static NSUInteger nmJob = 0;
-static NSUInteger threadsJob = 0;
-static NSUInteger threadsRun = 0;
 static NSMutableSet<NSTask*>* runningTasks = nil;
 #define TOOL_OUTPUT_MAX (1024*1024) // characters shown; laying out tens of MB blocks the main thread for seconds
 
@@ -1503,6 +1373,48 @@ static BOOL spaces_init = NO;
   //return size.width;
 }
 
+// the text of the row that counts other users' processes; "" when there are none
+static NSString* OthersRowText(int count)
+{
+  if (count <= 0)
+  {
+    return @"";
+  }
+  return (count == 1) ? @"1 other user's process: CPU not readable" : [NSString stringWithFormat:@"%d other users' processes: CPU not readable", count];
+}
+
+// the row's title: grey, and in smaller type when its text at four digits would be wider than a process row, so that
+// a count gaining a digit never resizes the menu
+- (NSAttributedString*)othersTitle:(int)count
+{
+  NSString* text = OthersRowText(count);
+  CGFloat room = NAME_STR_SPACE_TARGET + spaceWidth + CPU_STR_SPACE_TARGET;
+  CGFloat widest = [OthersRowText(MAX(count, 1000)) sizeWithAttributes:attributesStandard].width;
+  if (widest <= room)
+  {
+    return [[NSAttributedString alloc] initWithString:text attributes:attributesStandard];
+  }
+  static bool logged = false;
+  if (!logged)
+  {
+    logged = true;
+    NSLog(@"the row counting other users' processes is %.1f pt wide at four digits, wider than a process row's %.1f pt: it is set in smaller type", widest, room);
+  }
+  NSFont* font = attributesStandard[NSFontAttributeName];
+  CGFloat size = floor(font.pointSize * room / widest * 10.0) / 10.0;
+  NSMutableDictionary* smaller = [attributesStandard mutableCopy];
+  while (size > 1.0)
+  {
+    smaller[NSFontAttributeName] = [NSFont fontWithDescriptor:font.fontDescriptor size:size];
+    if ([OthersRowText(MAX(count, 1000)) sizeWithAttributes:smaller].width <= room)
+    {
+      break;
+    }
+    size -= 0.1;
+  }
+  return [[NSAttributedString alloc] initWithString:text attributes:smaller];
+}
+
 - (void)updateMenuTop
 {
   if (baselineOnly)
@@ -1525,6 +1437,9 @@ static BOOL spaces_init = NO;
     [topMenus[i] setTag:sample->pid];
     [topMenus[i] setHidden:NO];
   }
+
+  [othersItem setAttributedTitle:[self othersTitle:topOthersCount]];
+  [othersItem setHidden:(topOthersCount <= 0)];
   
   [menu update];
 }
@@ -1582,6 +1497,10 @@ static BOOL spaces_init = NO;
       topMenus[i] = [menu addItemWithTitle:@"" action:@selector(selectPid:) keyEquivalent:@""];
       ShowMenuItemImage(topMenus[i]);
     }
+    // below the rows: how many other users' processes have no CPU figure (updateMenuTop)
+    othersItem = [menu addItemWithTitle:@"" action:nil keyEquivalent:@""];
+    [othersItem setEnabled:NO];
+    [othersItem setHidden:YES];
   }
   
   [menu addItem:[NSMenuItem separatorItem]];
@@ -2052,7 +1971,7 @@ static NSTimer* barTipWatch = nil;
   const TopProcessSample_t *psample = TopIterate();
   while ((psample != NULL) && (counter < TOP_COUNT))
   {
-    // other users' processes are ranked only while /usr/bin/top supplies their CPU (menu open)
+    // other users' processes have no CPU figure in the sandbox and are not ranked
     if (psample->cpu_known != 0)
     {
       topProcceses[counter++] = *psample;
@@ -2060,125 +1979,7 @@ static NSTimer* barTipWatch = nil;
     psample = TopIterate();
   }
   topCount = counter;
-}
-
-#pragma mark - /usr/bin/top while the menu is open
-
-static TopToolSession* topToolSession = nil;
-static NSUInteger topToolGeneration = 0;
-
-- (void)startTopTool
-{
-  [self stopTopTool];
-
-  TopToolSession* session = [[TopToolSession alloc] init];
-  session->generation = ++topToolGeneration;
-  session->pending = [NSMutableData data];
-
-  NSTask* task = [[NSTask alloc] init];
-  [task setExecutableURL:[NSURL fileURLWithPath:@"/usr/bin/top"]];
-  // a sample every 2 s, whatever the Refresh setting: top takes whole seconds, and 2 s costs it about half the CPU of 1 s
-  [task setArguments:@[@"-l", @"0", @"-s", @"2", @"-o", @"cpu", @"-stats", @"pid,cpu", @"-n", [NSString stringWithFormat:@"%d", TOP_TOOL_ROWS]]];
-  // the decimal separator is '.' whatever the user's locale
-  NSMutableDictionary* environment = [NSMutableDictionary dictionaryWithObject:@"C" forKey:@"LC_ALL"];
-  NSString* path = [[[NSProcessInfo processInfo] environment] objectForKey:@"PATH"];
-  if (path != nil)
-  {
-    environment[@"PATH"] = path;
-  }
-  [task setEnvironment:environment];
-  NSPipe* pipe = [NSPipe pipe];
-  [task setStandardOutput:pipe];
-  [task setStandardError:[NSFileHandle fileHandleWithNullDevice]];
-
-  NSUInteger generation = session->generation;
-  [task setTerminationHandler:^(NSTask* t) {
-    int status = [t terminationStatus];
-    long reason = (long)[t terminationReason];
-    dispatch_async(dispatch_get_main_queue(), ^{
-      if ((topToolSession != nil) && (topToolSession->generation == generation) && !topToolSession->loggedExit)
-      {
-        topToolSession->loggedExit = true;
-        NSLog(@"/usr/bin/top exited while the menu was open: status %d, reason %ld", status, reason);
-      }
-    });
-  }];
-
-  NSError* error = nil;
-  if (![task launchAndReturnError:&error])
-  {
-    NSLog(@"could not launch /usr/bin/top: %@", error);
-    return;
-  }
-  session->task = task;
-  topToolSession = session;
-
-  __weak AppDelegate* weakSelf = self;
-  [[pipe fileHandleForReading] setReadabilityHandler:^(NSFileHandle* handle) {
-    NSData* data = [handle availableData];
-    if ([data length] == 0)
-    {
-      // end of file: a handler left set would be called again and again
-      [handle setReadabilityHandler:nil];
-      return;
-    }
-    TopToolConsume(session, data, ^(NSData* pids, NSData* cpus) {
-      dispatch_async(dispatch_get_main_queue(), ^{
-        [weakSelf applyTopTool:session pids:pids cpus:cpus];
-      });
-    }, ^{
-      dispatch_async(dispatch_get_main_queue(), ^{
-        if ((topToolSession == session) && !session->loggedEmpty)
-        {
-          session->loggedEmpty = true;
-          NSLog(@"/usr/bin/top printed a sample with no readable rows");
-        }
-      });
-    });
-  }];
-}
-
-- (void)applyTopTool:(TopToolSession*)session pids:(NSData*)pids cpus:(NSData*)cpus
-{
-  if ((topToolSession != session) || (session->generation != topToolGeneration))
-  {
-    return;
-  }
-  TopSetOthersCpu((const pid_t*)[pids bytes], (const double*)[cpus bytes], (int)([pids length] / sizeof(pid_t)));
-  [self collectTopList];
-  // the rows redraw at each process sample (updateTop:), every 2.5 s, which shows top's latest block (every 2 s). At
-  // the run's first block the sample is taken then, so that other users' processes join with it and the rows change
-  // once, and the timer runs on from it; after a sample less than half an interval old (the timer's came first), or
-  // while paused, they join at the next one
-  if (refreshTop && !session->drawn)
-  {
-    session->drawn = true;
-    if (!paused && (([[NSProcessInfo processInfo] systemUptime] - lastTopSample) >= (0.5 * TopInterval())))
-    {
-      [self updateTop:nil];
-      [self startTopTimer:TopInterval()];
-    }
-  }
-}
-
-- (void)stopTopTool
-{
-  topToolGeneration++;
-  TopToolSession* session = topToolSession;
-  topToolSession = nil;
-  if (session != nil)
-  {
-    NSTask* task = session->task;
-    [[[task standardOutput] fileHandleForReading] setReadabilityHandler:nil];
-    [task setTerminationHandler:nil];
-    // terminate on a task that never launched throws
-    if ([task isRunning])
-    {
-      [task terminate];
-    }
-  }
-  TopSetOthersCpu(NULL, NULL, 0);
-  [self collectTopList];
+  topOthersCount = TopUnreadableCount();
 }
 
 - (void)setupStatusItem
@@ -2404,135 +2205,6 @@ static NSTimeInterval TopDelay(void)
   return found;
 }
 
-- (void)fillLsofForProcess:(NSNumber*)pid_number
-{
-  if ((pid_number == nil) || (lsofJob == inspectGeneration))
-  {
-    return;
-  }
-  NSUInteger generation = inspectGeneration;
-  lsofJob = generation;
-
-  [self runTool:@"/usr/sbin/lsof" arguments:@[@"-p", [pid_number stringValue]] withStderr:YES done:^(NSString* output) {
-    if (lsofJob == generation)
-    {
-      lsofJob = 0;
-    }
-    [self.procLsofTextView setString:(output != nil) ? output : @"N/A (error)"];
-  }];
-}
-
-- (void)demangleString:(NSString*)string
-{
-#if 0
-  //NSLog(@"demangleString: %@", string);
-  NSString* sofar = @"";
-  
-  NSArray *lines = [string componentsSeparatedByString:@"\n"];
-  for (int i=0; i<[lines count]; i++)
-  {
-    NSString* line = [lines objectAtIndex:i];
-    NSArray* tokens = [line componentsSeparatedByString:@" "];
-    int count = (int)[tokens count];
-    if (count > 1)
-    {
-      NSString* mangled = [tokens objectAtIndex:(count-1)];
-      int offset = (int)[line length] - (int)[mangled length];
-      
-      int status = 0;
-      const char* mangled_cstr = [mangled UTF8String];
-
-      static char* unmangled_cstr = NULL;
-      if (unmangled_cstr == NULL)
-      {
-        unmangled_cstr = (char*)realloc(unmangled_cstr, 128);
-      }
-      abi::__cxa_demangle(mangled_cstr, unmangled_cstr, NULL, &status);
-      if (status == 0)
-      {
-        sofar = [sofar stringByAppendingString:[NSString stringWithFormat:@"%@%s\n", [line substringToIndex:offset], unmangled_cstr]];
-      }
-      else
-      {
-        if (mangled_cstr[0] == '_')
-        {
-          sofar = [sofar stringByAppendingString:[NSString stringWithFormat:@"%@%s\n", [line substringToIndex:offset], &mangled_cstr[1]]];
-        }
-        else
-        {
-          sofar = [sofar stringByAppendingString:[NSString stringWithFormat:@"%@\n", line]];
-        }
-      }
-    }
-    else
-    {
-      sofar = [sofar stringByAppendingString:@"\n"];
-    }
-  }
-  [self.procNmTextView setString:sofar];
-#else
-  NSTextStorage *textStorage = [self.procNmTextView textStorage];
-  [textStorage beginEditing];
-  [self.procNmTextView setString:string];
-  [textStorage endEditing];
-#endif
-}
-
-- (void)fillNmForProcess:(NSString*)path
-{
-  if ([path length] == 0)
-  {
-    // no executable path (kernel_task): nothing to run nm on
-    [self.procNmTextView setString:@"N/A"];
-    return;
-  }
-  if (nmJob == inspectGeneration)
-  {
-    return;
-  }
-  NSUInteger generation = inspectGeneration;
-  nmJob = generation;
-
-  // "--": a path starting with '-' must not be read as an option
-  [self runTool:@"/usr/bin/nm" arguments:@[@"--", path] withStderr:YES done:^(NSString* output) {
-    if (nmJob == generation)
-    {
-      nmJob = 0;
-    }
-    [self.procNmTextView setString:(output != nil) ? output : @"N/A (error)"];
-  }];
-}
-
-- (void)fillThreadsForProcess:(NSNumber*)pid_number
-{
-  if ((pid_number == nil) || (threadsJob == inspectGeneration))
-  {
-    return;
-  }
-  NSUInteger generation = inspectGeneration;
-  threadsJob = generation;
-  NSUInteger run = ++threadsRun;
-
-  // sample runs for 10 seconds by default: count down until its report arrives
-  for (int i=0; i<=10; i++)
-  {
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)i * (int64_t)NSEC_PER_SEC), dispatch_get_main_queue(), ^{
-      if ((threadsRun == run) && (threadsJob == generation) && (inspectGeneration == generation))
-      {
-        [self.procThreadsTextView setString:[NSString stringWithFormat:@"\nsampling ends in %d seconds ...", (10-i)]];
-      }
-    });
-  }
-
-  [self runTool:@"/usr/bin/sample" arguments:@[[pid_number stringValue]] withStderr:YES done:^(NSString* output) {
-    if (threadsJob == generation)
-    {
-      threadsJob = 0;
-    }
-    [self.procThreadsTextView setString:(output != nil) ? output : @"N/A (error)"];
-  }];
-}
-
 #pragma mark - Public APIs
 
 - (void)applicationDidFinishLaunching:(NSNotification *)aNotification
@@ -2584,7 +2256,6 @@ static NSTimeInterval TopDelay(void)
 
 - (void)applicationWillTerminate:(NSNotification *)aNotification
 {
-  [self stopTopTool];
   //[[NSUserDefaults standardUserDefaults] synchronize];
 }
 
@@ -2636,8 +2307,6 @@ static NSTimeInterval TopDelay(void)
   [self.procAppIcon setImage:icon];
 
   TopProcessInfo_t* info = exited ? NULL : TopGetArgs(pid);
-  // KERN_PROCARGS2 (info->command) fails for other users' processes; proc_pidpath fails only for kernel_task
-  current_process_path = exited ? nil : ProcessPath(pid);
   NSString* name = exited ? SampleText(sample->name) : SampleText(info->name);
   
   char bits_str[40] = "00000000 00000000 00000000 00000000";
@@ -2700,9 +2369,6 @@ static NSTimeInterval TopDelay(void)
   NSString* live = exited ? @"\nN/A (exited)" : @"\npreparing...";
   [self.procDescTextView setString:@"\npreparing..."];
   [self.procArgsEnvTextView setString:live];
-  [self.procLsofTextView setString:live];
-  [self.procNmTextView setString:live];
-  [self.procThreadsTextView setString:live];
 
   //if ([self.top isVisible] == NO)
   {
@@ -2734,7 +2400,6 @@ static NSTimeInterval TopDelay(void)
   {
     // the menu stays open, and its rows keep what they show
     refreshTop = false;
-    [self stopTopTool];
     for (int i=0; i<TOP_COUNT; i++)
     {
       if (![topMenus[i] isHidden])
@@ -2752,8 +2417,7 @@ static NSTimeInterval TopDelay(void)
     baselineOnly = true;
     if (menuIsOpen)
     {
-      // as at an opening: top runs, and the rows refresh from the next sample, taken soon
-      [self startTopTool];
+      // as at an opening: the rows refresh from the next sample, taken soon
       refreshTop = true;
       [self startTopTimer:MIN(TOP_MIN_INTERVAL, TopInterval())];
     }
@@ -3014,34 +2678,23 @@ static NSTimeInterval TopDelay(void)
     }
   }
 
-  // frozen: the rows keep what they showed, and neither top nor a sample runs
+  // frozen: the rows keep what they showed, and no sample runs
   if (!frozen)
   {
-    // other users' processes join when top's second sample arrives, two seconds after its first (startTopTool)
-    [self startTopTool];
-
     refreshTop = true;
-
-    // with top running, the next sample is the one its first block takes (applyTopTool:), about 2.5 s from now, or the
-    // timer's soon fire left by a resume or an unfreeze (below); the timer waits two intervals, in case that block
-    // never comes
-    bool joining = (topToolSession != nil);
 
     // take a fresh sample, unless the timer has just taken one: a very short interval gives noisy CPU%
     if (!topListValid || (([[NSProcessInfo processInfo] systemUptime] - lastTopSample) >= TOP_MIN_INTERVAL))
     {
       [self updateTop:nil];
-      // without top, the next sample a whole interval after this one, so that its CPU% never covers a shorter window
-      [self startTopTimer:(joining ? (2.0 * TopInterval()) : TopInterval())];
+      // the next sample a whole interval after this one, so that its CPU% never covers a shorter window
+      [self startTopTimer:TopInterval()];
     }
     else
     {
       [self updateMenuTop];
-      // without top, the next sample an interval after the last, or at the timer's own fire when that comes sooner
-      // (TopDelay); with top too when that fire is the soon one after a pause or an unfreeze, so that the rows do not
-      // show the average over it until top's first block
-      NSTimeInterval delay = TopDelay();
-      [self startTopTimer:((joining && (delay > TOP_MIN_INTERVAL)) ? (2.0 * TopInterval()) : delay)];
+      // the next sample an interval after the last, or at the timer's own fire when that comes sooner (TopDelay)
+      [self startTopTimer:TopDelay()];
     }
   }
   else
@@ -3078,7 +2731,6 @@ static NSTimeInterval TopDelay(void)
 
   menuIsOpen = false;
   refreshTop = false;
-  [self stopTopTool];
   // the next sample an interval after the last, or at the timer's own fire when that comes sooner (TopDelay)
   [self startTopTimer:TopDelay()];
   [self hideRowTip];
@@ -3467,36 +3119,6 @@ static void SetTipText(NSPanel* panel, NSTextField* label, NSString* text)
       }
     });
   });
-}
-
-- (void)tabView:(NSTabView *)tabView didSelectTabViewItem:(nullable NSTabViewItem *)tabViewItem
-{
-  if (current_process_pid == nil)
-  {
-    // no selection yet, or a frozen row whose process has exited: no tool runs
-    return;
-  }
-
-  switch ([[tabViewItem identifier] intValue])
-  {
-    case 3:
-    {
-      [self fillLsofForProcess:current_process_pid];
-      break;
-    }
-    case 4:
-    {
-      [self fillNmForProcess:current_process_path];
-      break;
-    }
-    case 5:
-    {
-      [self fillThreadsForProcess:current_process_pid];
-      break;
-    }
-    default:
-      break;
-  }
 }
 
 @end

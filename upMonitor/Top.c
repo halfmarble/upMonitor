@@ -21,9 +21,11 @@
 // THE SOFTWARE.
 
 #include <stdlib.h>
+#include <errno.h>
 #include <limits.h>
 #include <stdbool.h>
 #include <string.h>
+#include <unistd.h>
 #include <libproc.h>
 #include <pwd.h>
 
@@ -82,10 +84,8 @@ static int _top_arg_max;
 static CFMutableDictionaryRef _top_username_hash_table;
 //static CFMutableDictionaryRef _top_hash_table;
 
-/* Other users' CPU values from /usr/bin/top, sorted by pid (TopSetOthersCpu). */
-static pid_t* _top_others_pids;
-static double* _top_others_cpus;
-static int _top_others_count;
+/* Other users' processes of the latest sample whose CPU could not be read (TopUnreadableCount). */
+static int _top_unreadable_count;
 
 static rb_tree(_TopProcessInfo_t) _top_pid_tree;
 static rb_tree(_TopProcessInfo_t) _top_sorted_tree;
@@ -158,33 +158,6 @@ TopProcessSample_t* TopGetSample(pid_t pid)
   }
 }
 
-static int _top_compare_pid_key(const void *a, const void *b)
-{
-  pid_t pa = *(const pid_t *)a;
-  pid_t pb = *(const pid_t *)b;
-  return (pa < pb) ? -1 : ((pa > pb) ? 1 : 0);
-}
-
-// sets cpu and cpu_known of another user's process from the table /usr/bin/top filled
-static void _top_apply_others_cpu(TopProcessSample_t* sample)
-{
-  pid_t* found = NULL;
-  if (_top_others_count > 0)
-  {
-    found = bsearch(&sample->pid, _top_others_pids, _top_others_count, sizeof(pid_t), _top_compare_pid_key);
-  }
-  if (found != NULL)
-  {
-    sample->cpu = _top_others_cpus[found - _top_others_pids];
-    sample->cpu_known = 2;
-  }
-  else
-  {
-    sample->cpu = 0.0;
-    sample->cpu_known = 0;
-  }
-}
-
 static void _top_destroy(_TopProcessInfo_t *pinfo)
 {
   _top_remove(pinfo);
@@ -210,9 +183,8 @@ static int __attribute__((noinline)) _top_kinfo_for_pid(struct kinfo_proc* kinfo
 
 // Identity (name, uid, ppid, status) comes from proc_pidinfo(PROC_PIDT_SHORTBSDINFO), which works for
 // every process. CPU time and start time come from proc_pidinfo(PROC_PIDTASKALLINFO), which works only
-// for the user's own processes: other users' processes (root daemons, WindowServer...) take their CPU
-// from /usr/bin/top while the menu is open (cpu_known 2), and are unknown (0) otherwise. Both are much
-// cheaper than sysctl(KERN_PROC_PID).
+// for the user's own processes: other users' processes (root daemons, WindowServer...) are unknown
+// (cpu_known 0). Both are much cheaper than sysctl(KERN_PROC_PID).
 static int __attribute__((noinline)) _top_update_for_pid(pid_t pid)
 {
   struct proc_bsdshortinfo bsdinfo;
@@ -250,8 +222,9 @@ static int __attribute__((noinline)) _top_update_for_pid(pid_t pid)
   struct proc_taskallinfo pidinfo;
   if (proc_pidinfo(pid, PROC_PIDTASKALLINFO, 0, &pidinfo, PROC_PIDTASKALLINFO_SIZE) != PROC_PIDTASKALLINFO_SIZE)
   {
-    // another user's process: macOS gives an unprivileged app no CPU time for it, /usr/bin/top may
-    _top_apply_others_cpu(sample);
+    // another user's process: macOS gives a sandboxed app no CPU time for it
+    sample->cpu = 0.0;
+    sample->cpu_known = 0;
     sample->start_us = 0;
     sample->last_timens = 0;
     return (0);
@@ -349,6 +322,7 @@ void TopSort(void)
   _top_is_sorted = 1;
     
   _top_process_count = 0;
+  _top_unreadable_count = 0;
   
   rb_tree_new(&_top_sorted_tree, node_sorted);
   rb_first(&_top_pid_tree, node_new, pinfo);
@@ -362,6 +336,10 @@ void TopSort(void)
       rb_insert(&_top_sorted_tree, pinfo, _top_compare_cpu_func, _TopProcessInfo_t, node_sorted);
       
       _top_process_count++;
+      if ((pinfo->sample.cpu_known == 0) && (pinfo->sample.uid != getuid()))
+      {
+        _top_unreadable_count++;
+      }
     }
     else
     {
@@ -370,67 +348,70 @@ void TopSort(void)
   }
 }
 
-typedef struct
+int TopUnreadableCount(void)
 {
-  pid_t pid;
-  double cpu;
-} _TopOthersEntry_t;
-
-static int _top_compare_others_entry(const void *a, const void *b)
-{
-  return _top_compare_pid_key(&((const _TopOthersEntry_t *)a)->pid, &((const _TopOthersEntry_t *)b)->pid);
+  return _top_unreadable_count;
 }
 
-void TopSetOthersCpu(const pid_t* pids, const double* cpus, int count)
+// Lists the processes with sysctl(KERN_PROC_ALL), which the App Sandbox allows where the libproc list gives
+// none. The buffer is kept and grown with slack for processes started between the size query and the read;
+// ENOMEM (the list outgrew the slack) asks again. Returns the entry count, -1 on failure.
+static int _top_list_processes(const struct kinfo_proc** list)
 {
-  _top_others_count = 0;
-  if ((count > 0) && (pids != NULL) && (cpus != NULL))
-  {
-    _TopOthersEntry_t* entries = (_TopOthersEntry_t *)malloc(count * sizeof(_TopOthersEntry_t));
-    pid_t* new_pids = (pid_t *)realloc(_top_others_pids, count * sizeof(pid_t));
-    if (new_pids != NULL)
-    {
-      _top_others_pids = new_pids;
-    }
-    double* new_cpus = (double *)realloc(_top_others_cpus, count * sizeof(double));
-    if (new_cpus != NULL)
-    {
-      _top_others_cpus = new_cpus;
-    }
-    if ((entries != NULL) && (new_pids != NULL) && (new_cpus != NULL))
-    {
-      for (int i=0; i<count; i++)
-      {
-        entries[i].pid = pids[i];
-        entries[i].cpu = cpus[i];
-      }
-      qsort(entries, count, sizeof(_TopOthersEntry_t), _top_compare_others_entry);
-      for (int i=0; i<count; i++)
-      {
-        _top_others_pids[i] = entries[i].pid;
-        _top_others_cpus[i] = entries[i].cpu;
-      }
-      _top_others_count = count;
-    }
-    free(entries);
-  }
+  static struct kinfo_proc* buffer = NULL;
+  static size_t capacity = 0;
+  int mib[4] = { CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0 };
 
-  _TopProcessInfo_t *pinfo;
-  rb_first(&_top_pid_tree, node_new, pinfo);
-  for (; pinfo != rb_tree_nil(&_top_pid_tree); )
+  for (int attempt = 0; attempt < 3; attempt++)
   {
-    if ((pinfo->sample.sequence == _top_sequence) && (pinfo->sample.cpu_known != 1))
+    size_t size = 0;
+    if (sysctl(mib, 4, NULL, &size, NULL, 0) != 0)
     {
-      _top_apply_others_cpu(&pinfo->sample);
+      return -1;
     }
-    rb_next(&_top_pid_tree, pinfo, _TopProcessInfo_t, node_new, pinfo);
+    size += size / 8;
+    if (size > capacity)
+    {
+      struct kinfo_proc* grown = realloc(buffer, size);
+      if (grown == NULL)
+      {
+        return -1;
+      }
+      buffer = grown;
+      capacity = size;
+    }
+    size_t length = capacity;
+    if (sysctl(mib, 4, buffer, &length, NULL, 0) == 0)
+    {
+      *list = buffer;
+      return (int)(length / sizeof(struct kinfo_proc));
+    }
+    if (errno != ENOMEM)
+    {
+      return -1;
+    }
   }
-
-  TopSort();
+  return -1;
 }
 
 int TopSample(void)
 {
+  // the list first: when it cannot be read, the previous sample, its sort and its baselines stand
+  static bool list_failed = false;
+  const struct kinfo_proc* list = NULL;
+  int num_pids = _top_list_processes(&list);
+  if (num_pids < 0)
+  {
+    if (!list_failed)
+    {
+      fprintf(stderr, "sysctl(KERN_PROC_ALL) failed: %s\n", strerror(errno));
+      list_failed = true;
+    }
+    _top_iterator = NULL;
+    return _top_process_count;
+  }
+  list_failed = false;
+
   _top_sequence++;
 
   _top_iterator = NULL;
@@ -447,23 +428,14 @@ int TopSample(void)
     _top_wall_us = ((uint64_t)tv.tv_sec * USEC_PER_SEC) + (uint64_t)tv.tv_usec;
   }
 
-  static pid_t* pids = NULL;
-  int num_pids = proc_listallpids(NULL, 0);
-  if (num_pids > 0)
+  for (int i=0; i<num_pids; i++)
   {
-    int size = num_pids*sizeof(pid_t);
-    pids = realloc(pids, size);
+    pid_t pid = list[i].kp_proc.p_pid;
+    int err = _top_update_for_pid(pid);
+    // -2 (exited since the list was taken) and -3 (zombie) are expected
+    if ((err != 0) && (err != -2) && (err != -3))
     {
-      num_pids = proc_listallpids(pids, size);
-      for (int i=0; i<num_pids; i++)
-      {
-        int err = _top_update_for_pid(pids[i]);
-        // -2 (exited since the list was taken) and -3 (zombie) are expected
-        if ((err != 0) && (err != -2) && (err != -3))
-        {
-          fprintf(stderr, "_top_update_for_pid(%d) returned %d\n", pids[i], err);
-        }
-      }
+      fprintf(stderr, "_top_update_for_pid(%d) returned %d\n", pid, err);
     }
   }
 

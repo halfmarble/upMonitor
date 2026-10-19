@@ -75,13 +75,4 @@
 @property (weak) IBOutlet NSScrollView *procArgsEnvScrollView;
 @property (assign) IBOutlet NSTextView *procArgsEnvTextView;
 
-@property (weak) IBOutlet NSScrollView *procLsofScrollView;
-@property (assign) IBOutlet NSTextView *procLsofTextView;
-
-@property (weak) IBOutlet NSScrollView *procNmScrollView;
-@property (assign) IBOutlet NSTextView *procNmTextView;
-
-@property (weak) IBOutlet NSScrollView *procThreadsScrollView;
-@property (assign) IBOutlet NSTextView *procThreadsTextView;
-
 @end
