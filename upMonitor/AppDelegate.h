@@ -24,7 +24,7 @@
 #import <AppKit/AppKit.h>
 #import <Foundation/Foundation.h>
 
-@interface AppDelegate : NSObject <NSApplicationDelegate, NSMenuDelegate, NSTabViewDelegate>
+@interface AppDelegate : NSObject <NSApplicationDelegate, NSMenuDelegate>
 
 @property (weak) IBOutlet NSWindow *window;
 @property (weak) IBOutlet NSWindow *top;

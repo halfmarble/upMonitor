@@ -3084,9 +3084,6 @@
                                 </view>
                             </tabViewItem>
                         </tabViewItems>
-                        <connections>
-                            <outlet property="delegate" destination="Voe-Tx-rLC" id="AhO-Jk-Dc0"/>
-                        </connections>
                     </tabView>
                     <textField horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" textCompletion="NO" translatesAutoresizingMaskIntoConstraints="NO" id="bz2-4D-pPb">
                         <rect key="frame" x="74" y="548" width="733" height="16"/>

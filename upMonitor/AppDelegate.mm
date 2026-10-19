@@ -29,7 +29,6 @@
 #import <unistd.h>
 #import <getopt.h>
 #import <stdlib.h>
-#import <ctype.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 
 #import "AppDelegate.h"
@@ -1490,7 +1489,7 @@ static NSString* OthersRowText(int count)
   {
     NSMenuItem* item = [menu addItemWithTitle:@" " action:nil keyEquivalent:@""];
     [item setAttributedTitle:[[NSAttributedString alloc] initWithString:[item title] attributes:attributesThin]];
-    item = [menu addItemWithTitle:@"TOP USER CPU PROCESSES" action:nil keyEquivalent:@""];
+    item = [menu addItemWithTitle:@"YOUR TOP PROCESSES BY CPU" action:nil keyEquivalent:@""];
     [item setAttributedTitle:[[NSAttributedString alloc] initWithString:[item title] attributes:attributesStandardCenter]];
     for (int i=0; i<TOP_COUNT; i++)
     {
