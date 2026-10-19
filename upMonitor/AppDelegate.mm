@@ -1557,6 +1557,16 @@ static NSString* OthersRowText(int count)
     ShowMenuItemImage(item);
   }
 
+  {
+    NSMenuItem* item = [menu addItemWithTitle:@"About upMonitor" action:@selector(openAbout:) keyEquivalent:@""];
+    [item setAttributedTitle:[[NSAttributedString alloc] initWithString:[item title] attributes:attributesStandard]];
+    // a copy, so the shared application icon keeps its own size for the About panel
+    NSImage* appIcon = [[NSImage imageNamed:NSImageNameApplicationIcon] copy];
+    [appIcon setSize:NSMakeSize(MENU_ICON_SIZE+2.0, MENU_ICON_SIZE+2.0)];
+    [item setImage:appIcon];
+    ShowMenuItemImage(item);
+  }
+
   [menu addItem:[NSMenuItem separatorItem]];
 
   menuRows = [[NSMutableArray alloc] init];
@@ -2266,6 +2276,13 @@ static NSTimeInterval TopDelay(void)
   [self.window center];
   [self.window orderFrontRegardless];
   [self.window makeKeyWindow];
+}
+
+- (IBAction)openAbout:(id)sender
+{
+  [NSApp activateIgnoringOtherApps:YES];
+
+  [NSApp orderFrontStandardAboutPanel:sender];
 }
 
 - (void)processExplorer:(id)sender
