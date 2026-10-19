@@ -24,9 +24,10 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-// Rows that a build adds to the status menu, above Quit. A class that adopts
-// MenuRows registers itself with MenuRowsRegister from its +load; upMonitor makes one instance of each when it builds
-// the menu and adds its rows, then a separator. Everything here runs on the main thread, +load aside.
+// Rows that a build adds to the status menu, above Quit, and to the readings panel beside it, above Uptime. A class
+// that adopts MenuRows registers itself with MenuRowsRegister from its +load; upMonitor makes one instance of each
+// when it builds the menu and adds its rows, then a separator, and its panel rows as a section of their own.
+// Everything here runs on the main thread, +load aside.
 @protocol MenuRows <NSObject>
 // the rows, their titles set in attributes, the menu's own text attributes
 - (NSArray<NSMenuItem*>*)menuItemsWithAttributes:(NSDictionary<NSAttributedStringKey, id>*)attributes;
@@ -37,6 +38,9 @@ NS_ASSUME_NONNULL_BEGIN
 // after a pause), frozen or not; while frozen it takes no sample
 - (void)menuTick;
 - (void)menuDidClose;
+// the panel's rows, each a title and its value (@[@"Title:", @"value"]), the same number each time; read whenever the
+// panel's values are set: as the menu opens and then every second while it is open, frozen or not
+- (NSArray<NSArray<NSString*>*>*)panelRows;
 @end
 
 __BEGIN_DECLS

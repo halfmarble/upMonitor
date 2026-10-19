@@ -883,8 +883,8 @@ static NSPanel* infoPanel = nil;            // the readings beside the menu (see
 static NSGlassEffectView* infoGlass = nil;  // its background
 static NSArray<NSTextField*>* infoLabels = nil;
 static NSArray<NSTextField*>* infoValues = nil;
-static NSBox* infoSeparator = nil;          // a menu-style line above the row infoSeparatorRow (Uptime:)
-static NSUInteger infoSeparatorRow = 0;
+static NSArray<NSBox*>* infoSeparators = nil; // menu-style lines, one above each row of infoSeparatorRows
+static NSIndexSet* infoSeparatorRows = nil; // the first row of each section after the readings (Uptime: the last)
 static NSTimer* infoTimer = nil;            // while the menu is open
 static bool infoPlaced = false;             // the panel was placed in this opening
 static bool infoRetried = false;            // the menu's window was looked for a second time in this opening
@@ -1680,8 +1680,8 @@ static NSTimer* barTipWatch = nil;
 // a reading's text, as its panel row: "995GB Disk usage: 72%"
 - (NSString*)barTipTextAt:(NSInteger)index
 {
-  NSArray<NSArray<NSString*>*>* rows = [self infoRows];
-  if ((index < 0) || (index >= (NSInteger)MIN(rows.count, 3)))
+  NSArray<NSArray<NSString*>*>* rows = [self readingRows];
+  if ((index < 0) || (index >= (NSInteger)rows.count))
   {
     return @"";
   }
@@ -2884,11 +2884,11 @@ static void SetTipText(NSPanel* panel, NSTextField* label, NSString* text)
   NSFont* font = [NSFont fontWithName:MENU_FONT_NAME size:MENU_ICON_SIZE-2];
   NSMutableArray<NSTextField*>* labels = [NSMutableArray array];
   NSMutableArray<NSTextField*>* values = [NSMutableArray array];
-  NSString* uptimeTitle = @"Uptime:";  // the separator goes above this row
-  NSArray<NSString*>* titles = @[@"Disk usage:", @"Memory usage:", @"CPU:", uptimeTitle];
-  for (NSString* title in titles)
+  NSMutableIndexSet* starts = [NSMutableIndexSet indexSet];
+  NSArray<NSArray<NSString*>*>* rows = [self infoRowsWithStarts:starts];
+  for (NSArray<NSString*>* row in rows)
   {
-    NSTextField* label = [NSTextField labelWithString:title];
+    NSTextField* label = [NSTextField labelWithString:row[0]];
     label.font = font;
     label.textColor = [NSColor labelColor];
     [background addSubview:label];
@@ -2903,10 +2903,16 @@ static void SetTipText(NSPanel* panel, NSTextField* label, NSString* text)
   infoLabels = labels;
   infoValues = values;
 
-  infoSeparator = [[NSBox alloc] init];
-  infoSeparator.boxType = NSBoxSeparator;
-  [background addSubview:infoSeparator];
-  infoSeparatorRow = [titles indexOfObject:uptimeTitle];
+  NSMutableArray<NSBox*>* separators = [NSMutableArray array];
+  for (NSUInteger i=0; i<starts.count; i++)
+  {
+    NSBox* separator = [[NSBox alloc] init];
+    separator.boxType = NSBoxSeparator;
+    [background addSubview:separator];
+    [separators addObject:separator];
+  }
+  infoSeparators = separators;
+  infoSeparatorRows = starts;
 }
 
 // the menu's look, read at each opening since the settings can change in between: its appearance (the menu bar's,
@@ -2977,9 +2983,9 @@ static void SetTipText(NSPanel* panel, NSTextField* label, NSString* text)
   [self applyInfoValues];
 }
 
-// the four rows as shown, each its title and value; CPU and memory are their last reading (updateCPU:), the disk row
-// the last reading of readDisk, uptime read now
-- (NSArray<NSArray<NSString*>*>*)infoRows
+// the three readings as shown, each its title and value: disk, memory, CPU; CPU and memory are their last reading
+// (updateCPU:), the disk row the last reading of readDisk
+- (NSArray<NSArray<NSString*>*>*)readingRows
 {
   NSLocale* locale = [NSLocale currentLocale];
 
@@ -2994,8 +3000,26 @@ static void SetTipText(NSPanel* panel, NSTextField* label, NSString* text)
     memoryUsed = PercentText(readingsMemoryUsed, readingsMemoryTotal, locale);
   }
 
-  return @[@[diskTitle ?: @"Disk usage:", diskText ?: @"—"], @[memoryTitle, memoryUsed], @[@"CPU:", cpu],
-           @[@"Uptime:", UptimeText(SystemInfoUptimeSeconds())]];
+  return @[@[diskTitle ?: @"Disk usage:", diskText ?: @"—"], @[memoryTitle, memoryUsed], @[@"CPU:", cpu]];
+}
+
+// the panel's rows as shown: the readings, then each MenuRows' panel rows as a section of their own, then uptime,
+// read now, a section too; starts, when given, gets the first row of each section after the readings
+- (NSArray<NSArray<NSString*>*>*)infoRowsWithStarts:(NSMutableIndexSet*)starts
+{
+  NSMutableArray<NSArray<NSString*>*>* rows = [[self readingRows] mutableCopy];
+  for (id<MenuRows> menuRow in menuRows)
+  {
+    NSArray<NSArray<NSString*>*>* section = [menuRow respondsToSelector:@selector(panelRows)] ? [menuRow panelRows] : nil;
+    if (section.count > 0)
+    {
+      [starts addIndex:rows.count];
+      [rows addObjectsFromArray:section];
+    }
+  }
+  [starts addIndex:rows.count];
+  [rows addObject:@[@"Uptime:", UptimeText(SystemInfoUptimeSeconds())]];
+  return rows;
 }
 
 // sets the values, then sizes and places the panel: left of the menu and level with its top, or right of it when the
@@ -3008,10 +3032,11 @@ static void SetTipText(NSPanel* panel, NSTextField* label, NSString* text)
     return;
   }
 
-  NSArray<NSArray<NSString*>*>* rows = [self infoRows];
+  NSArray<NSArray<NSString*>*>* rows = [self infoRowsWithStarts:nil];
+  NSUInteger count = MIN(rows.count, infoValues.count);
   CGFloat labelWidth = 0.0;
   CGFloat valueWidth = 0.0;
-  for (NSUInteger i=0; i<infoValues.count; i++)
+  for (NSUInteger i=0; i<count; i++)
   {
     infoLabels[i].stringValue = rows[i][0];
     infoValues[i].stringValue = rows[i][1];
@@ -3024,20 +3049,26 @@ static void SetTipText(NSPanel* panel, NSTextField* label, NSString* text)
   bool widened = (width > infoWidth);
   width = MAX(width, infoWidth);
   infoWidth = width;
-  CGFloat height = (CGFloat)infoValues.count * INFO_ROW_HEIGHT + INFO_SEPARATOR_HEIGHT + 2.0 * INFO_VERTICAL_INSET;
+  CGFloat height = (CGFloat)infoValues.count * INFO_ROW_HEIGHT + (CGFloat)infoSeparators.count * INFO_SEPARATOR_HEIGHT + 2.0 * INFO_VERTICAL_INSET;
 
-  for (NSUInteger i=0; i<infoValues.count; i++)
+  for (NSUInteger i=0; i<count; i++)
   {
-    CGFloat y = height - INFO_VERTICAL_INSET - (CGFloat)(i + 1) * INFO_ROW_HEIGHT - ((i >= infoSeparatorRow) ? INFO_SEPARATOR_HEIGHT : 0.0);
+    // below the separators of the sections that start at this row or above it
+    CGFloat gaps = (CGFloat)[infoSeparatorRows countOfIndexesInRange:NSMakeRange(0, i + 1)];
+    CGFloat y = height - INFO_VERTICAL_INSET - (CGFloat)(i + 1) * INFO_ROW_HEIGHT - gaps * INFO_SEPARATOR_HEIGHT;
     NSRect label = infoLabels[i].frame;
     infoLabels[i].frame = NSMakeRect(INFO_INSET, y + floor((INFO_ROW_HEIGHT - NSHeight(label))/2.0), NSWidth(label), NSHeight(label));
     NSRect value = infoValues[i].frame;
     infoValues[i].frame = NSMakeRect(width - INFO_INSET - valueWidth, y + floor((INFO_ROW_HEIGHT - NSHeight(value))/2.0), valueWidth, NSHeight(value));
   }
 
-  // a line through the middle of the gap above the separator's row, inset as the rows' text
-  CGFloat line = height - INFO_VERTICAL_INSET - (CGFloat)infoSeparatorRow * INFO_ROW_HEIGHT - INFO_SEPARATOR_HEIGHT/2.0;
-  infoSeparator.frame = NSMakeRect(INFO_INSET, floor(line), width - 2.0 * INFO_INSET, 1.0);
+  // each a line through the middle of the gap above its section's first row, inset as the rows' text
+  __block NSUInteger separator = 0;
+  [infoSeparatorRows enumerateIndexesUsingBlock:^(NSUInteger row, BOOL* stop) {
+    CGFloat line = height - INFO_VERTICAL_INSET - (CGFloat)row * INFO_ROW_HEIGHT - ((CGFloat)separator + 0.5) * INFO_SEPARATOR_HEIGHT;
+    infoSeparators[separator].frame = NSMakeRect(INFO_INSET, floor(line), width - 2.0 * INFO_INSET, 1.0);
+    separator++;
+  }];
 
   NSRect menuFrame = infoMenuWindow.frame;
   NSScreen* screen = infoMenuWindow.screen ?: [NSScreen mainScreen];
