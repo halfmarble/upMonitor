@@ -3344,18 +3344,21 @@ static void SetTipText(NSPanel* panel, NSTextField* label, NSString* text)
     [self makeInfoRows:rows.count starts:starts];
   }
   NSUInteger count = rows.count;
-  CGFloat labelWidth = 0.0;
   CGFloat valueWidth = 0.0;
+  CGFloat rowWidth = 0.0;
   for (NSUInteger i=0; i<count; i++)
   {
     infoLabels[i].stringValue = rows[i][0];
     infoValues[i].stringValue = rows[i][1];
     [infoValues[i] sizeToFit];
     [infoLabels[i] sizeToFit];
-    labelWidth = MAX(labelWidth, NSWidth(infoLabels[i].frame));
     valueWidth = MAX(valueWidth, NSWidth(infoValues[i].frame));
+    // a row's own need: its title and value side by side, the gap only when it has both; an empty side needs nothing
+    CGFloat title = (rows[i][0].length > 0) ? NSWidth(infoLabels[i].frame) : 0.0;
+    CGFloat value = (rows[i][1].length > 0) ? NSWidth(infoValues[i].frame) : 0.0;
+    rowWidth = MAX(rowWidth, title + (((title > 0.0) && (value > 0.0)) ? INFO_COLUMN_GAP : 0.0) + value);
   }
-  CGFloat width = ceil(INFO_INSET + labelWidth + INFO_COLUMN_GAP + valueWidth + INFO_INSET);
+  CGFloat width = ceil(INFO_INSET + rowWidth + INFO_INSET);
   bool widened = (width > infoWidth);
   width = MAX(width, infoWidth);
   infoWidth = width;
