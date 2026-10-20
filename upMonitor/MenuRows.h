@@ -44,9 +44,9 @@ NS_ASSUME_NONNULL_BEGIN
 // next, none included; the panel's height follows
 - (NSArray<NSArray<NSString*>*>*)panelRows;
 // views for the process inspector's header, made once, the first time the inspector shows a process: laid out left to
-// right in this order on a line of their own below the header's text, the last one ending at the header's right edge,
-// each centred on that line, which is as tall as the tallest; the text spans the header. A view taller than about 35 pt
-// reaches the tabs below
+// right in this order on a line of their own below the header's text, each centred on that line, which is as tall as
+// the tallest; the last view, and the text above, end 20 pt short of the header's right edge, the margin the icon keeps
+// at its left. A view taller than about 35 pt reaches the tabs below
 - (NSArray<NSView*>*)inspectorViews;
 // each time the inspector shows a process, before its views are laid out: its pid and name, exited when it is a frozen
 // row whose process has exited or whose pid now belongs to another process. A view may change its width here

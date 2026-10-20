@@ -54,7 +54,7 @@
 #define MENU_ICON_SIZE              (14.0)
 #define TOP_ICON_SIZE               (48.0)
 #define INSPECTOR_MARGIN            (20.0)  // pt: the icon's own left margin
-#define INSPECTOR_GAP               (8.0)   // pt between the header's views and its text
+#define INSPECTOR_GAP               (8.0)   // pt between two of the header's views
 #define INSPECTOR_LINE              (16.0)  // pt: one line of the header's text
 #define MENU_FONT_NAME              @"IBMPlexMono" // IBM Plex Mono Regular, in the app's Resources, registered at launch
 #define MENU_FONT(points)           ([NSFont fontWithName:MENU_FONT_NAME size:(points)] ?: [NSFont monospacedSystemFontOfSize:(points) weight:NSFontWeightRegular])
@@ -2547,7 +2547,7 @@ static NSTimeInterval TopDelay(void)
   }
   // the views' line, as tall as the tallest view, each view centred on it, right to left from the header's right edge,
   // the margin the icon keeps at the left; one line of text and the views' line are centred on the icon. The text sits
-  // on the views' line at the header's full width, a helper's second line under its first, so two lines reach 16 pt
+  // on the views' line and ends where the views do, a helper's second line under its first, so two lines reach 16 pt
   // higher; the views' line stays put
   CGFloat tallest = 0.0;
   for (NSView* view in inspectorRowViews)
