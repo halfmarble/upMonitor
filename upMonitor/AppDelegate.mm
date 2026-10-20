@@ -337,15 +337,10 @@ static NSString* PercentText(uint64_t part, uint64_t whole, NSLocale* locale)
   return [[NSString alloc] initWithFormat:@"%ld%%" locale:locale, percent];
 }
 
-// "512 MB", "1.2 GB": a process's memory, in units of 1024, to the nearest MB under 1 GB
+// "0.51 GB", "1.23 GB": a process's memory, always in GB, in units of 1024, two decimals
 static NSString* MemoryText(uint64_t bytes)
 {
-  uint64_t mb = (bytes + 524288) / 1048576;
-  if (mb < 1024)
-  {
-    return [NSString stringWithFormat:@"%llu MB", mb];
-  }
-  return [NSString stringWithFormat:@"%.1f GB", (double)bytes / 1073741824.0];
+  return [NSString stringWithFormat:@"%.2f GB", (double)bytes / 1073741824.0];
 }
 
 // "16GB Memory usage:": a row's title led by its whole, written without a space ("16 GB" -> "16GB")
@@ -1538,7 +1533,7 @@ static NSString* OthersRowText(int count)
   spaceWidth = [[NSString stringWithCharacters:unicodeSpace length:1] sizeWithAttributes:attributesPad].width;
   
   memTarget = 0.0;
-  for (NSString* sample in @[@"1023 MB", @"999.9 GB", @"—"])
+  for (NSString* sample in @[@"999.99 GB", @"—"])
   {
     memTarget = MAX(memTarget, [sample sizeWithAttributes:attributesGrey].width);
   }
