@@ -55,6 +55,7 @@
 #define TOP_ICON_SIZE               (48.0)
 #define INSPECTOR_MARGIN            (20.0)  // pt: the icon's own left margin
 #define INSPECTOR_GAP               (8.0)   // pt between the header's views and its text
+#define INSPECTOR_LINE              (16.0)  // pt: one line of the header's text
 #define MENU_FONT_NAME              @"IBMPlexMono" // IBM Plex Mono Regular, in the app's Resources, registered at launch
 #define MENU_FONT(points)           ([NSFont fontWithName:MENU_FONT_NAME size:(points)] ?: [NSFont monospacedSystemFontOfSize:(points) weight:NSFontWeightRegular])
 #define MENU_TITLE_FONT_NAME        @"Verdana"
@@ -2511,7 +2512,8 @@ static NSTimeInterval TopDelay(void)
   NSLog(@"processExplorer");
 }
 
-// the views the rows add to the inspector's header, at its right; with none, nothing here changes the header
+// the views the rows add to the inspector's header, on a line of their own below its text, at its right; with none,
+// nothing here changes the header
 - (void)showInspectorRowsForPid:(pid_t)pid name:(NSString*)name exited:(bool)exited
 {
   NSView* header = [self.procAppName superview];
@@ -2543,19 +2545,32 @@ static NSTimeInterval TopDelay(void)
   {
     return;
   }
-  // right to left from the header's right edge, the margin the icon keeps at the left
+  // the views' line, as tall as the tallest view, each view centred on it, right to left from the header's right edge,
+  // the margin the icon keeps at the left; one line of text and the views' line are centred on the icon. The text sits
+  // on the views' line at the header's full width, a helper's second line under its first, so two lines reach 16 pt
+  // higher; the views' line stays put
+  CGFloat tallest = 0.0;
+  for (NSView* view in inspectorRowViews)
+  {
+    tallest = MAX(tallest, NSHeight([view frame]));
+  }
+  NSRect iconFrame = [self.procAppIcon frame];
+  CGFloat viewsTop = round(NSMidY(iconFrame) + ((INSPECTOR_LINE + tallest) / 2.0)) - INSPECTOR_LINE;
+  CGFloat midY = viewsTop - (tallest / 2.0);
+  CGFloat right = NSWidth([header bounds]) - INSPECTOR_MARGIN;
   NSRect nameFrame = [self.procAppName frame];
-  CGFloat x = NSWidth([header bounds]) - INSPECTOR_MARGIN;
+  nameFrame.origin.y = viewsTop;
+  nameFrame.size.width = MAX(0.0, right - NSMinX(nameFrame));
+  [self.procAppName setFrame:nameFrame];
+  CGFloat x = right;
   for (NSView* view in [inspectorRowViews reverseObjectEnumerator])
   {
     NSRect frame = [view frame];
     x -= NSWidth(frame);
-    frame.origin = NSMakePoint(x, round(NSMidY(nameFrame) - (NSHeight(frame) / 2.0)));
+    frame.origin = NSMakePoint(x, round(midY - (NSHeight(frame) / 2.0)));
     [view setFrame:frame];
     x -= INSPECTOR_GAP;
   }
-  nameFrame.size.width = MAX(0.0, x - NSMinX(nameFrame));
-  [self.procAppName setFrame:nameFrame];
 }
 
 - (void)selectPid:(id)sender
