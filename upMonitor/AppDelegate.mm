@@ -305,6 +305,7 @@ static NSWindow* OpenMenuWindow(NSMenu* menu, NSMenuItem* item, NSRect* row)
 #define INFO_ROW_HEIGHT             (22.0)  // pt, 2 pt shorter than a native row (a menu grows 24 pt with one, measured)
 #define INFO_INSET                  (14.0)  // pt left and right, as a title-only row
 #define INFO_COLUMN_GAP             (24.0)  // pt at least between a label and its value
+#define INFO_EXTRA_WIDTH            (50.0)  // pt added to the widest row's need
 #define INFO_VERTICAL_INSET         (5.0)
 #define INFO_CORNER_RADIUS          (8.0)
 #define INFO_SEPARATOR_HEIGHT       (11.0)  // pt, as a native menu separator (a menu grows 11 pt with one, measured)
@@ -3710,7 +3711,7 @@ static void SetTipText(NSPanel* panel, NSTextField* label, NSString* text, CGFlo
     CGFloat value = (shown.length > 0) ? NSWidth(infoValues[i].frame) : 0.0;
     rowWidth = MAX(rowWidth, title + (((title > 0.0) && (value > 0.0)) ? INFO_COLUMN_GAP : 0.0) + value);
   }
-  CGFloat width = ceil(INFO_INSET + rowWidth + INFO_INSET);
+  CGFloat width = ceil(INFO_INSET + rowWidth + INFO_EXTRA_WIDTH + INFO_INSET);
   bool widened = (width > infoWidth);
   width = MAX(width, infoWidth);
   infoWidth = width;
