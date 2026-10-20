@@ -58,6 +58,10 @@ natural_t CpuSamplerGetCount(int granularity);
 
 void CpuSamplerInit(CpuSummaryInfo* cpu_info);
 void CpuSamplerUpdate(CpuSummaryInfo* cpu_info);
+// each logical CPU's kind, 'P' or 'E', in the samplers' order, into kinds[0..count-1]: the device tree's cpu nodes'
+// "cluster-type" by their "logical-cpu-id", the order host_processor_info follows (an M3's 0-3 were busy under
+// background work, and are its E-cores); 1 when every one of the count was read, else 0 (an Intel Mac, a read refused)
+int CpuSamplerGetKinds(natural_t count, char* kinds);
 
 void CpuSamplerSineDemoInit(CpuSummaryInfo* cpu_info);
 void CpuSamplerSineDemoUpdate(CpuSummaryInfo* cpu_info, float speed);

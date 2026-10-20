@@ -48,15 +48,17 @@
 // 8201 thin space 1.669922
 // 8202 hair space 0.837891
 #define SPACE_THIN                  (8202)
-#define NAME_STR_SPACE_TARGET       (150.0)
+#define NAME_STR_SPACE_TARGET       (201.6) // pt: 28 cells of the menu font, 7.2 pt each
 #define CPU_STR_SPACE_TARGET        (50.0)
 
 #define MENU_ICON_SIZE              (14.0)
 #define TOP_ICON_SIZE               (48.0)
 #define INSPECTOR_MARGIN            (20.0)  // pt: the icon's own left margin
 #define INSPECTOR_GAP               (8.0)   // pt between the header's views and its text
-#define MENU_FONT_NAME              @"Helvetica"
+#define MENU_FONT_NAME              @"IBMPlexMono" // IBM Plex Mono Regular, in the app's Resources, registered at launch
+#define MENU_FONT(points)           ([NSFont fontWithName:MENU_FONT_NAME size:(points)] ?: [NSFont monospacedSystemFontOfSize:(points) weight:NSFontWeightRegular])
 #define MENU_TITLE_FONT_NAME        @"Verdana"
+#define MENU_PAD_FONT_NAME          @"Helvetica" // the rows' column padding: its hair space is 0.84 pt, IBM Plex Mono's 7.2
 
 #define SYSTEM_ICONS_RSRC           "/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources"
 #define APP_DEFAULT_ICON_NAME       "GenericApplicationIcon.icns"
@@ -207,6 +209,7 @@ static void PaintOpenMenuBackground(void)
 #define BAR_TIP_DELAY               (1.0)   // s on a menu-bar reading before its label shows
 #define BAR_TIP_WATCH               (0.25)  // s between looks at the pointer while a label is armed or shown
 #define BAR_TIP_GAP                 (4.0)   // pt between the menu bar and the label
+#define BAR_TIP_CORES               (1000)  // the core graph's index for the labels, past any reading's
 
 // the item's row on screen, NSZeroRect when the window's row views do not match the menu: top first,
 // they are the menu's shown items in order, separators included
@@ -845,6 +848,7 @@ static ProcessIconDecision* DecideProcessIcon(pid_t pid, NSString* path)
 @implementation AppDelegate
 
 static CpuSummaryInfo cpu_info;
+static char* cpuKinds = NULL;     // each logical CPU's kind, 'P' or 'E' (CpuSamplerGetKinds); NULL when not read
 static CpuSummaryInfo cpu_sine_demo_info;
 static CpuSummaryInfo cpu_flat_demo_info;
 
@@ -947,6 +951,7 @@ static NSUInteger extraBarItem[CPU_RENDER_EXTRA_MAX];  // and its index in that 
 static float speed = 1.0f;
 
 static NSDictionary* attributesStandard = nil;
+static NSDictionary* attributesPad = nil;      // the hair spaces that pad a process row's columns
 static NSDictionary* attributesGrey = nil;
 static NSDictionary* attributesWhite = nil;
 
@@ -1256,9 +1261,7 @@ static NSMutableSet<NSTask*>* runningTasks = nil;
   return count;
 }
 
-#define SIZE_DOTS 4
 #define SIZE_SPACES 4096
-static unichar dots[] = {'.', '.', '.', '.', '\0'};
 static unichar spaces[SIZE_SPACES];
 static BOOL spaces_init = NO;
 
@@ -1283,7 +1286,8 @@ static BOOL spaces_init = NO;
   if ((key==NULL) || !CFDictionaryContainsKey(topCpuHashTable, key))
   {
     string = [NSMutableString stringWithFormat:@"%6.1f%%", ((double)integer/10.0)];
-    int count = [self getSpacesCountFor:string width:target];
+    // none when the text is wider than the column: in the menu font its seven cells are 50.4 pt
+    int count = MAX([self getSpacesCountFor:string width:target], 0);
     [string insertString:[NSString stringWithCharacters:&spaces[0] length:count] atIndex:0];
     
     if (key != NULL)
@@ -1325,24 +1329,19 @@ static BOOL spaces_init = NO;
   {
     NSMutableString* string = [NSMutableString stringWithString:name];
     int count = [self getSpacesCountFor:string width:target];
-    if (count <= 0)
+    if (count < 0)
     {
-      // whole characters: an emoji is two UTF-16 units, and an accent can be a unit of its own;
-      // at least SIZE_DOTS units go, and a short name can go entirely
-      NSUInteger before = [string length];
-      while (([string length] > 0) && (before - [string length] < SIZE_DOTS))
+      // whole characters go (an emoji is two UTF-16 units, and an accent can be a unit of its own) until the rest and
+      // one ellipsis, a single cell of the menu font, fit; a name that fits exactly fills the column's last cell
+      while ((count < 0) && ([string length] > 0))
       {
         [string deleteCharactersInRange:[string rangeOfComposedCharacterSequenceAtIndex:[string length]-1]];
+        count = [self getSpacesCountFor:[NSMutableString stringWithFormat:@"%@%C", string, (unichar)0x2026] width:target];
       }
-      [string insertString:[NSString stringWithCharacters:&dots[0] length:SIZE_DOTS] atIndex:[string length]];
-      while ((count <= 0) && ([string length] >= SIZE_DOTS))
-      {
-        [string deleteCharactersInRange:[string rangeOfComposedCharacterSequenceAtIndex:[string length]-SIZE_DOTS]];
-        count = [self getSpacesCountFor:string width:target];
-      }
+      [string appendFormat:@"%C", (unichar)0x2026];
       if (count < 0)
       {
-        // only when the dots alone are wider than the target
+        // only when the ellipsis alone is wider than the target
         count = 0;
       }
     }
@@ -1388,6 +1387,30 @@ static BOOL spaces_init = NO;
   }
 }
 
+// the hair spaces that pad a row's columns, in the padding font: in the monospaced menu font each is a whole cell wide,
+// too coarse to line the columns up
+static void SetPaddingFont(NSMutableAttributedString* title)
+{
+  NSString* string = title.string;
+  NSFont* font = attributesPad[NSFontAttributeName];
+  NSUInteger length = string.length;
+  NSUInteger i = 0;
+  while (i < length)
+  {
+    if ([string characterAtIndex:i] != SPACE_THIN)
+    {
+      i++;
+      continue;
+    }
+    NSUInteger start = i;
+    while ((i < length) && ([string characterAtIndex:i] == SPACE_THIN))
+    {
+      i++;
+    }
+    [title addAttribute:NSFontAttributeName value:font range:NSMakeRange(start, i - start)];
+  }
+}
+
 - (void)updateMenuTopFor:(NSMenuItem*)item name:(char*)name pid:(pid_t)pid cpu:(double)cpu mem:(uint64_t)mem memKnown:(int)memKnown width:(CGFloat)target
 {
   ProcessIconDecision* decision = [self decisionForPid:pid];
@@ -1399,6 +1422,7 @@ static BOOL spaces_init = NO;
   
   NSMutableAttributedString* title = [[NSMutableAttributedString alloc] initWithString:[item title] attributes:attributesGrey];
   [title setAttributes:attributesWhite range:NSMakeRange([stringName length], [stringCpu length]+1+[stringMem length]+1)];
+  SetPaddingFont(title);
 
   
   [item setAttributedTitle:title];
@@ -1493,21 +1517,25 @@ static NSString* OthersRowText(int count)
   }
   
   attributesStandard = @{
-    NSFontAttributeName: [NSFont fontWithName:MENU_FONT_NAME size:MENU_ICON_SIZE-2],
+    NSFontAttributeName: MENU_FONT(MENU_ICON_SIZE-2),
   };
   
   attributesGrey = @{
-    NSFontAttributeName: [NSFont fontWithName:MENU_FONT_NAME size:MENU_ICON_SIZE-2],
+    NSFontAttributeName: MENU_FONT(MENU_ICON_SIZE-2),
     NSForegroundColorAttributeName: [NSColor controlTextColor]
   };
   
   attributesWhite = @{
-    NSFontAttributeName: [NSFont fontWithName:MENU_FONT_NAME size:MENU_ICON_SIZE-2],
+    NSFontAttributeName: MENU_FONT(MENU_ICON_SIZE-2),
     NSForegroundColorAttributeName: [NSColor controlTextColor],
   };
   
+  attributesPad = @{
+    NSFontAttributeName: [NSFont fontWithName:MENU_PAD_FONT_NAME size:MENU_ICON_SIZE-2],
+  };
+
   unichar unicodeSpace[1] = {SPACE_THIN};
-  spaceWidth = [[NSString stringWithCharacters:unicodeSpace length:1] sizeWithAttributes:attributesStandard].width;
+  spaceWidth = [[NSString stringWithCharacters:unicodeSpace length:1] sizeWithAttributes:attributesPad].width;
   
   memTarget = 0.0;
   for (NSString* sample in @[@"1023 MB", @"999.9 GB", @"—"])
@@ -1516,7 +1544,7 @@ static NSString* OthersRowText(int count)
   }
   
   NSDictionary* attributesThin = @{
-    NSFontAttributeName: [NSFont fontWithName:MENU_FONT_NAME size:1.0],
+    NSFontAttributeName: MENU_FONT(1.0),
   };
   
   NSMutableParagraphStyle *paragraphStyle = [[NSMutableParagraphStyle alloc] init];
@@ -1674,7 +1702,8 @@ static bool IsLight(NSAppearance* appearance)
 }
 
 // a tooltip-style label under each reading's bar (or dot) in the status item: disk, memory, CPU, worded as the panel's
-// rows, and each extra bar's, worded by its class (barLabels). On macOS 27 no tooltip showed on the status item when
+// rows, and each extra bar's, worded by its class (barLabels); and one under the core graph, with or without the
+// readings: each kind of core's mean load. On macOS 27 no tooltip showed on the status item when
 // tried (a tooltip rect was never asked for its text), but the pointer reaches the button, so the label is the app's
 // own panel. updateBarTips: records where the readings are after each render; the pointer's entry and moves start a
 // watch timer that follows the pointer while it is on the item, since no exit was delivered either, and a reading
@@ -1684,7 +1713,7 @@ static void SetTipText(NSPanel* panel, NSTextField* label, NSString* text);
 static NSRect barTipLayout = {{-1.0, -1.0}, {-1.0, -1.0}}; // x: the image's left in the button, width: a slot; none: -1
 static NSInteger barTipCount = 0;           // the readings drawn: the three, and the extra bars; none: 0
 static NSInteger barTipIndex = -1;          // the reading under the pointer, armed or shown: 0 disk, 1 memory, 2 CPU, 3 on
-                                            // the extra bars, -1 none
+                                            // the extra bars, BAR_TIP_CORES the core graph, -1 none
 static NSPanel* barTip = nil;
 static NSTextField* barTipText = nil;
 static NSTimer* barTipWatch = nil;
@@ -1699,12 +1728,8 @@ static NSTimer* barTipWatch = nil;
     tracking = [[NSTrackingArea alloc] initWithRect:NSZeroRect options:(NSTrackingMouseEnteredAndExited | NSTrackingMouseMoved | NSTrackingActiveAlways | NSTrackingInVisibleRect) owner:self userInfo:nil];
     [button addTrackingArea:tracking];
   }
-  NSRect layout = NSMakeRect(-1.0, -1.0, -1.0, -1.0);
-  if (count > 0)
-  {
-    NSRect bounds = button.bounds;
-    layout = NSMakeRect(round(NSMidX(bounds) - imageWidth/2.0), NSMinY(bounds), CpuRenderReadingsSlot(bar, drawWidth, tickTotalWidth), NSHeight(bounds));
-  }
+  NSRect bounds = button.bounds;
+  NSRect layout = NSMakeRect(round(NSMidX(bounds) - imageWidth/2.0), NSMinY(bounds), CpuRenderReadingsSlot(bar, drawWidth, tickTotalWidth), NSHeight(bounds));
   if (!NSEqualRects(layout, barTipLayout) || (count != barTipCount))
   {
     barTipLayout = layout;
@@ -1713,9 +1738,15 @@ static NSTimer* barTipWatch = nil;
   }
 }
 
-// the reading under the pointer, from where it is now: 0 disk, 1 memory, 2 CPU, 3 on the extra bars; -1 on the item
-// but on none of them;
-// -2 off the item, or no readings shown
+// where the core graph starts and ends in the image, as the renderer drew it (barTipCount: readings drawn or not)
+- (void)graphTipStart:(CGFloat*)start end:(CGFloat*)end
+{
+  CpuRenderGraphSpan(bar, drawWidth, tickTotalWidth, imageWidth, (barTipCount > 0), (int)MAX(barTipCount - CPU_RENDER_READINGS_COUNT, 0), start, end);
+}
+
+// the reading under the pointer, from where it is now: 0 disk, 1 memory, 2 CPU, 3 on the extra bars, BAR_TIP_CORES on
+// the core graph; -1 on the item but on none of them;
+// -2 off the item, or nothing rendered yet
 - (NSInteger)barTipIndexNow
 {
   NSStatusBarButton* button = self.statusItem.button;
@@ -1738,13 +1769,71 @@ static NSTimer* barTipWatch = nil;
       return index;
     }
   }
+  CGFloat graphStart = 0.0;
+  CGFloat graphEnd = 0.0;
+  [self graphTipStart:&graphStart end:&graphEnd];
+  if ((x >= graphStart) && (x < graphEnd))
+  {
+    return BAR_TIP_CORES;
+  }
   return -1;
 }
 
-// a reading's text, as its panel row: "995GB Disk usage: 72%"; an extra bar's, its class's barLabels entry; empty when
-// there is none
+// the core graph's label: "4xE-cores 12%, 4xP-cores 34%", each kind's count and mean
+// load at the graph's latest tick, as its bars show it; "8xCores 34%", all logical CPUs, when the kinds were not read or
+// there is one kind
+- (NSString*)coresTipText
+{
+  NSLocale* locale = [NSLocale currentLocale];
+  double sum[2] = {0.0, 0.0}; // P, E
+  natural_t count[2] = {0, 0};
+  for (natural_t i=0; i<cpu_info.countLogical; i++)
+  {
+    int kind = ((cpuKinds != NULL) && (cpuKinds[i] == 'E')) ? 1 : 0;
+    sum[kind] += fmin(fmax(cpu_info.now[i].load, 0.0), 1.0);
+    count[kind]++;
+  }
+  if ((count[0] == 0) || (count[1] == 0))
+  {
+    double all = (sum[0] + sum[1]) / (double)MAX(count[0] + count[1], 1u);
+    return [[NSString alloc] initWithFormat:@"%uxCores %ld%%" locale:locale, count[0] + count[1], lround(100.0 * all)];
+  }
+  return [[NSString alloc] initWithFormat:@"%uxE-cores %ld%%, %uxP-cores %ld%%" locale:locale, count[1], lround(100.0 * sum[1] / count[1]), count[0], lround(100.0 * sum[0] / count[0])];
+}
+
+// a label's whole percentages three characters wide, "  1%", " 10%", "100%", so that a label in the monospaced font
+// keeps its width as its values change; one after "~", an estimate, keeps its own width
+static NSString* TipPercents(NSString* text)
+{
+  static NSRegularExpression* percent = nil;
+  if (percent == nil)
+  {
+    percent = [NSRegularExpression regularExpressionWithPattern:@"(?<![0-9.,~])([0-9]{1,3})%" options:0 error:NULL];
+  }
+  NSMutableString* padded = [text mutableCopy];
+  NSArray<NSTextCheckingResult*>* matches = [percent matchesInString:text options:0 range:NSMakeRange(0, text.length)];
+  for (NSTextCheckingResult* match in matches.reverseObjectEnumerator)
+  {
+    NSRange digits = [match rangeAtIndex:1];
+    [padded replaceCharactersInRange:digits withString:[NSString stringWithFormat:@"%3d", [[text substringWithRange:digits] intValue]]];
+  }
+  return padded;
+}
+
+// a label's text, its percentages three characters wide ("995GB Disk usage:  72%")
 - (NSString*)barTipTextAt:(NSInteger)index
 {
+  return TipPercents([self barTipTextUnpaddedAt:index]);
+}
+
+// a reading's text, as its panel row: "995GB Disk usage: 72%"; an extra bar's, its class's barLabels entry; the core
+// graph's, coresTipText; empty when there is none
+- (NSString*)barTipTextUnpaddedAt:(NSInteger)index
+{
+  if (index == BAR_TIP_CORES)
+  {
+    return [self coresTipText];
+  }
   if (index >= CPU_RENDER_READINGS_COUNT)
   {
     NSInteger extra = index - CPU_RENDER_READINGS_COUNT;
@@ -1836,7 +1925,18 @@ static NSTimer* barTipWatch = nil;
     barTip = NewTipPanel(&barTipText);
   }
   SetTipText(barTip, barTipText, text);
-  NSRect slot = NSMakeRect(barTipLayout.origin.x + CpuRenderReadingX(bar, drawWidth, tickTotalWidth, imageWidth, (int)(barTipCount - CPU_RENDER_READINGS_COUNT), (int)barTipIndex), barTipLayout.origin.y, barTipLayout.size.width, barTipLayout.size.height);
+  NSRect slot = NSZeroRect;
+  if (barTipIndex == BAR_TIP_CORES)
+  {
+    CGFloat graphStart = 0.0;
+    CGFloat graphEnd = 0.0;
+    [self graphTipStart:&graphStart end:&graphEnd];
+    slot = NSMakeRect(barTipLayout.origin.x + graphStart, barTipLayout.origin.y, graphEnd - graphStart, barTipLayout.size.height);
+  }
+  else
+  {
+    slot = NSMakeRect(barTipLayout.origin.x + CpuRenderReadingX(bar, drawWidth, tickTotalWidth, imageWidth, (int)(barTipCount - CPU_RENDER_READINGS_COUNT), (int)barTipIndex), barTipLayout.origin.y, barTipLayout.size.width, barTipLayout.size.height);
+  }
   NSRect onScreen = [button.window convertRectToScreen:[button convertRect:slot toView:nil]];
   NSRect item = button.window.frame;
   NSRect frame = barTip.frame;
@@ -2341,8 +2441,24 @@ static NSTimeInterval TopDelay(void)
     topIconCache = [NSMutableDictionary dictionary];
     frozenStarts = [NSMutableDictionary dictionary];
 
+    // the menu's font, from the app's Resources, for this process only; when it does not load, MENU_FONT falls back
+    // to the system's monospaced font
+    NSURL* fontURL = [[NSBundle mainBundle] URLForResource:@"IBMPlexMono-Regular" withExtension:@"otf"];
+    CFErrorRef fontError = NULL;
+    if ((fontURL == nil) || !CTFontManagerRegisterFontsForURL((__bridge CFURLRef)fontURL, kCTFontManagerScopeProcess, &fontError))
+    {
+      NSLog(@"the menu font did not load (%@); the system's monospaced font stands in", (fontError != NULL) ? (__bridge_transfer NSError*)fontError : @"not in the app");
+    }
+
     CpuRenderInit();
     CpuSamplerInit(&cpu_info);
+    cpuKinds = (char*)calloc(cpu_info.countLogical, 1);
+    if (CpuSamplerGetKinds(cpu_info.countLogical, cpuKinds) == 0)
+    {
+      NSLog(@"cores: kinds not read from the device tree; the cores' label shows the mean of all cores");
+      free(cpuKinds);
+      cpuKinds = NULL;
+    }
     CpuSamplerSineDemoInit(&cpu_sine_demo_info);
     CpuSamplerFlatDemoInit(&cpu_flat_demo_info);
     TopInit(); // takes the first sample: the CPU baseline
@@ -2935,7 +3051,8 @@ static NSTimeInterval TopDelay(void)
   }
 }
 
-// a tooltip-style box: a borderless panel at help level in the tooltip material, its label in the tooltip font
+// a tooltip-style box: a borderless panel at help level in the tooltip material, its label in the menu font at the
+// tooltip font's size
 static NSPanel* NewTipPanel(NSTextField* __strong * label)
 {
   NSPanel* panel = [[NSPanel alloc] initWithContentRect:NSMakeRect(0, 0, 100, 20) styleMask:(NSWindowStyleMaskBorderless | NSWindowStyleMaskNonactivatingPanel) backing:NSBackingStoreBuffered defer:YES];
@@ -2954,7 +3071,7 @@ static NSPanel* NewTipPanel(NSTextField* __strong * label)
   background.layer.masksToBounds = YES;
   panel.contentView = background;
   *label = [NSTextField wrappingLabelWithString:@""];
-  (*label).font = [NSFont toolTipsFontOfSize:0];
+  (*label).font = MENU_FONT([NSFont toolTipsFontOfSize:0].pointSize);
   [background addSubview:*label];
   return panel;
 }
@@ -3063,7 +3180,7 @@ static void SetTipText(NSPanel* panel, NSTextField* label, NSString* text)
 - (void)makeInfoRows:(NSUInteger)count starts:(NSIndexSet*)starts
 {
   NSView* background = infoGlass.contentView;
-  NSFont* font = [NSFont fontWithName:MENU_FONT_NAME size:MENU_ICON_SIZE-2];
+  NSFont* font = MENU_FONT(MENU_ICON_SIZE-2);
   NSMutableArray<NSTextField*>* labels = [NSMutableArray arrayWithArray:infoLabels ?: @[]];
   NSMutableArray<NSTextField*>* values = [NSMutableArray arrayWithArray:infoValues ?: @[]];
   while (labels.count > count)

@@ -66,6 +66,9 @@ CGFloat CpuRenderReadingsSlot(bool bar, CGFloat tickWidth, CGFloat tickTotalWidt
 // where reading index starts in an image imageWidth wide with extraCount extra readings: the three readings index
 // slots from the left, the extra ones (index CPU_RENDER_READINGS_COUNT on) after the core graph and its gap
 CGFloat CpuRenderReadingX(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth, CGFloat imageWidth, int extraCount, int index);
+// where the core graph starts and ends in an image imageWidth wide: after the readings block and its gap when readings
+// are drawn, else at x = 0; before the extra readings' block (extraCount, read only with readings)
+void CpuRenderGraphSpan(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth, CGFloat imageWidth, bool readings, int extraCount, CGFloat* start, CGFloat* end);
 // readings NULL: no block, the core graph starts at x = 0; else it starts after the block and the gap
 void CpuRender(CpuSummaryInfo* cpu_info, CGContextRef ctx, bool light, int granularity, bool bar, bool stripped, bool colored, CGFloat tickWidth, CGFloat tickTotalWidth, CGFloat imageWidth, int theme, const CpuReadings* readings);
 void CpuRenderDemo(CGContextRef ctx, CGFloat width, CGFloat height, int tint);

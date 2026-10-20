@@ -25,6 +25,9 @@
 #include <stdlib.h>
 #include <math.h>
 #include <sys/sysctl.h>
+#include <string.h>
+#include <CoreFoundation/CoreFoundation.h>
+#include <IOKit/IOKitLib.h>
 
 static host_basic_info_t _CpuSamplerGetCounts(void)
 {
@@ -173,6 +176,56 @@ void CpuSamplerUpdate(CpuSummaryInfo* cpu_info)
     }
     cpu_info->last[i] = cpu_info->now[i];
   }
+}
+
+int CpuSamplerGetKinds(natural_t count, char* kinds)
+{
+  memset(kinds, 0, count);
+  io_registry_entry_t cpus = IORegistryEntryFromPath(kIOMainPortDefault, "IODeviceTree:/cpus");
+  if (cpus == MACH_PORT_NULL)
+  {
+    return 0;
+  }
+  io_iterator_t iterator = MACH_PORT_NULL;
+  if (IORegistryEntryGetChildIterator(cpus, kIODeviceTreePlane, &iterator) != KERN_SUCCESS)
+  {
+    IOObjectRelease(cpus);
+    return 0;
+  }
+  natural_t found = 0;
+  io_registry_entry_t cpu;
+  while ((cpu = IOIteratorNext(iterator)) != MACH_PORT_NULL)
+  {
+    CFTypeRef type = IORegistryEntryCreateCFProperty(cpu, CFSTR("cluster-type"), kCFAllocatorDefault, 0);
+    CFTypeRef ident = IORegistryEntryCreateCFProperty(cpu, CFSTR("logical-cpu-id"), kCFAllocatorDefault, 0);
+    char kind = 0;
+    if ((type != NULL) && (CFGetTypeID(type) == CFDataGetTypeID()) && (CFDataGetLength((CFDataRef)type) >= 1))
+    {
+      kind = (char)CFDataGetBytePtr((CFDataRef)type)[0];
+    }
+    long long index = -1;
+    if ((ident != NULL) && (CFGetTypeID(ident) == CFNumberGetTypeID()))
+    {
+      CFNumberGetValue((CFNumberRef)ident, kCFNumberLongLongType, &index);
+    }
+    if (((kind == 'P') || (kind == 'E')) && (index >= 0) && (index < (long long)count) && (kinds[index] == 0))
+    {
+      kinds[index] = kind;
+      found++;
+    }
+    if (type != NULL)
+    {
+      CFRelease(type);
+    }
+    if (ident != NULL)
+    {
+      CFRelease(ident);
+    }
+    IOObjectRelease(cpu);
+  }
+  IOObjectRelease(iterator);
+  IOObjectRelease(cpus);
+  return (found == count) ? 1 : 0;
 }
 
 void CpuSamplerSineDemoInit(CpuSummaryInfo* cpu_info)

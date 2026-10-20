@@ -182,6 +182,12 @@ CGFloat CpuRenderReadingsWidth(bool bar, CGFloat tickWidth, CGFloat tickTotalWid
     _extra_width(bar, tickWidth, tickTotalWidth, extraCount);
 }
 
+void CpuRenderGraphSpan(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth, CGFloat imageWidth, bool readings, int extraCount, CGFloat* start, CGFloat* end)
+{
+  *start = readings ? CpuRenderReadingsWidth(bar, tickWidth, tickTotalWidth, 0) : 0.0;
+  *end = readings ? (imageWidth - _extra_width(bar, tickWidth, tickTotalWidth, extraCount)) : imageWidth;
+}
+
 // a bar's full-height background: 100%, in a light grey
 static void _render_background(CGContextRef ctx, CGFloat x, CGFloat tickWidth, CGFloat color, bool light)
 {
@@ -243,10 +249,9 @@ void CpuRender(CpuSummaryInfo* cpu_info, CGContextRef ctx, bool light, int granu
   // the core graph starts after the readings block and its gap, and ends before the extra readings' gap
   CGFloat offset = 0.0;
   CGFloat end = imageWidth;
+  CpuRenderGraphSpan(bar, tickWidth, tickTotalWidth, imageWidth, (readings != NULL), (readings != NULL) ? readings->extraCount : 0, &offset, &end);
   if (readings)
   {
-    offset = CpuRenderReadingsWidth(bar, tickWidth, tickTotalWidth, 0);
-    end = imageWidth - _extra_width(bar, tickWidth, tickTotalWidth, readings->extraCount);
     const int count = _readings_count(readings->extraCount);
     if (bar)
     {
