@@ -43,8 +43,8 @@ enum Theme
 // as wide. The three may be left out (extraOnly): the core graph then starts at x = 0, with the extra readings, when
 // there are any, at the right as before. The extra readings fall into groups: a reading that starts a group is drawn
 // after a further clear gap, CPU_RENDER_GROUP_GAP wide, and the first reading is always the first of its group. An
-// extra reading may also carry a mark, a small arrow at that height outside the left edge of the first bar of its group
-// and the right edge of the last bar of its group, and an alert, which draws its bar whole, without the dashes
+// extra reading may also carry a mark, a 1-pt line across its bar at that height, and an alert, which draws its bar
+// whole, without the dashes
 #define CPU_RENDER_READINGS_COUNT (3)
 #define CPU_RENDER_READINGS_GAP (4.0)
 #define CPU_RENDER_EXTRA_GAP CPU_RENDER_READINGS_GAP
@@ -55,9 +55,9 @@ struct CpuExtraReading
 {
   // 0..1; below 0, not read: only the bar's background is drawn, and in Dot style nothing
   double value;
-  // a share of its bar's height (from where a dashed bar starts): a small arrow at that height beside the first and the
-  // last bar of its group, white on a dark menu bar and black on a light one, over the dashes; none in Dot style, and
-  // drawn only above 0, so a zeroed struct has none
+  // a share of its bar's height (from where a dashed bar starts): a 1-pt line across the bar at that height, white on a
+  // dark menu bar and black on a light one, over the dashes; none in Dot style, and drawn only above 0, so a zeroed
+  // struct has none
   double mark;
   // true: this reading's dashed bar is drawn whole, without the dashes, in its own colour; nothing changes for a solid
   // bar or in Dot style; false is the default

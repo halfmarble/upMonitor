@@ -206,12 +206,12 @@ CGFloat CpuRenderReadingSlot(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth
 }
 
 // the extra readings' block at the right of the image: its gap, the slots of the readings, a group gap for each reading that
-// starts a group, and 1 pt more (a dot's overhang, or the chevron of a bar's mark); none without extra readings
+// starts a group, and in Dot style 1 pt more (the last dot's overhang); none without extra readings
 static CGFloat _extra_width(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth, int extraCount, const CpuExtraReading* extra)
 {
   const int n = _extra_count(extraCount);
   return (n > 0) ? (CPU_RENDER_EXTRA_GAP + _extra_slots(bar, tickWidth, tickTotalWidth, extra, 0, n) +
-                    (_group_starts(extra, n-1)*CPU_RENDER_GROUP_GAP) + 1.0) : 0.0;
+                    (_group_starts(extra, n-1)*CPU_RENDER_GROUP_GAP) + (bar ? 0.0 : 1.0)) : 0.0;
 }
 
 CGFloat CpuRenderReadingX(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth, CGFloat imageWidth, int extraCount, const CpuExtraReading* extra, int index)
@@ -385,9 +385,8 @@ void CpuRender(CpuSummaryInfo* cpu_info, CGContextRef ctx, bool light, int granu
     }
   }
 
-  // the extra readings' marks, drawn last so that the dashes do not clear them: a small arrow at the mark's height,
-  // white on a dark menu bar and black on a light one, outside the left edge of the first bar of a group and the right
-  // edge of the last bar of a group
+  // the extra readings' marks, drawn last so that the dashes do not clear them: a 1-pt line across the bar at the mark's
+  // height, white on a dark menu bar and black on a light one
   if (readings && bar && extra)
   {
     for (int i=0; i<extraCount; i++)
@@ -399,19 +398,7 @@ void CpuRender(CpuSummaryInfo* cpu_info, CGContextRef ctx, bool light, int granu
         const double y = fmin(floor(bottom+(fmin(mark, 1.0)*(16.0-bottom))), 15.0); // on the bar's own scale
         CGContextSetGrayFillColor(ctx, light ? 0.0 : 1.0, 1.0);
         CGFloat x = CpuRenderReadingX(bar, tickWidth, tickTotalWidth, imageWidth, extraCount, extra, CPU_RENDER_READINGS_COUNT+i);
-        // the arrow, 2 pt wide and 3 pt tall, on the rows around the mark's height, kept inside the image
-        const CGFloat lo = fmin(fmax(y-1.0, 0.0), 13.0);
-        if (i == 0 || extra[i].groupStart)
-        {
-          CGContextFillRect(ctx, CGRectMake(x-2.0, lo, 1, 3));
-          CGContextFillRect(ctx, CGRectMake(x-1.0, y, 1, 1));
-        }
-        if (i == extraCount-1 || extra[i+1].groupStart)
-        {
-          const CGFloat right = x + _extra_bar_width(bar, tickWidth, extra, i);
-          CGContextFillRect(ctx, CGRectMake(right, y, 1, 1));
-          CGContextFillRect(ctx, CGRectMake(right+1.0, lo, 1, 3));
-        }
+        CGContextFillRect(ctx, CGRectMake(x, y, _extra_bar_width(bar, tickWidth, extra, i), 1));
       }
     }
   }

@@ -71,10 +71,9 @@ NS_ASSUME_NONNULL_BEGIN
 // (and barLabels) return none while it is off, and the status item follows at the next tick of the graph
 - (NSArray<NSButton*>*)preferenceCheckboxes;
 // each bar's mark, in the same order as barReadings: a share of the bar's height, 0..1 (above 1 at the top row; near 0
-// on its lowest row), shown by a small arrow at that height outside the left edge of the first bar of its group and the right
-// edge of the last bar of its group, drawn over the dashes, white on a dark menu bar and black on a light one; 0 or
-// below, an entry that is not a number, a missing entry or a bar not read: none. Nothing in Dot style. Read with
-// barReadings, at each tick of the graph
+// on its lowest row), shown by a 1-pt line across the bar at that height, drawn over the dashes, white on a dark menu
+// bar and black on a light one; 0 or below, an entry that is not a number, a missing entry or a bar not read: none.
+// Nothing in Dot style. Read with barReadings, at each tick of the graph
 - (NSArray<NSNumber*>*)barMarks;
 // each bar's alert, in the same order as barReadings: an entry whose boolValue is YES draws a dashed bar whole, without
 // the dashes, in its own colour (a solid bar and a dot do not change); NO, an entry that is not a number, a missing entry or a bar not read: none. Read with barReadings, at each
