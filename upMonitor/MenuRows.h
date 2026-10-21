@@ -26,9 +26,10 @@ NS_ASSUME_NONNULL_BEGIN
 
 // Rows that a build adds to the status menu, above Quit, and to the readings panel beside it, after the readings. A
 // class that adopts MenuRows registers itself with MenuRowsRegister from its +load; upMonitor makes one instance of
-// each when it builds the menu and adds its rows, then a separator, and its panel rows as a section of their own. It
-// may also add views to the process inspector's header, bars to the menu bar, at the right of the core graph, with a mark,
-// a tint, an alert, a group and a width per bar, and check boxes to the Preferences window.
+// each when it builds the menu and adds its rows, then a separator, and its panel rows, any of them a heading, as a
+// section of their own. It may also add views to the process inspector's header, bars to the menu bar, at the right of
+// the core graph, with a mark, a tint, an alert, a group and a width per bar, and check boxes to the Preferences
+// window.
 // Everything here runs on the main thread, +load aside.
 @protocol MenuRows <NSObject>
 // the rows, their titles set in attributes, the menu's own text attributes
@@ -44,6 +45,10 @@ NS_ASSUME_NONNULL_BEGIN
 // the menu opens and then every second while it is open, frozen or not. The number may change from one read to the
 // next, none included; the panel's height follows
 - (NSArray<NSArray<NSString*>*>*)panelRows;
+// each panel row's heading, in the same order as panelRows: an entry whose boolValue is YES draws that row's title as
+// the menu's own title is drawn, in its font and colour, centred across the panel, and no value; NO, an entry that is
+// not a number or a missing entry: a plain row. Read with panelRows
+- (NSArray<NSNumber*>*)panelHeadings;
 // views for the process inspector's header, made once, the first time the inspector shows a process: laid out left to
 // right in this order on a line of their own below the header's text, each centred on that line, which is as tall as
 // the tallest; the last view, and the text above, end 20 pt short of the header's right edge, the margin the icon keeps

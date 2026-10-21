@@ -63,6 +63,10 @@
 #define MENU_FONT_NAME              @"IBMPlexMono" // IBM Plex Mono Regular, in the app's Resources, registered at launch
 #define MENU_FONT(points)           ([NSFont fontWithName:MENU_FONT_NAME size:(points)] ?: [NSFont monospacedSystemFontOfSize:(points) weight:NSFontWeightRegular])
 #define MENU_TITLE_FONT_NAME        @"Verdana"
+#define MENU_TITLE_FONT             ([NSFont fontWithName:MENU_TITLE_FONT_NAME size:MENU_ICON_SIZE-3]) // the status menu's title, and a build's panel headings
+#define MENU_TITLE_COLOR            ([NSColor systemRedColor])
+// the title's colour as the menu draws it: the title row has no action, and the menu draws a disabled row in systemRedColor about half way to white (matched for this red only)
+#define MENU_HEADING_COLOR          ([MENU_TITLE_COLOR blendedColorWithFraction:0.5 ofColor:[NSColor whiteColor]])
 #define MENU_PAD_FONT_NAME          @"Helvetica" // the rows' column padding: its hair space is 0.84 pt, IBM Plex Mono's 7.2
 
 #define SYSTEM_ICONS_RSRC           "/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources"
@@ -1615,9 +1619,9 @@ static NSString* OthersRowText(int count)
   NSMutableParagraphStyle *paragraphStyle = [[NSMutableParagraphStyle alloc] init];
   paragraphStyle.alignment = NSTextAlignmentCenter;
   NSDictionary* attributesStandardCenter = @{
-    NSFontAttributeName: [NSFont fontWithName:MENU_TITLE_FONT_NAME size:MENU_ICON_SIZE-3],
+    NSFontAttributeName: MENU_TITLE_FONT,
     NSParagraphStyleAttributeName: paragraphStyle,
-    NSForegroundColorAttributeName: [NSColor systemRedColor]
+    NSForegroundColorAttributeName: MENU_TITLE_COLOR
   };
   
   menu = [[NSMenu alloc] init];
@@ -3477,8 +3481,9 @@ static void SetTipText(NSPanel* panel, NSTextField* label, NSString* text, CGFlo
 }
 
 // the panel's rows as shown: uptime, read now, then the readings as a section, then each MenuRows' panel rows as a
-// section of their own; starts, when given, gets the first row of each section after uptime
-- (NSArray<NSArray<NSString*>*>*)infoRowsWithStarts:(NSMutableIndexSet*)starts
+// section of their own; starts, when given, gets the first row of each section after uptime, and headings, when given,
+// gets the rows a build marks as headings
+- (NSArray<NSArray<NSString*>*>*)infoRowsWithStarts:(NSMutableIndexSet*)starts headings:(NSMutableIndexSet*)headings
 {
   NSMutableArray<NSArray<NSString*>*>* rows = [NSMutableArray arrayWithObject:@[@"Uptime:", UptimeText(SystemInfoUptimeSeconds())]];
   [starts addIndex:rows.count];
@@ -3488,8 +3493,17 @@ static void SetTipText(NSPanel* panel, NSTextField* label, NSString* text, CGFlo
     NSArray<NSArray<NSString*>*>* section = [menuRow respondsToSelector:@selector(panelRows)] ? [menuRow panelRows] : nil;
     if (section.count > 0)
     {
-      [starts addIndex:rows.count];
+      NSUInteger first = rows.count;
+      [starts addIndex:first];
       [rows addObjectsFromArray:section];
+      NSArray* marks = [menuRow respondsToSelector:@selector(panelHeadings)] ? [menuRow panelHeadings] : nil;
+      for (NSUInteger k=0; k<MIN(section.count, marks.count); k++)
+      {
+        if ([marks[k] isKindOfClass:[NSNumber class]] && [marks[k] boolValue])
+        {
+          [headings addIndex:first + k];
+        }
+      }
     }
   }
   return rows;
@@ -3507,7 +3521,8 @@ static void SetTipText(NSPanel* panel, NSTextField* label, NSString* text, CGFlo
   }
 
   NSMutableIndexSet* starts = [NSMutableIndexSet indexSet];
-  NSArray<NSArray<NSString*>*>* rows = [self infoRowsWithStarts:starts];
+  NSMutableIndexSet* headings = [NSMutableIndexSet indexSet];
+  NSArray<NSArray<NSString*>*>* rows = [self infoRowsWithStarts:starts headings:headings];
   if ((rows.count != infoValues.count) || ![starts isEqualToIndexSet:infoSeparatorRows])
   {
     [self makeInfoRows:rows.count starts:starts];
@@ -3517,14 +3532,19 @@ static void SetTipText(NSPanel* panel, NSTextField* label, NSString* text, CGFlo
   CGFloat rowWidth = 0.0;
   for (NSUInteger i=0; i<count; i++)
   {
+    // labels are reused by index as rows come and go, so every row sets its font and colour every time
+    bool heading = [headings containsIndex:i];
+    NSString* shown = heading ? @"" : rows[i][1];
+    infoLabels[i].font = heading ? MENU_TITLE_FONT : MENU_FONT(MENU_ICON_SIZE-2);
+    infoLabels[i].textColor = heading ? MENU_HEADING_COLOR : [NSColor labelColor];
     infoLabels[i].stringValue = rows[i][0];
-    infoValues[i].stringValue = rows[i][1];
+    infoValues[i].stringValue = shown;
     [infoValues[i] sizeToFit];
     [infoLabels[i] sizeToFit];
     valueWidth = MAX(valueWidth, NSWidth(infoValues[i].frame));
     // a row's own need: its title and value side by side, the gap only when it has both; an empty side needs nothing
     CGFloat title = (rows[i][0].length > 0) ? NSWidth(infoLabels[i].frame) : 0.0;
-    CGFloat value = (rows[i][1].length > 0) ? NSWidth(infoValues[i].frame) : 0.0;
+    CGFloat value = (shown.length > 0) ? NSWidth(infoValues[i].frame) : 0.0;
     rowWidth = MAX(rowWidth, title + (((title > 0.0) && (value > 0.0)) ? INFO_COLUMN_GAP : 0.0) + value);
   }
   CGFloat width = ceil(INFO_INSET + rowWidth + INFO_INSET);
@@ -3539,7 +3559,8 @@ static void SetTipText(NSPanel* panel, NSTextField* label, NSString* text, CGFlo
     CGFloat gaps = (CGFloat)[infoSeparatorRows countOfIndexesInRange:NSMakeRange(0, i + 1)];
     CGFloat y = height - INFO_VERTICAL_INSET - (CGFloat)(i + 1) * INFO_ROW_HEIGHT - gaps * INFO_SEPARATOR_HEIGHT;
     NSRect label = infoLabels[i].frame;
-    infoLabels[i].frame = NSMakeRect(INFO_INSET, y + floor((INFO_ROW_HEIGHT - NSHeight(label))/2.0), NSWidth(label), NSHeight(label));
+    CGFloat labelX = [headings containsIndex:i] ? floor((width - NSWidth(label))/2.0) : INFO_INSET;
+    infoLabels[i].frame = NSMakeRect(labelX, y + floor((INFO_ROW_HEIGHT - NSHeight(label))/2.0), NSWidth(label), NSHeight(label));
     NSRect value = infoValues[i].frame;
     infoValues[i].frame = NSMakeRect(width - INFO_INSET - valueWidth, y + floor((INFO_ROW_HEIGHT - NSHeight(value))/2.0), valueWidth, NSHeight(value));
   }
