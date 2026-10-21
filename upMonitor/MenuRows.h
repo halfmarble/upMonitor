@@ -27,8 +27,8 @@ NS_ASSUME_NONNULL_BEGIN
 // Rows that a build adds to the status menu, above Quit, and to the readings panel beside it, after the readings. A
 // class that adopts MenuRows registers itself with MenuRowsRegister from its +load; upMonitor makes one instance of
 // each when it builds the menu and adds its rows, then a separator, and its panel rows as a section of their own. It
-// may also add views to the process inspector's header, bars to the menu bar, at the right of the core graph, with a mark and
-// an alert per bar, and check boxes to the Preferences window.
+// may also add views to the process inspector's header, bars to the menu bar, at the right of the core graph, with a mark,
+// an alert, a group and a width per bar, and check boxes to the Preferences window.
 // Everything here runs on the main thread, +load aside.
 @protocol MenuRows <NSObject>
 // the rows, their titles set in attributes, the menu's own text attributes
@@ -54,8 +54,8 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)inspectorShowsPid:(pid_t)pid name:(NSString*)name exited:(BOOL)exited;
 // bars for the menu bar, drawn right of the core graph in the CPU bar's style, each 0..1 (below 0: not read, only its
 // background in bar style, nothing in Dot style); read at each tick of the graph, menu open or not, the app's own bars
-// shown or not. All classes' bars together, at most CPU_RENDER_EXTRA_MAX (4), the rest not drawn; the status item
-// widens or narrows when their number changes
+// shown or not. All classes' bars together, with no limit; the status item widens with each bar, and macOS hides a
+// status item that does not fit the menu bar. It widens or narrows when their number changes
 - (NSArray<NSNumber*>*)barReadings;
 // each bar's text, in the same order, shown below it while the pointer rests on it ("Title: value"); read when the
 // label shows and every 0.25 s while it is shown. A missing or empty text shows no label
@@ -71,8 +71,8 @@ NS_ASSUME_NONNULL_BEGIN
 // (and barLabels) return none while it is off, and the status item follows at the next tick of the graph
 - (NSArray<NSButton*>*)preferenceCheckboxes;
 // each bar's mark, in the same order as barReadings: a share of the bar's height, 0..1 (above 1 at the top row; near 0
-// on its lowest row), shown by a small arrow at that height outside the first bar's left edge and the last bar's right
-// edge, drawn over the dashes, white on a dark menu bar and black on a light one; 0 or
+// on its lowest row), shown by a small arrow at that height outside the left edge of the first bar of its group and the right
+// edge of the last bar of its group, drawn over the dashes, white on a dark menu bar and black on a light one; 0 or
 // below, an entry that is not a number, a missing entry or a bar not read: none. Nothing in Dot style. Read with
 // barReadings, at each tick of the graph
 - (NSArray<NSNumber*>*)barMarks;
@@ -80,6 +80,14 @@ NS_ASSUME_NONNULL_BEGIN
 // the dashes, in its own colour (a solid bar and a dot do not change); NO, an entry that is not a number, a missing entry or a bar not read: none. Read with barReadings, at each
 // tick of the graph
 - (NSArray<NSNumber*>*)barAlerts;
+// each bar's group, in the same order as barReadings: an entry whose boolValue is YES starts a new group, drawn after a
+// clear gap; a class's first bar starts one whenever bars of another class come before it. NO, an entry that is not a
+// number or a missing entry: the bar continues the group before it. Read with barReadings, at each tick of the graph
+- (NSArray<NSNumber*>*)barGroupStarts;
+// each bar's width, in the same order as barReadings: an entry whose boolValue is YES draws the bar as wide as a core bar,
+// in a core bar's slot (Dot style does not change); NO, an entry that is not a number or a missing entry: twice as wide,
+// as the app's own readings. Read with barReadings, at each tick of the graph
+- (NSArray<NSNumber*>*)barNarrows;
 @end
 
 __BEGIN_DECLS

@@ -29,6 +29,7 @@
 #import <unistd.h>
 #import <getopt.h>
 #import <stdlib.h>
+#import <vector>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 
 #import "AppDelegate.h"
@@ -944,12 +945,11 @@ static bool colored = false;
 static int theme = THEME_YELLOW;
 
 static bool showBars = true;         // the disk, memory and CPU bars left of the graph
-static int extraBarCount = 0;        // the bars MenuRows classes add right of the graph, read each tick (collectExtraBars)
-static double extraBars[CPU_RENDER_EXTRA_MAX];
-static NSUInteger extraBarOwner[CPU_RENDER_EXTRA_MAX]; // each one's class, as its index in menuRows,
-static NSUInteger extraBarItem[CPU_RENDER_EXTRA_MAX];  // and its index in that class's barReadings and barLabels
-static double extraMarks[CPU_RENDER_EXTRA_MAX];   // each one's mark and alert, from barMarks and barAlerts
-static bool extraAlerts[CPU_RENDER_EXTRA_MAX];
+// the bars MenuRows classes add right of the graph, read each tick (collectExtraBars): cleared and filled again at each
+// one, so a pointer into extraBars is good only until the next; each one's value, mark, alert and group
+static std::vector<CpuExtraReading> extraBars;
+static std::vector<NSUInteger> extraBarOwner; // each one's class, as its index in menuRows,
+static std::vector<NSUInteger> extraBarItem;  // and its index in that class's barReadings and barLabels
 
 static float speed = 1.0f;
 
@@ -1071,12 +1071,12 @@ static NSMutableSet<NSTask*>* runningTasks = nil;
   graphWidth = imageWidth;
   if (showBars)
   {
-    imageWidth += CpuRenderReadingsWidth(bar, drawWidth, tickTotalWidth, extraBarCount);
+    imageWidth += CpuRenderReadingsWidth(bar, drawWidth, tickTotalWidth, (int)extraBars.size(), extraBars.data());
   }
   else
   {
     // the three readings are off; the extra bars, if any, still follow the core graph (0 with none)
-    imageWidth += CpuRenderExtraWidth(bar, drawWidth, tickTotalWidth, extraBarCount);
+    imageWidth += CpuRenderExtraWidth(bar, drawWidth, tickTotalWidth, (int)extraBars.size(), extraBars.data());
   }
 }
 
@@ -1775,9 +1775,9 @@ static bool IsLight(NSAppearance* appearance)
 // under it arms the label (BAR_TIP_DELAY)
 static NSPanel* NewTipPanel(NSTextField* __strong * label);
 static void SetTipText(NSPanel* panel, NSTextField* label, NSString* text);
-static NSRect barTipLayout = {{-1.0, -1.0}, {-1.0, -1.0}}; // x: the image's left in the button, width: a slot; none: -1
+static NSRect barTipLayout = {{-1.0, -1.0}, {-1.0, -1.0}}; // x: the image's left in the button, width: the readings' slot; none: -1
 static bool barTipThree = false;            // the three readings (disk, memory, CPU) are drawn
-static NSInteger barTipExtra = 0;           // the extra bars drawn right of the core graph
+static std::vector<CpuExtraReading> barTipBars; // the extra bars drawn right of the core graph, as drawn (a copy: extraBars is refilled each tick)
 static NSInteger barTipIndex = -1;          // the reading under the pointer, armed or shown: 0 disk, 1 memory, 2 CPU, 3 on
                                             // the extra bars, BAR_TIP_CORES the core graph, -1 none
 static NSPanel* barTip = nil;
@@ -1795,23 +1795,33 @@ static NSTimer* barTipWatch = nil;
     [button addTrackingArea:tracking];
   }
   bool three = (readings != NULL) && !readings->extraOnly;
-  NSInteger extra = (readings != NULL) ? readings->extraCount : 0;
+  std::vector<CpuExtraReading> bars;
+  if ((readings != NULL) && (readings->extra != NULL) && (readings->extraCount > 0))
+  {
+    bars.assign(readings->extra, readings->extra + readings->extraCount);
+  }
+  // a count, or a bar that starts a group or is narrow, that differs from what was drawn before moves the slots
+  bool sameBars = (bars.size() == barTipBars.size());
+  for (size_t i=0; sameBars && (i<bars.size()); i++)
+  {
+    sameBars = (bars[i].groupStart == barTipBars[i].groupStart) && (bars[i].narrow == barTipBars[i].narrow);
+  }
   NSRect bounds = button.bounds;
   NSRect layout = NSMakeRect(round(NSMidX(bounds) - imageWidth/2.0), NSMinY(bounds), CpuRenderReadingsSlot(bar, drawWidth, tickTotalWidth), NSHeight(bounds));
-  if (!NSEqualRects(layout, barTipLayout) || (three != barTipThree) || (extra != barTipExtra))
+  if (!NSEqualRects(layout, barTipLayout) || (three != barTipThree) || !sameBars)
   {
     barTipLayout = layout;
     barTipThree = three;
-    barTipExtra = extra;
+    barTipBars = bars;
     [self hideBarTip];
   }
 }
 
-// where the core graph starts and ends in the image, as the renderer drew it (barTipThree, barTipExtra: what it drew
+// where the core graph starts and ends in the image, as the renderer drew it (barTipThree, barTipBars: what it drew
 // besides the graph)
 - (void)graphTipStart:(CGFloat*)start end:(CGFloat*)end
 {
-  CpuRenderGraphSpan(bar, drawWidth, tickTotalWidth, imageWidth, barTipThree, (int)barTipExtra, start, end);
+  CpuRenderGraphSpan(bar, drawWidth, tickTotalWidth, imageWidth, barTipThree, (int)barTipBars.size(), barTipBars.data(), start, end);
 }
 
 // the reading at x, measured from the image's left: 0 disk, 1 memory, 2 CPU (when drawn), 3 on the extra bars,
@@ -1819,10 +1829,10 @@ static NSTimer* barTipWatch = nil;
 - (NSInteger)barTipIndexAtX:(CGFloat)x
 {
   // a reading's slot starts where the renderer draws it, the extra bars' after the core graph; a gap is on none of them
-  for (NSInteger index=(barTipThree ? 0 : CPU_RENDER_READINGS_COUNT); index<(CPU_RENDER_READINGS_COUNT + barTipExtra); index++)
+  for (NSInteger index=(barTipThree ? 0 : CPU_RENDER_READINGS_COUNT); index<(CPU_RENDER_READINGS_COUNT + (NSInteger)barTipBars.size()); index++)
   {
-    CGFloat start = CpuRenderReadingX(bar, drawWidth, tickTotalWidth, imageWidth, (int)barTipExtra, (int)index);
-    if ((x >= start) && (x < (start + barTipLayout.size.width)))
+    CGFloat start = CpuRenderReadingX(bar, drawWidth, tickTotalWidth, imageWidth, (int)barTipBars.size(), barTipBars.data(), (int)index);
+    if ((x >= start) && (x < (start + CpuRenderReadingSlot(bar, drawWidth, tickTotalWidth, (int)barTipBars.size(), barTipBars.data(), (int)index))))
     {
       return index;
     }
@@ -1847,7 +1857,7 @@ static NSTimer* barTipWatch = nil;
     [self graphTipStart:&graphStart end:&graphEnd];
     return NSMakeRect(graphStart, barTipLayout.origin.y, graphEnd - graphStart, barTipLayout.size.height);
   }
-  return NSMakeRect(CpuRenderReadingX(bar, drawWidth, tickTotalWidth, imageWidth, (int)barTipExtra, (int)index), barTipLayout.origin.y, barTipLayout.size.width, barTipLayout.size.height);
+  return NSMakeRect(CpuRenderReadingX(bar, drawWidth, tickTotalWidth, imageWidth, (int)barTipBars.size(), barTipBars.data(), (int)index), barTipLayout.origin.y, CpuRenderReadingSlot(bar, drawWidth, tickTotalWidth, (int)barTipBars.size(), barTipBars.data(), (int)index), barTipLayout.size.height);
 }
 
 // the reading under the pointer, from where it is now: 0 disk, 1 memory, 2 CPU, 3 on the extra bars, BAR_TIP_CORES on
@@ -1926,7 +1936,7 @@ static NSString* TipPercents(NSString* text)
   if (index >= CPU_RENDER_READINGS_COUNT)
   {
     NSInteger extra = index - CPU_RENDER_READINGS_COUNT;
-    if ((extra >= extraBarCount) || (extraBarOwner[extra] >= menuRows.count))
+    if ((extra < 0) || (extra >= (NSInteger)extraBarOwner.size()) || (extra >= (NSInteger)extraBarItem.size()) || (extraBarOwner[extra] >= menuRows.count))
     {
       return @"";
     }
@@ -2121,32 +2131,42 @@ static NSString* TipPercents(NSString* text)
   self.flatDemoView.image = image;
 }
 
-// the bars the MenuRows classes add right of the core graph, in their order, at most CPU_RENDER_EXTRA_MAX in all,
-// whether the app's own bars are shown or not. A value that is not a number is not read (-1)
+// the bars the MenuRows classes add right of the core graph, in their order, with no limit, whether the app's own bars
+// are shown or not. A value that is not a number is not read (-1). A class's first bar starts a group when bars of
+// another class come before it, and so does any bar its class's barGroupStarts marks
 - (void)collectExtraBars
 {
-  extraBarCount = 0;
+  extraBars.clear();
+  extraBarOwner.clear();
+  extraBarItem.clear();
   for (NSUInteger owner=0; owner<menuRows.count; owner++)
   {
     id<MenuRows> rows = menuRows[owner];
     NSArray<NSNumber*>* values = [rows respondsToSelector:@selector(barReadings)] ? [rows barReadings] : nil;
     NSArray<NSNumber*>* marks = [rows respondsToSelector:@selector(barMarks)] ? [rows barMarks] : nil;
     NSArray<NSNumber*>* alerts = [rows respondsToSelector:@selector(barAlerts)] ? [rows barAlerts] : nil;
+    NSArray<NSNumber*>* starts = [rows respondsToSelector:@selector(barGroupStarts)] ? [rows barGroupStarts] : nil;
+    NSArray<NSNumber*>* narrows = [rows respondsToSelector:@selector(barNarrows)] ? [rows barNarrows] : nil;
     for (NSUInteger item=0; item<values.count; item++)
     {
-      if (extraBarCount >= CPU_RENDER_EXTRA_MAX)
-      {
-        return;
-      }
       NSNumber* value = values[item];
-      extraBars[extraBarCount] = [value isKindOfClass:[NSNumber class]] ? value.doubleValue : -1.0;
       NSNumber* mark = (item < marks.count) ? marks[item] : nil;
       NSNumber* alert = (item < alerts.count) ? alerts[item] : nil;
-      extraMarks[extraBarCount] = [mark isKindOfClass:[NSNumber class]] ? mark.doubleValue : 0.0;
-      extraAlerts[extraBarCount] = [alert isKindOfClass:[NSNumber class]] ? alert.boolValue : false;
-      extraBarOwner[extraBarCount] = owner;
-      extraBarItem[extraBarCount] = item;
-      extraBarCount++;
+      NSNumber* start = (item < starts.count) ? starts[item] : nil;
+      NSNumber* narrow = (item < narrows.count) ? narrows[item] : nil;
+      CpuExtraReading reading = {};
+      reading.value = [value isKindOfClass:[NSNumber class]] ? value.doubleValue : -1.0;
+      reading.mark = [mark isKindOfClass:[NSNumber class]] ? mark.doubleValue : 0.0;
+      reading.alert = [alert isKindOfClass:[NSNumber class]] ? alert.boolValue : false;
+      reading.groupStart = [start isKindOfClass:[NSNumber class]] ? start.boolValue : false;
+      reading.narrow = [narrow isKindOfClass:[NSNumber class]] ? narrow.boolValue : false;
+      if ((item == 0) && !extraBars.empty())
+      {
+        reading.groupStart = true; // bars of another class come before it
+      }
+      extraBars.push_back(reading);
+      extraBarOwner.push_back(owner);
+      extraBarItem.push_back(item);
     }
   }
 }
@@ -2175,14 +2195,10 @@ static NSString* TipPercents(NSString* text)
   // one set of readings per tick, for the menu bar and the real-time preview; CPU or memory that cannot be read is -1,
   // and its bar shows only its background (no dot in Dot style); the disk keeps its last reading, -1 before the first
   CpuReadings readings = {-1.0, -1.0, diskFraction};
-  readings.extraCount = extraBarCount;
+  // the pointer is used only by the renders below, within this call; the next tick refills extraBars
+  readings.extraCount = (int)extraBars.size();
+  readings.extra = extraBars.data();
   readings.extraOnly = !showBars;
-  for (int i=0; i<extraBarCount; i++)
-  {
-    readings.extra[i] = extraBars[i];
-    readings.extraMark[i] = extraMarks[i];
-    readings.extraAlert[i] = extraAlerts[i];
-  }
   if (showBars)
   {
     readings.cpu = readingsCpu;
@@ -2196,7 +2212,7 @@ static NSString* TipPercents(NSString* text)
       [self readDisk];
     }
   }
-  const CpuReadings* shown = (showBars || (extraBarCount > 0)) ? &readings : NULL;
+  const CpuReadings* shown = (showBars || !extraBars.empty()) ? &readings : NULL;
   
   // the menu bar's appearance need not be the app's: the graph takes the status item's, the previews their window's
   [self renderMenubarWithLight:IsLight(self.statusItem.button.effectiveAppearance) readings:shown];

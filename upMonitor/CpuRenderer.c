@@ -151,46 +151,103 @@ CGFloat CpuRenderReadingsSlot(bool bar, CGFloat tickWidth, CGFloat tickTotalWidt
   return _readings_slot(bar, tickWidth, tickTotalWidth);
 }
 
-static int _readings_count(int extraCount)
+static int _extra_count(int extraCount)
 {
-  return CPU_RENDER_READINGS_COUNT + ((extraCount < 0) ? 0 : ((extraCount > CPU_RENDER_EXTRA_MAX) ? CPU_RENDER_EXTRA_MAX : extraCount));
+  return (extraCount < 0) ? 0 : extraCount;
 }
 
-// the extra readings' block at the right of the image: its gap, a slot per reading, and 1 pt more (a dot's overhang, or
-// the chevron of a bar's mark); none without extra readings
-static CGFloat _extra_width(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth, int extraCount)
+// how many extra readings in 1..index start a group (the first reading's flag is ignored)
+static int _group_starts(const CpuExtraReading* extra, int index)
 {
-  const int extra = _readings_count(extraCount) - CPU_RENDER_READINGS_COUNT;
-  return (extra > 0) ? (CPU_RENDER_EXTRA_GAP + (extra*_readings_slot(bar, tickWidth, tickTotalWidth)) + 1.0) : 0.0;
+  int starts = 0;
+  if (extra)
+  {
+    for (int j=1; j<=index; j++)
+    {
+      if (extra[j].groupStart)
+      {
+        starts++;
+      }
+    }
+  }
+  return starts;
 }
 
-CGFloat CpuRenderReadingX(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth, CGFloat imageWidth, int extraCount, int index)
+// extra reading i's slot, and the width its bar is drawn: a narrow bar (Bar style only) is a core bar's width in a core
+// bar's slot, any other the readings' (twice as wide)
+static CGFloat _extra_slot(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth, const CpuExtraReading* extra, int i)
+{
+  return (bar && extra && extra[i].narrow) ? tickTotalWidth : _readings_slot(bar, tickWidth, tickTotalWidth);
+}
+
+static CGFloat _extra_bar_width(bool bar, CGFloat tickWidth, const CpuExtraReading* extra, int i)
+{
+  return (bar && !(extra && extra[i].narrow)) ? 2.0*tickWidth : tickWidth;
+}
+
+// the slots of extra readings first..last-1
+static CGFloat _extra_slots(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth, const CpuExtraReading* extra, int first, int last)
+{
+  CGFloat sum = 0.0;
+  for (int i=first; i<last; i++)
+  {
+    sum += _extra_slot(bar, tickWidth, tickTotalWidth, extra, i);
+  }
+  return sum;
+}
+
+CGFloat CpuRenderReadingSlot(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth, int extraCount, const CpuExtraReading* extra, int index)
+{
+  if ((index < CPU_RENDER_READINGS_COUNT) || (index - CPU_RENDER_READINGS_COUNT >= _extra_count(extraCount)))
+  {
+    return _readings_slot(bar, tickWidth, tickTotalWidth);
+  }
+  return _extra_slot(bar, tickWidth, tickTotalWidth, extra, index - CPU_RENDER_READINGS_COUNT);
+}
+
+// the extra readings' block at the right of the image: its gap, the slots of the readings, a group gap for each reading that
+// starts a group, and 1 pt more (a dot's overhang, or the chevron of a bar's mark); none without extra readings
+static CGFloat _extra_width(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth, int extraCount, const CpuExtraReading* extra)
+{
+  const int n = _extra_count(extraCount);
+  return (n > 0) ? (CPU_RENDER_EXTRA_GAP + _extra_slots(bar, tickWidth, tickTotalWidth, extra, 0, n) +
+                    (_group_starts(extra, n-1)*CPU_RENDER_GROUP_GAP) + 1.0) : 0.0;
+}
+
+CGFloat CpuRenderReadingX(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth, CGFloat imageWidth, int extraCount, const CpuExtraReading* extra, int index)
 {
   const CGFloat slot = _readings_slot(bar, tickWidth, tickTotalWidth);
   if (index < CPU_RENDER_READINGS_COUNT)
   {
     return index*slot;
   }
-  return imageWidth - _extra_width(bar, tickWidth, tickTotalWidth, extraCount) + CPU_RENDER_EXTRA_GAP +
-    ((index - CPU_RENDER_READINGS_COUNT)*slot);
+  // an index past the last extra reading gives the last one's x, so that nothing past the array is read
+  const int n = _extra_count(extraCount);
+  int i = index - CPU_RENDER_READINGS_COUNT;
+  if (i > n-1)
+  {
+    i = (n > 0) ? n-1 : 0;
+  }
+  return imageWidth - _extra_width(bar, tickWidth, tickTotalWidth, extraCount, extra) + CPU_RENDER_EXTRA_GAP +
+    _extra_slots(bar, tickWidth, tickTotalWidth, extra, 0, i) + (_group_starts(extra, i)*CPU_RENDER_GROUP_GAP);
 }
 
-CGFloat CpuRenderExtraWidth(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth, int extraCount)
+CGFloat CpuRenderExtraWidth(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth, int extraCount, const CpuExtraReading* extra)
 {
-  return _extra_width(bar, tickWidth, tickTotalWidth, extraCount);
+  return _extra_width(bar, tickWidth, tickTotalWidth, extraCount, extra);
 }
 
-CGFloat CpuRenderReadingsWidth(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth, int extraCount)
+CGFloat CpuRenderReadingsWidth(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth, int extraCount, const CpuExtraReading* extra)
 {
   // as the core graph's own width: a slot per reading, and 1 pt more for dots; then the extra readings' block
   return (CPU_RENDER_READINGS_COUNT*_readings_slot(bar, tickWidth, tickTotalWidth)) + (bar ? 0.0 : 1.0) + CPU_RENDER_READINGS_GAP +
-    _extra_width(bar, tickWidth, tickTotalWidth, extraCount);
+    _extra_width(bar, tickWidth, tickTotalWidth, extraCount, extra);
 }
 
-void CpuRenderGraphSpan(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth, CGFloat imageWidth, bool readings, int extraCount, CGFloat* start, CGFloat* end)
+void CpuRenderGraphSpan(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth, CGFloat imageWidth, bool readings, int extraCount, const CpuExtraReading* extra, CGFloat* start, CGFloat* end)
 {
-  *start = readings ? CpuRenderReadingsWidth(bar, tickWidth, tickTotalWidth, 0) : 0.0;
-  *end = imageWidth - _extra_width(bar, tickWidth, tickTotalWidth, extraCount);
+  *start = readings ? CpuRenderReadingsWidth(bar, tickWidth, tickTotalWidth, 0, NULL) : 0.0;
+  *end = imageWidth - _extra_width(bar, tickWidth, tickTotalWidth, extraCount, extra);
 }
 
 // where a dashed bar starts: above rows 0 and 1, left clear, so that it is five 2-pt dashes with 1-pt gaps
@@ -260,24 +317,24 @@ void CpuRender(CpuSummaryInfo* cpu_info, CGContextRef ctx, bool light, int granu
   const bool three = (readings != NULL) && !readings->extraOnly;
   CGFloat offset = 0.0;
   CGFloat end = imageWidth;
-  CpuRenderGraphSpan(bar, tickWidth, tickTotalWidth, imageWidth, three, (readings != NULL) ? readings->extraCount : 0, &offset, &end);
+  const int extraCount = (readings != NULL) ? _extra_count(readings->extraCount) : 0;
+  const CpuExtraReading* extra = (readings != NULL) ? readings->extra : NULL;
+  CpuRenderGraphSpan(bar, tickWidth, tickTotalWidth, imageWidth, three, extraCount, extra, &offset, &end);
   if (readings)
   {
-    const int count = _readings_count(readings->extraCount);
+    const int count = CPU_RENDER_READINGS_COUNT + extraCount;
     // disk, memory, CPU from the left, then the extra readings; a value below 0 or NaN is not read and draws only the
     // bar's background, one above 1 draws as 1
-    double values[CPU_RENDER_READINGS_COUNT+CPU_RENDER_EXTRA_MAX] = {readings->disk, readings->memory, readings->cpu};
-    for (int i=CPU_RENDER_READINGS_COUNT; i<count; i++)
-    {
-      values[i] = readings->extra[i-CPU_RENDER_READINGS_COUNT];
-    }
-    const CGFloat width = bar ? 2.0*tickWidth : tickWidth;
+    const double three_values[CPU_RENDER_READINGS_COUNT] = {readings->disk, readings->memory, readings->cpu};
     for (int i=three ? 0 : CPU_RENDER_READINGS_COUNT; i<count; i++)
     {
-      CGFloat x = CpuRenderReadingX(bar, tickWidth, tickTotalWidth, imageWidth, readings->extraCount, i);
-      if (values[i] >= 0.0)
+      const double value = (i < CPU_RENDER_READINGS_COUNT) ? three_values[i] : (extra ? extra[i-CPU_RENDER_READINGS_COUNT].value : -1.0);
+      const CGFloat width = (i < CPU_RENDER_READINGS_COUNT) ? (bar ? 2.0*tickWidth : tickWidth) :
+        _extra_bar_width(bar, tickWidth, extra, i-CPU_RENDER_READINGS_COUNT);
+      CGFloat x = CpuRenderReadingX(bar, tickWidth, tickTotalWidth, imageWidth, extraCount, extra, i);
+      if (value >= 0.0)
       {
-        _render_group(ctx, x, fmin(values[i], 1.0), color, range, bar, colored, theme, width, light, bottom);
+        _render_group(ctx, x, fmin(value, 1.0), color, range, bar, colored, theme, width, light, bottom);
       }
       else if (bar)
       {
@@ -312,47 +369,48 @@ void CpuRender(CpuSummaryInfo* cpu_info, CGContextRef ctx, bool light, int granu
       CGContextClearRect(ctx, CGRectMake(0, i, imageWidth, 1));
     }
     // an extra reading's alert: its bar drawn again whole, without the dashes, from the same bottom
-    if (readings)
+    if (readings && extra)
     {
-      const int extra = _readings_count(readings->extraCount) - CPU_RENDER_READINGS_COUNT;
-      for (int i=0; i<extra; i++)
+      for (int i=0; i<extraCount; i++)
       {
-        const double value = readings->extra[i];
-        if (readings->extraAlert[i] && value >= 0.0)
+        const double value = extra[i].value;
+        if (extra[i].alert && value >= 0.0)
         {
-          CGFloat x = CpuRenderReadingX(bar, tickWidth, tickTotalWidth, imageWidth, readings->extraCount, CPU_RENDER_READINGS_COUNT+i);
-          CGContextClearRect(ctx, CGRectMake(x, 0, 2.0*tickWidth, 16));
-          _render_group(ctx, x, fmin(value, 1.0), color, range, bar, colored, theme, 2.0*tickWidth, light, bottom);
+          CGFloat x = CpuRenderReadingX(bar, tickWidth, tickTotalWidth, imageWidth, extraCount, extra, CPU_RENDER_READINGS_COUNT+i);
+          const CGFloat width = _extra_bar_width(bar, tickWidth, extra, i);
+          CGContextClearRect(ctx, CGRectMake(x, 0, width, 16));
+          _render_group(ctx, x, fmin(value, 1.0), color, range, bar, colored, theme, width, light, bottom);
         }
       }
     }
   }
 
   // the extra readings' marks, drawn last so that the dashes do not clear them: a small arrow at the mark's height,
-  // white on a dark menu bar and black on a light one, outside the first bar's left edge and the last bar's right edge
-  if (readings && bar)
+  // white on a dark menu bar and black on a light one, outside the left edge of the first bar of a group and the right
+  // edge of the last bar of a group
+  if (readings && bar && extra)
   {
-    const int extra = _readings_count(readings->extraCount) - CPU_RENDER_READINGS_COUNT;
-    for (int i=0; i<extra; i++)
+    for (int i=0; i<extraCount; i++)
     {
-      const double value = readings->extra[i];
-      const double mark = readings->extraMark[i];
+      const double value = extra[i].value;
+      const double mark = extra[i].mark;
       if (value >= 0.0 && mark > 0.0)
       {
         const double y = fmin(floor(bottom+(fmin(mark, 1.0)*(16.0-bottom))), 15.0); // on the bar's own scale
         CGContextSetGrayFillColor(ctx, light ? 0.0 : 1.0, 1.0);
-        CGFloat x = CpuRenderReadingX(bar, tickWidth, tickTotalWidth, imageWidth, readings->extraCount, CPU_RENDER_READINGS_COUNT+i);
+        CGFloat x = CpuRenderReadingX(bar, tickWidth, tickTotalWidth, imageWidth, extraCount, extra, CPU_RENDER_READINGS_COUNT+i);
         // the arrow, 2 pt wide and 3 pt tall, on the rows around the mark's height, kept inside the image
         const CGFloat lo = fmin(fmax(y-1.0, 0.0), 13.0);
-        if (i == 0)
+        if (i == 0 || extra[i].groupStart)
         {
           CGContextFillRect(ctx, CGRectMake(x-2.0, lo, 1, 3));
           CGContextFillRect(ctx, CGRectMake(x-1.0, y, 1, 1));
         }
-        if (i == extra-1)
+        if (i == extraCount-1 || extra[i+1].groupStart)
         {
-          CGContextFillRect(ctx, CGRectMake(x+(2.0*tickWidth), y, 1, 1));
-          CGContextFillRect(ctx, CGRectMake(x+(2.0*tickWidth)+1.0, lo, 1, 3));
+          const CGFloat right = x + _extra_bar_width(bar, tickWidth, extra, i);
+          CGContextFillRect(ctx, CGRectMake(right, y, 1, 1));
+          CGContextFillRect(ctx, CGRectMake(right+1.0, lo, 1, 3));
         }
       }
     }
