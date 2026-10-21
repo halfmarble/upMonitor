@@ -185,6 +185,12 @@ static CGFloat _extra_bar_width(bool bar, CGFloat tickWidth, const CpuExtraReadi
   return (bar && !(extra && extra[i].narrow)) ? 2.0*tickWidth : tickWidth;
 }
 
+// the load extra reading index is painted as: its tint, 0..1, when it has one and the bars are bars, else its load
+static CGFloat _extra_paint(bool bar, const CpuExtraReading* extra, int index, CGFloat load)
+{
+  return (bar && extra && (extra[index].tint > 0.0)) ? fmin(extra[index].tint, 1.0) : load;
+}
+
 // the slots of extra readings first..last-1
 static CGFloat _extra_slots(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth, const CpuExtraReading* extra, int first, int last)
 {
@@ -260,15 +266,16 @@ static void _render_background(CGContextRef ctx, CGFloat x, CGFloat tickWidth, C
   CGContextFillRect(ctx, CGRectMake(x, bottom, tickWidth, 16-bottom));
 }
 
-// one bar (or dot) of the graph at x, at load 0..1; a bar over its background, from bottom up
-static void _render_group(CGContextRef ctx, CGFloat x, CGFloat load, CGFloat color, CGFloat range, bool bar, bool colored, int theme, CGFloat tickWidth, bool light, CGFloat bottom)
+// one bar (or dot) of the graph at x, at load 0..1, painted as a bar at paint would be; a bar over its background, from
+// bottom up
+static void _render_group(CGContextRef ctx, CGFloat x, CGFloat load, CGFloat paint, CGFloat color, CGFloat range, bool bar, bool colored, int theme, CGFloat tickWidth, bool light, CGFloat bottom)
 {
   if (bar)
   {
     _render_background(ctx, x, tickWidth, color, light, bottom);
   }
   
-  CGFloat alpha = (range*load)+(1.0-range);
+  CGFloat alpha = (range*paint)+(1.0-range);
   if (!bar)
   {
     alpha = 1.0f;
@@ -277,7 +284,7 @@ static void _render_group(CGContextRef ctx, CGFloat x, CGFloat load, CGFloat col
   rgb rgb = {color, color, color}; // dots without colour (the Preferences never ask for them) draw grey
   if (colored)
   {
-    rgb = _color(theme, load);
+    rgb = _color(theme, paint);
     CGContextSetRGBFillColor(ctx, rgb.r, rgb.g, rgb.b, alpha);
   }
   else
@@ -334,7 +341,9 @@ void CpuRender(CpuSummaryInfo* cpu_info, CGContextRef ctx, bool light, int granu
       CGFloat x = CpuRenderReadingX(bar, tickWidth, tickTotalWidth, imageWidth, extraCount, extra, i);
       if (value >= 0.0)
       {
-        _render_group(ctx, x, fmin(value, 1.0), color, range, bar, colored, theme, width, light, bottom);
+        const CGFloat load = fmin(value, 1.0);
+        const CGFloat paint = (i < CPU_RENDER_READINGS_COUNT) ? load : _extra_paint(bar, extra, i-CPU_RENDER_READINGS_COUNT, load);
+        _render_group(ctx, x, load, paint, color, range, bar, colored, theme, width, light, bottom);
       }
       else if (bar)
       {
@@ -357,7 +366,7 @@ void CpuRender(CpuSummaryInfo* cpu_info, CGContextRef ctx, bool light, int granu
       }
       load /= (CGFloat)group;
     }
-    _render_group(ctx, offset+(i*tickTotalWidth), load, color, range, bar, colored, theme, tickWidth, light, bottom);
+    _render_group(ctx, offset+(i*tickTotalWidth), load, load, color, range, bar, colored, theme, tickWidth, light, bottom);
   }
 
   // dashed, the readings' bars as well as the cores': the gaps at 4, 7, 10 and 13 leave five 2-pt dashes above
@@ -379,7 +388,8 @@ void CpuRender(CpuSummaryInfo* cpu_info, CGContextRef ctx, bool light, int granu
           CGFloat x = CpuRenderReadingX(bar, tickWidth, tickTotalWidth, imageWidth, extraCount, extra, CPU_RENDER_READINGS_COUNT+i);
           const CGFloat width = _extra_bar_width(bar, tickWidth, extra, i);
           CGContextClearRect(ctx, CGRectMake(x, 0, width, 16));
-          _render_group(ctx, x, fmin(value, 1.0), color, range, bar, colored, theme, width, light, bottom);
+          const CGFloat load = fmin(value, 1.0);
+          _render_group(ctx, x, load, _extra_paint(bar, extra, i, load), color, range, bar, colored, theme, width, light, bottom);
         }
       }
     }

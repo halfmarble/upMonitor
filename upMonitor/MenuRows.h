@@ -28,7 +28,7 @@ NS_ASSUME_NONNULL_BEGIN
 // class that adopts MenuRows registers itself with MenuRowsRegister from its +load; upMonitor makes one instance of
 // each when it builds the menu and adds its rows, then a separator, and its panel rows as a section of their own. It
 // may also add views to the process inspector's header, bars to the menu bar, at the right of the core graph, with a mark,
-// an alert, a group and a width per bar, and check boxes to the Preferences window.
+// a tint, an alert, a group and a width per bar, and check boxes to the Preferences window.
 // Everything here runs on the main thread, +load aside.
 @protocol MenuRows <NSObject>
 // the rows, their titles set in attributes, the menu's own text attributes
@@ -76,9 +76,13 @@ NS_ASSUME_NONNULL_BEGIN
 // Nothing in Dot style. Read with barReadings, at each tick of the graph
 - (NSArray<NSNumber*>*)barMarks;
 // each bar's alert, in the same order as barReadings: an entry whose boolValue is YES draws a dashed bar whole, without
-// the dashes, in its own colour (a solid bar and a dot do not change); NO, an entry that is not a number, a missing entry or a bar not read: none. Read with barReadings, at each
+// the dashes, in its own colour (its tint's when it has one; a solid bar and a dot do not change); NO, an entry that is not a number, a missing entry or a bar not read: none. Read with barReadings, at each
 // tick of the graph
 - (NSArray<NSNumber*>*)barAlerts;
+// each bar's tint, in the same order as barReadings: above 0, the load 0..1 (above 1 as 1) whose colour and opacity the
+// bar is painted in, its height still its reading; 0 or below, an entry that is not a number, a missing entry or a bar
+// not read: painted by its reading. Nothing in Dot style. Read with barReadings, at each tick of the graph
+- (NSArray<NSNumber*>*)barTints;
 // each bar's group, in the same order as barReadings: an entry whose boolValue is YES starts a new group, drawn after a
 // clear gap; a class's first bar starts one whenever bars of another class come before it. NO, an entry that is not a
 // number or a missing entry: the bar continues the group before it. Read with barReadings, at each tick of the graph

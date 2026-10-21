@@ -946,7 +946,7 @@ static int theme = THEME_YELLOW;
 
 static bool showBars = true;         // the disk, memory and CPU bars left of the graph
 // the bars MenuRows classes add right of the graph, read each tick (collectExtraBars): cleared and filled again at each
-// one, so a pointer into extraBars is good only until the next; each one's value, mark, alert and group
+// one, so a pointer into extraBars is good only until the next; each one's value, mark, tint, alert and group
 static std::vector<CpuExtraReading> extraBars;
 static std::vector<NSUInteger> extraBarOwner; // each one's class, as its index in menuRows,
 static std::vector<NSUInteger> extraBarItem;  // and its index in that class's barReadings and barLabels
@@ -2144,6 +2144,7 @@ static NSString* TipPercents(NSString* text)
     id<MenuRows> rows = menuRows[owner];
     NSArray<NSNumber*>* values = [rows respondsToSelector:@selector(barReadings)] ? [rows barReadings] : nil;
     NSArray<NSNumber*>* marks = [rows respondsToSelector:@selector(barMarks)] ? [rows barMarks] : nil;
+    NSArray<NSNumber*>* tints = [rows respondsToSelector:@selector(barTints)] ? [rows barTints] : nil;
     NSArray<NSNumber*>* alerts = [rows respondsToSelector:@selector(barAlerts)] ? [rows barAlerts] : nil;
     NSArray<NSNumber*>* starts = [rows respondsToSelector:@selector(barGroupStarts)] ? [rows barGroupStarts] : nil;
     NSArray<NSNumber*>* narrows = [rows respondsToSelector:@selector(barNarrows)] ? [rows barNarrows] : nil;
@@ -2151,12 +2152,14 @@ static NSString* TipPercents(NSString* text)
     {
       NSNumber* value = values[item];
       NSNumber* mark = (item < marks.count) ? marks[item] : nil;
+      NSNumber* tint = (item < tints.count) ? tints[item] : nil;
       NSNumber* alert = (item < alerts.count) ? alerts[item] : nil;
       NSNumber* start = (item < starts.count) ? starts[item] : nil;
       NSNumber* narrow = (item < narrows.count) ? narrows[item] : nil;
       CpuExtraReading reading = {};
       reading.value = [value isKindOfClass:[NSNumber class]] ? value.doubleValue : -1.0;
       reading.mark = [mark isKindOfClass:[NSNumber class]] ? mark.doubleValue : 0.0;
+      reading.tint = [tint isKindOfClass:[NSNumber class]] ? tint.doubleValue : 0.0;
       reading.alert = [alert isKindOfClass:[NSNumber class]] ? alert.boolValue : false;
       reading.groupStart = [start isKindOfClass:[NSNumber class]] ? start.boolValue : false;
       reading.narrow = [narrow isKindOfClass:[NSNumber class]] ? narrow.boolValue : false;
