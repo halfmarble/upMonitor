@@ -1774,7 +1774,7 @@ static bool IsLight(NSAppearance* appearance)
 // watch timer that follows the pointer while it is on the item, since no exit was delivered either, and a reading
 // under it arms the label (BAR_TIP_DELAY)
 static NSPanel* NewTipPanel(NSTextField* __strong * label);
-static void SetTipText(NSPanel* panel, NSTextField* label, NSString* text);
+static void SetTipText(NSPanel* panel, NSTextField* label, NSString* text, CGFloat wrap);
 static NSRect barTipLayout = {{-1.0, -1.0}, {-1.0, -1.0}}; // x: the image's left in the button, width: the readings' slot; none: -1
 static bool barTipThree = false;            // the three readings (disk, memory, CPU) are drawn
 static std::vector<CpuExtraReading> barTipBars; // the extra bars drawn right of the core graph, as drawn (a copy: extraBars is refilled each tick)
@@ -1847,6 +1847,25 @@ static NSTimer* barTipWatch = nil;
   return -1;
 }
 
+// whether readings a and b are both extra bars of one group (no group starts after the lower one, up to the higher one)
+- (BOOL)barTipSameGroup:(NSInteger)a and:(NSInteger)b
+{
+  NSInteger low = MIN(a, b) - CPU_RENDER_READINGS_COUNT;
+  NSInteger high = MAX(a, b) - CPU_RENDER_READINGS_COUNT;
+  if ((low < 0) || (high >= (NSInteger)barTipBars.size()))
+  {
+    return NO;
+  }
+  for (NSInteger k=low+1; k<=high; k++)
+  {
+    if (barTipBars[k].groupStart)
+    {
+      return NO;
+    }
+  }
+  return YES;
+}
+
 // where reading index (or BAR_TIP_CORES) sits in the image, in image coordinates
 - (NSRect)barTipSlotFor:(NSInteger)index
 {
@@ -1901,13 +1920,14 @@ static NSTimer* barTipWatch = nil;
 }
 
 // a label's whole percentages three characters wide, "  1%", " 10%", "100%", so that a label in the monospaced font
-// keeps its width as its values change; one after "~", an estimate, keeps its own width
+// keeps its width as its values change; one after "~", an estimate, keeps its own width, and so does one whose
+// digits follow a figure space (U+2007): a label that pads its own numbers with figure spaces keeps them
 static NSString* TipPercents(NSString* text)
 {
   static NSRegularExpression* percent = nil;
   if (percent == nil)
   {
-    percent = [NSRegularExpression regularExpressionWithPattern:@"(?<![0-9.,~])([0-9]{1,3})%" options:0 error:NULL];
+    percent = [NSRegularExpression regularExpressionWithPattern:@"(?<![0-9.,~\\x{2007}])([0-9]{1,3})%" options:0 error:NULL];
   }
   NSMutableString* padded = [text mutableCopy];
   NSArray<NSTextCheckingResult*>* matches = [percent matchesInString:text options:0 range:NSMakeRange(0, text.length)];
@@ -1954,7 +1974,8 @@ static NSString* TipPercents(NSString* text)
 }
 
 // follows the pointer: off the item (or the menu open), everything stops; on it, the watch runs; another reading, or
-// none, hides the label and arms the new one; the same one keeps the label, laid out again only when its text changed
+// none, hides the label and arms the new one, except that a shown label moves at once, with no wait, to another extra
+// bar of the same group; the same one keeps the label, laid out again only when its text changed
 - (void)trackBarTip
 {
   NSInteger index = menuIsOpen ? -2 : [self barTipIndexNow];
@@ -1968,7 +1989,13 @@ static NSString* TipPercents(NSString* text)
     barTipWatch = [NSTimer timerWithTimeInterval:BAR_TIP_WATCH target:self selector:@selector(watchBarTip:) userInfo:nil repeats:YES];
     [[NSRunLoop currentRunLoop] addTimer:barTipWatch forMode:NSRunLoopCommonModes];
   }
-  if (index != barTipIndex)
+  if ((index != barTipIndex) && (index >= CPU_RENDER_READINGS_COUNT) && (barTipIndex >= CPU_RENDER_READINGS_COUNT) && barTip.isVisible && [self barTipSameGroup:barTipIndex and:index])
+  {
+    [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(showBarTip) object:nil];
+    barTipIndex = index;
+    [self showBarTip];
+  }
+  else if (index != barTipIndex)
   {
     [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(showBarTip) object:nil];
     [barTip orderOut:nil];
@@ -2023,7 +2050,8 @@ static NSString* TipPercents(NSString* text)
   {
     barTip = NewTipPanel(&barTipText);
   }
-  SetTipText(barTip, barTipText, text);
+  // a label with line breaks is laid out by whoever wrote it, so its lines are not wrapped
+  SetTipText(barTip, barTipText, text, ([text rangeOfString:@"\n"].location != NSNotFound) ? CGFLOAT_MAX : ROW_TIP_MAX_WIDTH);
   NSRect slot = [self barTipSlotFor:barTipIndex];
   slot.origin.x += barTipLayout.origin.x;
   NSRect onScreen = [button.window convertRectToScreen:[button convertRect:slot toView:nil]];
@@ -3212,11 +3240,11 @@ static NSPanel* NewTipPanel(NSTextField* __strong * label)
   return panel;
 }
 
-// the box's text, the box sized to it at its present origin
-static void SetTipText(NSPanel* panel, NSTextField* label, NSString* text)
+// the box's text, wrapped at wrap pt, the box sized to it at its present origin
+static void SetTipText(NSPanel* panel, NSTextField* label, NSString* text, CGFloat wrap)
 {
   label.stringValue = text;
-  NSSize size = [label sizeThatFits:NSMakeSize(ROW_TIP_MAX_WIDTH, CGFLOAT_MAX)];
+  NSSize size = [label sizeThatFits:NSMakeSize(wrap, CGFLOAT_MAX)];
   size = NSMakeSize(ceil(size.width), ceil(size.height));
   label.frame = NSMakeRect(6.0, 4.0, size.width, size.height);
   NSRect frame = panel.frame;
@@ -3249,7 +3277,7 @@ static void SetTipText(NSPanel* panel, NSTextField* label, NSString* text)
     rowTip = NewTipPanel(&rowTipText);
   }
 
-  SetTipText(rowTip, rowTipText, item.representedObject);
+  SetTipText(rowTip, rowTipText, item.representedObject, ROW_TIP_MAX_WIDTH);
   rowTipRow = row;
   rowTipMenuWindow = window;
   [self placeRowTip];
