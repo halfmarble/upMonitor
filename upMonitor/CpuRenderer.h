@@ -40,7 +40,8 @@ enum Theme
 // the readings block at the left of the image, three bars drawn as the core graph's but twice as wide (disk, memory,
 // CPU from the left; in Dot style three dots as the graph's), then a clear gap before the core graph; up to
 // CPU_RENDER_EXTRA_MAX extra readings that a build adds are drawn in the same way at the right of the image, after the
-// core graph and a gap as wide
+// core graph and a gap as wide. The three may be left out (extraOnly): the core graph then starts at x = 0, with the
+// extra readings, when there are any, at the right as before
 #define CPU_RENDER_READINGS_COUNT (3)
 #define CPU_RENDER_EXTRA_MAX (4)
 #define CPU_RENDER_READINGS_GAP (4.0)
@@ -54,22 +55,29 @@ struct CpuReadings
   double disk;
   int extraCount; // 0..CPU_RENDER_EXTRA_MAX, the first extraCount of extra drawn
   double extra[CPU_RENDER_EXTRA_MAX];
+  // true: the three readings and their block are not drawn, only the extra readings (false is the default)
+  bool extraOnly;
 } typedef CpuReadings;
 
 void CpuRenderInit(void);
 // the width the readings block and its gap add to the image, and the extra readings' block with its gap, for the core
 // graph's style, bar width and tick spacing, with extraCount extra readings (clamped to 0..CPU_RENDER_EXTRA_MAX)
 CGFloat CpuRenderReadingsWidth(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth, int extraCount);
+// the width the extra readings' block with its gap adds to the image, with extraCount extra readings (clamped to
+// 0..CPU_RENDER_EXTRA_MAX); 0 with none
+CGFloat CpuRenderExtraWidth(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth, int extraCount);
 // the x step from one reading to the next (disk at 0, memory at one step, CPU at two; the extra readings, right of the
 // core graph, the same step apart)
 CGFloat CpuRenderReadingsSlot(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth);
 // where reading index starts in an image imageWidth wide with extraCount extra readings: the three readings index
 // slots from the left, the extra ones (index CPU_RENDER_READINGS_COUNT on) after the core graph and its gap
 CGFloat CpuRenderReadingX(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth, CGFloat imageWidth, int extraCount, int index);
-// where the core graph starts and ends in an image imageWidth wide: after the readings block and its gap when readings
-// are drawn, else at x = 0; before the extra readings' block (extraCount, read only with readings)
+// where the core graph starts and ends in an image imageWidth wide: after the readings block and its gap when the three
+// readings are drawn (readings), else at x = 0; before the extra readings' block (extraCount, read with or without the
+// three)
 void CpuRenderGraphSpan(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth, CGFloat imageWidth, bool readings, int extraCount, CGFloat* start, CGFloat* end);
-// readings NULL: no block, the core graph starts at x = 0; else it starts after the block and the gap
+// readings NULL: no block, the core graph starts at x = 0; else it starts after the block and the gap, unless
+// readings->extraOnly leaves the three out
 void CpuRender(CpuSummaryInfo* cpu_info, CGContextRef ctx, bool light, int granularity, bool bar, bool stripped, bool colored, CGFloat tickWidth, CGFloat tickTotalWidth, CGFloat imageWidth, int theme, const CpuReadings* readings);
 void CpuRenderDemo(CGContextRef ctx, CGFloat width, CGFloat height, int tint);
 

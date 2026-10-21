@@ -56,6 +56,9 @@
 #define INSPECTOR_MARGIN            (20.0)  // pt: the icon's own left margin
 #define INSPECTOR_GAP               (8.0)   // pt between two of the header's views
 #define INSPECTOR_LINE              (16.0)  // pt: one line of the header's text
+#define PREFS_BOX_GAP               (20.0)  // pt from the app's own preferences checkbox to the right column
+#define PREFS_BOX_ROW               (22.0)  // pt from one row of preferences checkboxes to the next
+#define PREFS_BOX_MARGIN            (20.0)  // pt kept clear at the window's right edge
 #define MENU_FONT_NAME              @"IBMPlexMono" // IBM Plex Mono Regular, in the app's Resources, registered at launch
 #define MENU_FONT(points)           ([NSFont fontWithName:MENU_FONT_NAME size:(points)] ?: [NSFont monospacedSystemFontOfSize:(points) weight:NSFontWeightRegular])
 #define MENU_TITLE_FONT_NAME        @"Verdana"
@@ -1066,6 +1069,11 @@ static NSMutableSet<NSTask*>* runningTasks = nil;
   {
     imageWidth += CpuRenderReadingsWidth(bar, drawWidth, tickTotalWidth, extraBarCount);
   }
+  else
+  {
+    // the three readings are off; the extra bars, if any, still follow the core graph (0 with none)
+    imageWidth += CpuRenderExtraWidth(bar, drawWidth, tickTotalWidth, extraBarCount);
+  }
 }
 
 - (void)updateUI
@@ -1501,6 +1509,58 @@ static NSString* OthersRowText(int count)
   [menu update];
 }
 
+// the checkboxes the MenuRows classes add to Preferences, after "Show Disk, RAM, CPU usage bars": two to a row, the
+// app's own box and then each class's in registration order, left then right. The right column starts PREFS_BOX_GAP
+// after the app's box and ends PREFS_BOX_MARGIN short of the window's right edge, a wider title is cut; each row after
+// the first adds PREFS_BOX_ROW to the window, whose views keep their place from the top or the bottom by their
+// autoresizing masks. A class owns its box (title, target, action, state, defaults key); the app only places it and is
+// never told of a click. Called once, after setupMenus, which makes menuRows
+- (void)setupPreferenceCheckboxes
+{
+  NSMutableArray<NSButton*>* boxes = [[NSMutableArray alloc] init];
+  for (id<MenuRows> rows in menuRows)
+  {
+    if (![rows respondsToSelector:@selector(preferenceCheckboxes)])
+    {
+      continue;
+    }
+    for (NSButton* box in [rows preferenceCheckboxes])
+    {
+      if ([box isKindOfClass:[NSButton class]])
+      {
+        [boxes addObject:box];
+      }
+    }
+  }
+  if (boxes.count == 0)
+  {
+    return;
+  }
+  NSView* content = self.window.contentView;
+  NSInteger rowCount = (NSInteger)((boxes.count + 2) / 2); // slot 0 is the app's own box
+  if (rowCount > 1)
+  {
+    NSSize size = content.frame.size;
+    size.height += (rowCount - 1) * PREFS_BOX_ROW;
+    [self.window setContentSize:size];
+  }
+  NSRect own = self.showBarsButton.frame;
+  for (NSUInteger n=0; n<boxes.count; n++)
+  {
+    NSButton* box = boxes[n];
+    NSUInteger slot = n + 1;
+    box.font = self.showBarsButton.font;
+    box.controlSize = self.showBarsButton.controlSize;
+    [box sizeToFit];
+    CGFloat x = (slot % 2 == 0) ? NSMinX(own) : (NSMaxX(own) + PREFS_BOX_GAP);
+    CGFloat y = NSMinY(own) - (CGFloat)(slot / 2) * PREFS_BOX_ROW;
+    CGFloat width = MIN(NSWidth(box.frame), NSWidth(content.frame) - PREFS_BOX_MARGIN - x);
+    box.frame = NSMakeRect(x, y, width, NSHeight(own));
+    box.autoresizingMask = self.showBarsButton.autoresizingMask;
+    [content addSubview:box];
+  }
+}
+
 - (void)setupMenus
 {
   if (!spaces_init)
@@ -1694,7 +1754,7 @@ static bool IsLight(NSAppearance* appearance)
     [image unlockFocus];
   }
   self.statusItem.button.image = image;
-  [self updateBarTips:(readings != NULL) ? (CPU_RENDER_READINGS_COUNT + readings->extraCount) : 0];
+  [self updateBarTips:readings];
 }
 
 // a tooltip-style label under each reading's bar (or dot) in the status item: disk, memory, CPU, worded as the panel's
@@ -1707,15 +1767,16 @@ static bool IsLight(NSAppearance* appearance)
 static NSPanel* NewTipPanel(NSTextField* __strong * label);
 static void SetTipText(NSPanel* panel, NSTextField* label, NSString* text);
 static NSRect barTipLayout = {{-1.0, -1.0}, {-1.0, -1.0}}; // x: the image's left in the button, width: a slot; none: -1
-static NSInteger barTipCount = 0;           // the readings drawn: the three, and the extra bars; none: 0
+static bool barTipThree = false;            // the three readings (disk, memory, CPU) are drawn
+static NSInteger barTipExtra = 0;           // the extra bars drawn right of the core graph
 static NSInteger barTipIndex = -1;          // the reading under the pointer, armed or shown: 0 disk, 1 memory, 2 CPU, 3 on
                                             // the extra bars, BAR_TIP_CORES the core graph, -1 none
 static NSPanel* barTip = nil;
 static NSTextField* barTipText = nil;
 static NSTimer* barTipWatch = nil;
 
-// count: the readings drawn, 0 when none
-- (void)updateBarTips:(NSInteger)count
+// readings: what the last render drew, NULL when nothing but the core graph
+- (void)updateBarTips:(const CpuReadings*)readings
 {
   NSStatusBarButton* button = self.statusItem.button;
   static NSTrackingArea* tracking = nil;
@@ -1724,20 +1785,60 @@ static NSTimer* barTipWatch = nil;
     tracking = [[NSTrackingArea alloc] initWithRect:NSZeroRect options:(NSTrackingMouseEnteredAndExited | NSTrackingMouseMoved | NSTrackingActiveAlways | NSTrackingInVisibleRect) owner:self userInfo:nil];
     [button addTrackingArea:tracking];
   }
+  bool three = (readings != NULL) && !readings->extraOnly;
+  NSInteger extra = (readings != NULL) ? readings->extraCount : 0;
   NSRect bounds = button.bounds;
   NSRect layout = NSMakeRect(round(NSMidX(bounds) - imageWidth/2.0), NSMinY(bounds), CpuRenderReadingsSlot(bar, drawWidth, tickTotalWidth), NSHeight(bounds));
-  if (!NSEqualRects(layout, barTipLayout) || (count != barTipCount))
+  if (!NSEqualRects(layout, barTipLayout) || (three != barTipThree) || (extra != barTipExtra))
   {
     barTipLayout = layout;
-    barTipCount = count;
+    barTipThree = three;
+    barTipExtra = extra;
     [self hideBarTip];
   }
 }
 
-// where the core graph starts and ends in the image, as the renderer drew it (barTipCount: readings drawn or not)
+// where the core graph starts and ends in the image, as the renderer drew it (barTipThree, barTipExtra: what it drew
+// besides the graph)
 - (void)graphTipStart:(CGFloat*)start end:(CGFloat*)end
 {
-  CpuRenderGraphSpan(bar, drawWidth, tickTotalWidth, imageWidth, (barTipCount > 0), (int)MAX(barTipCount - CPU_RENDER_READINGS_COUNT, 0), start, end);
+  CpuRenderGraphSpan(bar, drawWidth, tickTotalWidth, imageWidth, barTipThree, (int)barTipExtra, start, end);
+}
+
+// the reading at x, measured from the image's left: 0 disk, 1 memory, 2 CPU (when drawn), 3 on the extra bars,
+// BAR_TIP_CORES on the core graph; -1 on none of them (a gap, or past the image)
+- (NSInteger)barTipIndexAtX:(CGFloat)x
+{
+  // a reading's slot starts where the renderer draws it, the extra bars' after the core graph; a gap is on none of them
+  for (NSInteger index=(barTipThree ? 0 : CPU_RENDER_READINGS_COUNT); index<(CPU_RENDER_READINGS_COUNT + barTipExtra); index++)
+  {
+    CGFloat start = CpuRenderReadingX(bar, drawWidth, tickTotalWidth, imageWidth, (int)barTipExtra, (int)index);
+    if ((x >= start) && (x < (start + barTipLayout.size.width)))
+    {
+      return index;
+    }
+  }
+  CGFloat graphStart = 0.0;
+  CGFloat graphEnd = 0.0;
+  [self graphTipStart:&graphStart end:&graphEnd];
+  if ((x >= graphStart) && (x < graphEnd))
+  {
+    return BAR_TIP_CORES;
+  }
+  return -1;
+}
+
+// where reading index (or BAR_TIP_CORES) sits in the image, in image coordinates
+- (NSRect)barTipSlotFor:(NSInteger)index
+{
+  if (index == BAR_TIP_CORES)
+  {
+    CGFloat graphStart = 0.0;
+    CGFloat graphEnd = 0.0;
+    [self graphTipStart:&graphStart end:&graphEnd];
+    return NSMakeRect(graphStart, barTipLayout.origin.y, graphEnd - graphStart, barTipLayout.size.height);
+  }
+  return NSMakeRect(CpuRenderReadingX(bar, drawWidth, tickTotalWidth, imageWidth, (int)barTipExtra, (int)index), barTipLayout.origin.y, barTipLayout.size.width, barTipLayout.size.height);
 }
 
 // the reading under the pointer, from where it is now: 0 disk, 1 memory, 2 CPU, 3 on the extra bars, BAR_TIP_CORES on
@@ -1755,24 +1856,7 @@ static NSTimer* barTipWatch = nil;
   {
     return -2;
   }
-  // a reading's slot starts where the renderer draws it, the extra bars' after the core graph; a gap is on none of them
-  CGFloat x = p.x - barTipLayout.origin.x;
-  for (NSInteger index=0; index<barTipCount; index++)
-  {
-    CGFloat start = CpuRenderReadingX(bar, drawWidth, tickTotalWidth, imageWidth, (int)(barTipCount - CPU_RENDER_READINGS_COUNT), (int)index);
-    if ((x >= start) && (x < (start + barTipLayout.size.width)))
-    {
-      return index;
-    }
-  }
-  CGFloat graphStart = 0.0;
-  CGFloat graphEnd = 0.0;
-  [self graphTipStart:&graphStart end:&graphEnd];
-  if ((x >= graphStart) && (x < graphEnd))
-  {
-    return BAR_TIP_CORES;
-  }
-  return -1;
+  return [self barTipIndexAtX:(p.x - barTipLayout.origin.x)];
 }
 
 // the core graph's label: "4xE-cores 12%, 4xP-cores 34%", each kind's count and mean
@@ -1921,18 +2005,8 @@ static NSString* TipPercents(NSString* text)
     barTip = NewTipPanel(&barTipText);
   }
   SetTipText(barTip, barTipText, text);
-  NSRect slot = NSZeroRect;
-  if (barTipIndex == BAR_TIP_CORES)
-  {
-    CGFloat graphStart = 0.0;
-    CGFloat graphEnd = 0.0;
-    [self graphTipStart:&graphStart end:&graphEnd];
-    slot = NSMakeRect(barTipLayout.origin.x + graphStart, barTipLayout.origin.y, graphEnd - graphStart, barTipLayout.size.height);
-  }
-  else
-  {
-    slot = NSMakeRect(barTipLayout.origin.x + CpuRenderReadingX(bar, drawWidth, tickTotalWidth, imageWidth, (int)(barTipCount - CPU_RENDER_READINGS_COUNT), (int)barTipIndex), barTipLayout.origin.y, barTipLayout.size.width, barTipLayout.size.height);
-  }
+  NSRect slot = [self barTipSlotFor:barTipIndex];
+  slot.origin.x += barTipLayout.origin.x;
   NSRect onScreen = [button.window convertRectToScreen:[button convertRect:slot toView:nil]];
   NSRect item = button.window.frame;
   NSRect frame = barTip.frame;
@@ -2038,15 +2112,11 @@ static NSString* TipPercents(NSString* text)
   self.flatDemoView.image = image;
 }
 
-// the bars the MenuRows classes add right of the core graph, in their order, at most CPU_RENDER_EXTRA_MAX in all; none while
-// the bars are off. A value that is not a number is not read (-1)
+// the bars the MenuRows classes add right of the core graph, in their order, at most CPU_RENDER_EXTRA_MAX in all,
+// whether the app's own bars are shown or not. A value that is not a number is not read (-1)
 - (void)collectExtraBars
 {
   extraBarCount = 0;
-  if (!showBars)
-  {
-    return;
-  }
   for (NSUInteger owner=0; owner<menuRows.count; owner++)
   {
     id<MenuRows> rows = menuRows[owner];
@@ -2091,6 +2161,7 @@ static NSString* TipPercents(NSString* text)
   // and its bar shows only its background (no dot in Dot style); the disk keeps its last reading, -1 before the first
   CpuReadings readings = {-1.0, -1.0, diskFraction};
   readings.extraCount = extraBarCount;
+  readings.extraOnly = !showBars;
   for (int i=0; i<extraBarCount; i++)
   {
     readings.extra[i] = extraBars[i];
@@ -2108,7 +2179,7 @@ static NSString* TipPercents(NSString* text)
       [self readDisk];
     }
   }
-  const CpuReadings* shown = showBars ? &readings : NULL;
+  const CpuReadings* shown = (showBars || (extraBarCount > 0)) ? &readings : NULL;
   
   // the menu bar's appearance need not be the app's: the graph takes the status item's, the previews their window's
   [self renderMenubarWithLight:IsLight(self.statusItem.button.effectiveAppearance) readings:shown];
@@ -2463,6 +2534,7 @@ static NSTimeInterval TopDelay(void)
     [self setupPreferences];
     [self setupStatusItem];
     [self setupMenus];
+    [self setupPreferenceCheckboxes];
 
     // pause while nothing can be seen (updatePause)
     NSNotificationCenter* workspaceCenter = [[NSWorkspace sharedWorkspace] notificationCenter];

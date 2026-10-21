@@ -27,7 +27,8 @@ NS_ASSUME_NONNULL_BEGIN
 // Rows that a build adds to the status menu, above Quit, and to the readings panel beside it, after the readings. A
 // class that adopts MenuRows registers itself with MenuRowsRegister from its +load; upMonitor makes one instance of
 // each when it builds the menu and adds its rows, then a separator, and its panel rows as a section of their own. It
-// may also add views to the process inspector's header, and bars to the menu bar, at the right of the core graph.
+// may also add views to the process inspector's header, bars to the menu bar, at the right of the core graph, and
+// check boxes to the Preferences window.
 // Everything here runs on the main thread, +load aside.
 @protocol MenuRows <NSObject>
 // the rows, their titles set in attributes, the menu's own text attributes
@@ -52,13 +53,23 @@ NS_ASSUME_NONNULL_BEGIN
 // row whose process has exited or whose pid now belongs to another process. A view may change its width here
 - (void)inspectorShowsPid:(pid_t)pid name:(NSString*)name exited:(BOOL)exited;
 // bars for the menu bar, drawn right of the core graph in the CPU bar's style, each 0..1 (below 0: not read, only its
-// background in bar style, nothing in Dot style); read at each tick of the graph while the bars are shown, menu open or
-// not. All classes' bars together, at most CPU_RENDER_EXTRA_MAX (4), the rest not drawn; the status item widens or
-// narrows when their number changes
+// background in bar style, nothing in Dot style); read at each tick of the graph, menu open or not, the app's own bars
+// shown or not. All classes' bars together, at most CPU_RENDER_EXTRA_MAX (4), the rest not drawn; the status item
+// widens or narrows when their number changes
 - (NSArray<NSNumber*>*)barReadings;
 // each bar's text, in the same order, shown below it while the pointer rests on it ("Title: value"); read when the
 // label shows and every 0.25 s while it is shown. A missing or empty text shows no label
 - (NSArray<NSString*>*)barLabels;
+// check boxes for the Preferences window, made once: the app asks for them once, right after it has made the menus,
+// before the window is first shown. The class owns each box: its title, target, action, state and its own defaults key;
+// the app only places it, and is not told of a click. The app's own "Show Disk, RAM, CPU usage bars" is the first box;
+// these take the places after it, two to a row, left column then right, so the first one sits to the right of the app's
+// box on the same row and the later ones on rows below, in the order the classes registered and then in each array's
+// order; the app gives each the font and size of its own box and fits its width. The right column starts 20 pt after
+// the app's box, with about 180 pt of room, and a wider title is cut. Each row after the first adds 22 pt to the
+// window's height. An entry that is not an NSButton is skipped. A box that hides its class's bars makes barReadings
+// (and barLabels) return none while it is off, and the status item follows at the next tick of the graph
+- (NSArray<NSButton*>*)preferenceCheckboxes;
 @end
 
 __BEGIN_DECLS
