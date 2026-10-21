@@ -193,19 +193,22 @@ void CpuRenderGraphSpan(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth, CGF
   *end = imageWidth - _extra_width(bar, tickWidth, tickTotalWidth, extraCount);
 }
 
-// a bar's full-height background: 100%, in a light grey
-static void _render_background(CGContextRef ctx, CGFloat x, CGFloat tickWidth, CGFloat color, bool light)
+// where a dashed bar starts: above rows 0 and 1, left clear, so that it is five 2-pt dashes with 1-pt gaps
+#define DASHED_BOTTOM 2.0
+
+// a bar's background: 100%, in a light grey, from bottom to the top (bottom 0: the full 16 pt)
+static void _render_background(CGContextRef ctx, CGFloat x, CGFloat tickWidth, CGFloat color, bool light, CGFloat bottom)
 {
   CGContextSetGrayFillColor(ctx, color, light ? 0.12 : 0.3);
-  CGContextFillRect(ctx, CGRectMake(x, 0, tickWidth, 16));
+  CGContextFillRect(ctx, CGRectMake(x, bottom, tickWidth, 16-bottom));
 }
 
-// one bar (or dot) of the graph at x, at load 0..1; a bar over its background
-static void _render_group(CGContextRef ctx, CGFloat x, CGFloat load, CGFloat color, CGFloat range, bool bar, bool colored, int theme, CGFloat tickWidth, bool light)
+// one bar (or dot) of the graph at x, at load 0..1; a bar over its background, from bottom up
+static void _render_group(CGContextRef ctx, CGFloat x, CGFloat load, CGFloat color, CGFloat range, bool bar, bool colored, int theme, CGFloat tickWidth, bool light, CGFloat bottom)
 {
   if (bar)
   {
-    _render_background(ctx, x, tickWidth, color, light);
+    _render_background(ctx, x, tickWidth, color, light, bottom);
   }
   
   CGFloat alpha = (range*load)+(1.0-range);
@@ -227,7 +230,7 @@ static void _render_group(CGContextRef ctx, CGFloat x, CGFloat load, CGFloat col
   
   if (bar)
   {
-    CGContextFillRect(ctx, CGRectMake(x, 0, tickWidth, load*16));
+    CGContextFillRect(ctx, CGRectMake(x, bottom, tickWidth, load*(16-bottom)));
   }
   else
   {
@@ -250,6 +253,7 @@ void CpuRender(CpuSummaryInfo* cpu_info, CGContextRef ctx, bool light, int granu
   }
   
   const CGFloat range = 0.75;
+  const CGFloat bottom = stripped ? DASHED_BOTTOM : 0.0;
   
   // the core graph starts after the readings block and its gap when the three readings are drawn, and ends before the
   // extra readings' gap
@@ -260,20 +264,6 @@ void CpuRender(CpuSummaryInfo* cpu_info, CGContextRef ctx, bool light, int granu
   if (readings)
   {
     const int count = _readings_count(readings->extraCount);
-    if (bar)
-    {
-      // the base line under the readings, and under the extra readings at the right
-      CGContextSetGrayFillColor(ctx, color, range*0.25);
-      if (three)
-      {
-        CGContextFillRect(ctx, CGRectMake(0, 0, offset-CPU_RENDER_READINGS_GAP, 1));
-      }
-      if (count > CPU_RENDER_READINGS_COUNT)
-      {
-        CGFloat start = CpuRenderReadingX(bar, tickWidth, tickTotalWidth, imageWidth, readings->extraCount, CPU_RENDER_READINGS_COUNT);
-        CGContextFillRect(ctx, CGRectMake(start, 0, imageWidth-start, 1));
-      }
-    }
     // disk, memory, CPU from the left, then the extra readings; a value below 0 or NaN is not read and draws only the
     // bar's background, one above 1 draws as 1
     double values[CPU_RENDER_READINGS_COUNT+CPU_RENDER_EXTRA_MAX] = {readings->disk, readings->memory, readings->cpu};
@@ -287,21 +277,15 @@ void CpuRender(CpuSummaryInfo* cpu_info, CGContextRef ctx, bool light, int granu
       CGFloat x = CpuRenderReadingX(bar, tickWidth, tickTotalWidth, imageWidth, readings->extraCount, i);
       if (values[i] >= 0.0)
       {
-        _render_group(ctx, x, fmin(values[i], 1.0), color, range, bar, colored, theme, width, light);
+        _render_group(ctx, x, fmin(values[i], 1.0), color, range, bar, colored, theme, width, light, bottom);
       }
       else if (bar)
       {
-        _render_background(ctx, x, width, color, light);
+        _render_background(ctx, x, width, color, light, bottom);
       }
     }
   }
   
-  if (bar)
-  {
-    CGContextSetGrayFillColor(ctx, color, range*0.25);
-    CGContextFillRect(ctx, CGRectMake(offset, 0, end-offset, 1));
-  }
-
   natural_t count = CpuSamplerGetCount(granularity); // at least 1
   natural_t group = cpu_info->countLogical / count;  // 0 when no CPU could be read: nothing to average
   for (natural_t i=0; i<count; i++)
@@ -316,13 +300,14 @@ void CpuRender(CpuSummaryInfo* cpu_info, CGContextRef ctx, bool light, int granu
       }
       load /= (CGFloat)group;
     }
-    _render_group(ctx, offset+(i*tickTotalWidth), load, color, range, bar, colored, theme, tickWidth, light);
+    _render_group(ctx, offset+(i*tickTotalWidth), load, color, range, bar, colored, theme, tickWidth, light, bottom);
   }
 
-  // dashed, the readings' bars as well as the cores'
+  // dashed, the readings' bars as well as the cores': the gaps at 4, 7, 10 and 13 leave five 2-pt dashes above
+  // DASHED_BOTTOM
   if (bar && stripped)
   {
-    for (natural_t i=1; i<16; i+=3)
+    for (natural_t i=4; i<16; i+=3)
     {
       CGContextClearRect(ctx, CGRectMake(0, i, imageWidth, 1));
     }
