@@ -156,12 +156,12 @@ static int _readings_count(int extraCount)
   return CPU_RENDER_READINGS_COUNT + ((extraCount < 0) ? 0 : ((extraCount > CPU_RENDER_EXTRA_MAX) ? CPU_RENDER_EXTRA_MAX : extraCount));
 }
 
-// the extra readings' block at the right of the image: its gap, a slot per reading, and 1 pt more for dots; none
-// without extra readings
+// the extra readings' block at the right of the image: its gap, a slot per reading, and 1 pt more (a dot's overhang, or
+// the chevron of a bar's mark); none without extra readings
 static CGFloat _extra_width(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth, int extraCount)
 {
   const int extra = _readings_count(extraCount) - CPU_RENDER_READINGS_COUNT;
-  return (extra > 0) ? (CPU_RENDER_EXTRA_GAP + (extra*_readings_slot(bar, tickWidth, tickTotalWidth)) + (bar ? 0.0 : 1.0)) : 0.0;
+  return (extra > 0) ? (CPU_RENDER_EXTRA_GAP + (extra*_readings_slot(bar, tickWidth, tickTotalWidth)) + 1.0) : 0.0;
 }
 
 CGFloat CpuRenderReadingX(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth, CGFloat imageWidth, int extraCount, int index)
@@ -310,6 +310,51 @@ void CpuRender(CpuSummaryInfo* cpu_info, CGContextRef ctx, bool light, int granu
     for (natural_t i=4; i<16; i+=3)
     {
       CGContextClearRect(ctx, CGRectMake(0, i, imageWidth, 1));
+    }
+    // an extra reading's alert: its bar drawn again whole, without the dashes, from the same bottom
+    if (readings)
+    {
+      const int extra = _readings_count(readings->extraCount) - CPU_RENDER_READINGS_COUNT;
+      for (int i=0; i<extra; i++)
+      {
+        const double value = readings->extra[i];
+        if (readings->extraAlert[i] && value >= 0.0)
+        {
+          CGFloat x = CpuRenderReadingX(bar, tickWidth, tickTotalWidth, imageWidth, readings->extraCount, CPU_RENDER_READINGS_COUNT+i);
+          CGContextClearRect(ctx, CGRectMake(x, 0, 2.0*tickWidth, 16));
+          _render_group(ctx, x, fmin(value, 1.0), color, range, bar, colored, theme, 2.0*tickWidth, light, bottom);
+        }
+      }
+    }
+  }
+
+  // the extra readings' marks, drawn last so that the dashes do not clear them: a small arrow at the mark's height,
+  // white on a dark menu bar and black on a light one, outside the first bar's left edge and the last bar's right edge
+  if (readings && bar)
+  {
+    const int extra = _readings_count(readings->extraCount) - CPU_RENDER_READINGS_COUNT;
+    for (int i=0; i<extra; i++)
+    {
+      const double value = readings->extra[i];
+      const double mark = readings->extraMark[i];
+      if (value >= 0.0 && mark > 0.0)
+      {
+        const double y = fmin(floor(bottom+(fmin(mark, 1.0)*(16.0-bottom))), 15.0); // on the bar's own scale
+        CGContextSetGrayFillColor(ctx, light ? 0.0 : 1.0, 1.0);
+        CGFloat x = CpuRenderReadingX(bar, tickWidth, tickTotalWidth, imageWidth, readings->extraCount, CPU_RENDER_READINGS_COUNT+i);
+        // the arrow, 2 pt wide and 3 pt tall, on the rows around the mark's height, kept inside the image
+        const CGFloat lo = fmin(fmax(y-1.0, 0.0), 13.0);
+        if (i == 0)
+        {
+          CGContextFillRect(ctx, CGRectMake(x-2.0, lo, 1, 3));
+          CGContextFillRect(ctx, CGRectMake(x-1.0, y, 1, 1));
+        }
+        if (i == extra-1)
+        {
+          CGContextFillRect(ctx, CGRectMake(x+(2.0*tickWidth), y, 1, 1));
+          CGContextFillRect(ctx, CGRectMake(x+(2.0*tickWidth)+1.0, lo, 1, 3));
+        }
+      }
     }
   }
 }

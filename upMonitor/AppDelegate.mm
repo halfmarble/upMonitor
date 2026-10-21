@@ -946,6 +946,8 @@ static int extraBarCount = 0;        // the bars MenuRows classes add right of t
 static double extraBars[CPU_RENDER_EXTRA_MAX];
 static NSUInteger extraBarOwner[CPU_RENDER_EXTRA_MAX]; // each one's class, as its index in menuRows,
 static NSUInteger extraBarItem[CPU_RENDER_EXTRA_MAX];  // and its index in that class's barReadings and barLabels
+static double extraMarks[CPU_RENDER_EXTRA_MAX];   // each one's mark and alert, from barMarks and barAlerts
+static bool extraAlerts[CPU_RENDER_EXTRA_MAX];
 
 static float speed = 1.0f;
 
@@ -2121,6 +2123,8 @@ static NSString* TipPercents(NSString* text)
   {
     id<MenuRows> rows = menuRows[owner];
     NSArray<NSNumber*>* values = [rows respondsToSelector:@selector(barReadings)] ? [rows barReadings] : nil;
+    NSArray<NSNumber*>* marks = [rows respondsToSelector:@selector(barMarks)] ? [rows barMarks] : nil;
+    NSArray<NSNumber*>* alerts = [rows respondsToSelector:@selector(barAlerts)] ? [rows barAlerts] : nil;
     for (NSUInteger item=0; item<values.count; item++)
     {
       if (extraBarCount >= CPU_RENDER_EXTRA_MAX)
@@ -2129,6 +2133,10 @@ static NSString* TipPercents(NSString* text)
       }
       NSNumber* value = values[item];
       extraBars[extraBarCount] = [value isKindOfClass:[NSNumber class]] ? value.doubleValue : -1.0;
+      NSNumber* mark = (item < marks.count) ? marks[item] : nil;
+      NSNumber* alert = (item < alerts.count) ? alerts[item] : nil;
+      extraMarks[extraBarCount] = [mark isKindOfClass:[NSNumber class]] ? mark.doubleValue : 0.0;
+      extraAlerts[extraBarCount] = [alert isKindOfClass:[NSNumber class]] ? alert.boolValue : false;
       extraBarOwner[extraBarCount] = owner;
       extraBarItem[extraBarCount] = item;
       extraBarCount++;
@@ -2165,6 +2173,8 @@ static NSString* TipPercents(NSString* text)
   for (int i=0; i<extraBarCount; i++)
   {
     readings.extra[i] = extraBars[i];
+    readings.extraMark[i] = extraMarks[i];
+    readings.extraAlert[i] = extraAlerts[i];
   }
   if (showBars)
   {

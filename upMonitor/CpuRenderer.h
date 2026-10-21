@@ -41,7 +41,9 @@ enum Theme
 // CPU from the left; in Dot style three dots as the graph's), then a clear gap before the core graph; up to
 // CPU_RENDER_EXTRA_MAX extra readings that a build adds are drawn in the same way at the right of the image, after the
 // core graph and a gap as wide. The three may be left out (extraOnly): the core graph then starts at x = 0, with the
-// extra readings, when there are any, at the right as before
+// extra readings, when there are any, at the right as before. An extra reading may also carry a mark, a small arrow
+// at that height outside the first bar's left edge and the last bar's right edge, and an alert,
+// which draws its bar whole, without the dashes
 #define CPU_RENDER_READINGS_COUNT (3)
 #define CPU_RENDER_EXTRA_MAX (4)
 #define CPU_RENDER_READINGS_GAP (4.0)
@@ -57,6 +59,13 @@ struct CpuReadings
   double extra[CPU_RENDER_EXTRA_MAX];
   // true: the three readings and their block are not drawn, only the extra readings (false is the default)
   bool extraOnly;
+  // each extra reading's mark, a share of its bar's height (from where a dashed bar starts): a small arrow at that
+  // height beside the first and the last bar, white on a dark menu bar and black on a light one, over the dashes; none
+  // in Dot style, and drawn only above 0, so a zeroed struct has none
+  double extraMark[CPU_RENDER_EXTRA_MAX];
+  // true: that extra reading's dashed bar is drawn whole, without the dashes, in its own colour; nothing changes for a
+  // solid bar or in Dot style; false is the default
+  bool extraAlert[CPU_RENDER_EXTRA_MAX];
 } typedef CpuReadings;
 
 void CpuRenderInit(void);
