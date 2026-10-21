@@ -27,6 +27,7 @@ A lightweight, highly customizable CPU monitoring tool designed specifically for
     * **Visual Styles:** Switch between Bar and Dot styles to match your preference.
     * **Appearance:** Choose from various color themes (including vibrant gradients) or a classic grey look.
     * **Line Weights:** Adjust thickness and choose between solid or dashed lines.
+    * **Top Processes:** Show 3, 5, 10 or 15 processes in the menu (15 by default).
 * **System Integration:** One-click access to the macOS native **Activity Monitor**.
 
 ## 🛠 Installation

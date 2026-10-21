@@ -41,7 +41,7 @@
 
 #pragma mark Constants
 
-#define TOP_COUNT                   (15)
+#define TOP_COUNT                   (15)    // the process rows the menu holds, the most Preferences offer
 #define TOP_REFRESH_RATE            (2.5)   // s between process samples, whatever the Refresh setting
 
 //   32 space bar  3.333984
@@ -76,6 +76,7 @@ static NSString* TickWidthKey = @"TickWidthKey";
 static NSString* AppearanceKey = @"AppearanceKey";
 static NSString* ThemeKey = @"ThemeKey";
 static NSString* ShowBarsKey = @"ShowBarsKey";
+static NSString* TopRowsKey = @"TopRowsKey";
 
 #pragma mark - C APIs
 
@@ -870,6 +871,7 @@ static bool menuIsOpen = false;            // from menuWillOpen: to menuDidClose
 static bool baselineOnly = false;
 static bool topListValid = false;
 static int topCount = 0;
+static int topShown = TOP_COUNT;         // the process rows shown, from Preferences (TopRows)
 static TopOrder topOrder;                 // the order of the rows; TopOrderCpu (0) until set
 static int topOthersCount = 0;            // other users' processes at the last sample, whose CPU cannot be read
 static NSMenuItem* othersItem = nil;      // the row below the process rows that counts them
@@ -1106,6 +1108,11 @@ static NSMutableSet<NSTask*>* runningTasks = nil;
   [self.blueButton setState:NSControlStateValueOff];
 
   [self.showBarsButton setState:showBars ? NSControlStateValueOn : NSControlStateValueOff];
+
+  [self.top3Button setState:(topShown == 3) ? NSControlStateValueOn : NSControlStateValueOff];
+  [self.top5Button setState:(topShown == 5) ? NSControlStateValueOn : NSControlStateValueOff];
+  [self.top10Button setState:(topShown == 10) ? NSControlStateValueOn : NSControlStateValueOff];
+  [self.top15Button setState:(topShown == 15) ? NSControlStateValueOn : NSControlStateValueOff];
     
   if (granularity == 0)
   {
@@ -1494,7 +1501,7 @@ static NSString* OthersRowText(int count)
     //NSString *fullPath = [ws fullPathForApplication:[path lastPathComponent]];
     //NSImage *appIcon = [ws iconForFileType:NSFileTypeForHFSTypeCode(kGenericApplicationIcon)];
     
-    if (i >= topCount)
+    if (i >= MIN(topCount, topShown))
     {
       [topMenus[i] setHidden:YES];
       continue;
@@ -2300,6 +2307,13 @@ static double RefreshInterval(void)
   return ((interval == 0.1) || (interval == 0.2)) ? interval : 0.5;
 }
 
+// the process rows the Preferences offer: 3, 5, 10 or 15; any other stored value counts as 15, the default
+static int TopRows(void)
+{
+  NSInteger rows = [[NSUserDefaults standardUserDefaults] integerForKey:TopRowsKey];
+  return ((rows == 3) || (rows == 5) || (rows == 10)) ? (int)rows : TOP_COUNT;
+}
+
 // the process sample's interval: 2.5 s, whatever the Refresh setting, with the menu open or closed
 static double TopInterval(void)
 {
@@ -2321,6 +2335,7 @@ static double TopInterval(void)
   [[NSUserDefaults standardUserDefaults] registerDefaults:@{AppearanceKey:@1}];
   [[NSUserDefaults standardUserDefaults] registerDefaults:@{ThemeKey:@2}];
   [[NSUserDefaults standardUserDefaults] registerDefaults:@{ShowBarsKey:@YES}];
+  [[NSUserDefaults standardUserDefaults] registerDefaults:@{TopRowsKey:@TOP_COUNT}];
 
   granularity = (int)[[NSUserDefaults standardUserDefaults] integerForKey:GranularityKey];
   speed = 10.0 * RefreshInterval();
@@ -2330,6 +2345,7 @@ static double TopInterval(void)
   colored = [[NSUserDefaults standardUserDefaults] boolForKey:AppearanceKey];
   theme = (int)[[NSUserDefaults standardUserDefaults] integerForKey:ThemeKey];
   showBars = [[NSUserDefaults standardUserDefaults] boolForKey:ShowBarsKey];
+  topShown = TopRows();
 
   [self updateRendererParameters];
   [self updateUI];
@@ -2986,6 +3002,15 @@ static NSTimeInterval TopDelay(void)
   showBars = (self.showBarsButton.state == NSControlStateValueOn);
   [[NSUserDefaults standardUserDefaults] setBool:showBars forKey:ShowBarsKey];
   [self updateRendererParameters];
+  [self updateUI];
+}
+
+// Top processes: 3, 5, 10 or 15 rows, each button's tag its count. The menu is closed while Preferences is used, and
+// its next opening redraws the rows (updateMenuTop); while frozen they keep what they showed until the unfreeze
+- (IBAction)topRowsButtonClicked:(id)sender
+{
+  [[NSUserDefaults standardUserDefaults] setInteger:[sender tag] forKey:TopRowsKey];
+  topShown = TopRows();
   [self updateUI];
 }
 

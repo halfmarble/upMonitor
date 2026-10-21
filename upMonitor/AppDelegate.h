@@ -61,6 +61,11 @@
 @property (weak) IBOutlet NSButton *loginButton;
 @property (weak) IBOutlet NSButton *showBarsButton;
 
+@property (weak) IBOutlet NSButton *top3Button;
+@property (weak) IBOutlet NSButton *top5Button;
+@property (weak) IBOutlet NSButton *top10Button;
+@property (weak) IBOutlet NSButton *top15Button;
+
 @property (weak) IBOutlet NSTextField *buildLabel;
 
 @property (nonatomic, strong, readwrite) NSStatusItem *statusItem;
