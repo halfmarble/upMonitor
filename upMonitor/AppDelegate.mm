@@ -1772,7 +1772,8 @@ static bool IsLight(NSAppearance* appearance)
 
 // a tooltip-style label under each reading's bar (or dot) in the status item: disk, memory, CPU, worded as the panel's
 // rows, and each extra bar's, worded by its class (barLabels); and one under the core graph, with or without the
-// readings: each kind of core's mean load. On macOS 27 no tooltip showed on the status item when
+// readings: each CPU's load by kind, with each kind's mean, the bar under the pointer marked (CoresTipText); the
+// mark follows the pointer along the graph without hiding the label. On macOS 27 no tooltip showed on the status item when
 // tried (a tooltip rect was never asked for its text), but the pointer reaches the button, so the label is the app's
 // own panel. updateBarTips: records where the readings are after each render; the pointer's entry and moves start a
 // watch timer that follows the pointer while it is on the item, since no exit was delivered either, and a reading
@@ -1883,44 +1884,113 @@ static NSTimer* barTipWatch = nil;
   return NSMakeRect(CpuRenderReadingX(bar, drawWidth, tickTotalWidth, imageWidth, (int)barTipBars.size(), barTipBars.data(), (int)index), barTipLayout.origin.y, CpuRenderReadingSlot(bar, drawWidth, tickTotalWidth, (int)barTipBars.size(), barTipBars.data(), (int)index), barTipLayout.size.height);
 }
 
+// the pointer's x, measured from the image's left; NO off the item, or nothing rendered yet
+- (BOOL)barTipPointerX:(CGFloat*)x
+{
+  NSStatusBarButton* button = self.statusItem.button;
+  if ((barTipLayout.size.width <= 0.0) || (button.window == nil))
+  {
+    return NO;
+  }
+  NSPoint p = [button convertPoint:[button.window convertPointFromScreen:[NSEvent mouseLocation]] fromView:nil];
+  if (!NSPointInRect(p, button.bounds))
+  {
+    return NO;
+  }
+  *x = p.x - barTipLayout.origin.x;
+  return YES;
+}
+
 // the reading under the pointer, from where it is now: 0 disk, 1 memory, 2 CPU, 3 on the extra bars, BAR_TIP_CORES on
 // the core graph; -1 on the item but on none of them;
 // -2 off the item, or nothing rendered yet
 - (NSInteger)barTipIndexNow
 {
-  NSStatusBarButton* button = self.statusItem.button;
-  if ((barTipLayout.size.width <= 0.0) || (button.window == nil))
-  {
-    return -2;
-  }
-  NSPoint p = [button convertPoint:[button.window convertPointFromScreen:[NSEvent mouseLocation]] fromView:nil];
-  if (!NSPointInRect(p, button.bounds))
-  {
-    return -2;
-  }
-  return [self barTipIndexAtX:(p.x - barTipLayout.origin.x)];
+  CGFloat x = 0.0;
+  return [self barTipPointerX:&x] ? [self barTipIndexAtX:x] : -2;
 }
 
-// the core graph's label: "4xE-cores 12%, 4xP-cores 34%", each kind's count and mean
-// load at the graph's latest tick, as its bars show it; "8xCores 34%", all logical CPUs, when the kinds were not read or
-// there is one kind
+// the core graph's bar under the pointer, from 0; -1 when the pointer is on none, or the graph has one bar (Package)
+- (NSInteger)barTipCoreNow
+{
+  CGFloat x = 0.0;
+  natural_t count = CpuSamplerGetCount(granularity);
+  if ((count < 2) || (tickTotalWidth <= 0.0) || ![self barTipPointerX:&x])
+  {
+    return -1;
+  }
+  CGFloat graphStart = 0.0;
+  CGFloat graphEnd = 0.0;
+  [self graphTipStart:&graphStart end:&graphEnd];
+  if ((x < graphStart) || (x >= graphEnd))
+  {
+    return -1;
+  }
+  // Dot style's last dot overhangs its slot by 1 pt: that is still the last bar
+  return MIN((NSInteger)floor((x - graphStart) / tickTotalWidth), (NSInteger)count - 1);
+}
+
+// the core graph's label at the graph's latest tick, as its bars show it: a section per kind of core, E first, each its
+// title, "E-cores:", then a line per CPU of that kind, by logical id, named by its kind and its number within the kind,
+// with its load, "   E0  18%", then the kind's mean load, "total: 42%"; when the kinds were not read, one section,
+// "Cores:", "C0", "C1" ... A CPU of the bar hovered (bar b averages CPUs b x perBar to b x perBar + perBar - 1, as
+// CpuRender groups them; -1: none) has "›" in place of its line's first space. The names are padded to the widest in
+// any section and "total:" to a CPU line's width before its load, so that once TipPercents pads the loads every load ends in
+// one column; empty with no CPU
+static NSString* CoresTipText(const std::vector<double>& loads, const char* kinds, natural_t perBar, NSInteger hovered, NSLocale* locale)
+{
+  const char letters[3] = {'E', 'P', 'C'};
+  NSString* titles[3] = {@"E-cores:", @"P-cores:", @"Cores:"};
+  std::vector<natural_t> sections[3];
+  NSUInteger width = 0;
+  for (int section=0; section<3; section++)
+  {
+    for (natural_t i=0; i<loads.size(); i++)
+    {
+      char kind = (kinds == NULL) ? 'C' : ((kinds[i] == 'E') ? 'E' : 'P');
+      if (kind == letters[section])
+      {
+        sections[section].push_back(i);
+      }
+    }
+    if (!sections[section].empty())
+    {
+      NSUInteger last = [NSString stringWithFormat:@"%c%lu", letters[section], (unsigned long)(sections[section].size() - 1)].length;
+      width = MAX(width, last);
+    }
+  }
+  NSMutableArray<NSString*>* lines = [NSMutableArray array];
+  for (int section=0; section<3; section++)
+  {
+    const std::vector<natural_t>& cpus = sections[section];
+    if (cpus.empty())
+    {
+      continue;
+    }
+    double sum = 0.0;
+    [lines addObject:titles[section]];
+    for (size_t k=0; k<cpus.size(); k++)
+    {
+      bool marked = (hovered >= 0) && (perBar > 0) && ((NSInteger)(cpus[k] / perBar) == hovered);
+      NSString* name = [[NSString stringWithFormat:@"%c%lu", letters[section], (unsigned long)k] stringByPaddingToLength:width withString:@" " startingAtIndex:0];
+      [lines addObject:[[NSString alloc] initWithFormat:@"%@  %@  %ld%%" locale:locale, marked ? @"›" : @" ", name, lround(100.0 * loads[cpus[k]])]];
+      sum += loads[cpus[k]];
+    }
+    NSString* total = [@"total:" stringByPaddingToLength:(3 + width + 2) withString:@" " startingAtIndex:0];
+    [lines addObject:[[NSString alloc] initWithFormat:@"%@%ld%%" locale:locale, total, lround(100.0 * sum / cpus.size())]];
+  }
+  return [lines componentsJoinedByString:@"\n"];
+}
+
+// the core graph's label at its latest tick, the bar under the pointer marked (CoresTipText)
 - (NSString*)coresTipText
 {
-  NSLocale* locale = [NSLocale currentLocale];
-  double sum[2] = {0.0, 0.0}; // P, E
-  natural_t count[2] = {0, 0};
+  std::vector<double> loads;
   for (natural_t i=0; i<cpu_info.countLogical; i++)
   {
-    int kind = ((cpuKinds != NULL) && (cpuKinds[i] == 'E')) ? 1 : 0;
-    sum[kind] += fmin(fmax(cpu_info.now[i].load, 0.0), 1.0);
-    count[kind]++;
+    loads.push_back(fmin(fmax(cpu_info.now[i].load, 0.0), 1.0));
   }
-  if ((count[0] == 0) || (count[1] == 0))
-  {
-    double all = (sum[0] + sum[1]) / (double)MAX(count[0] + count[1], 1u);
-    return [[NSString alloc] initWithFormat:@"%uxCores %ld%%" locale:locale, count[0] + count[1], lround(100.0 * all)];
-  }
-  return [[NSString alloc] initWithFormat:@"%uxE-cores %ld%%, %uxP-cores %ld%%" locale:locale, count[1], lround(100.0 * sum[1] / count[1]), count[0], lround(100.0 * sum[0] / count[0])];
+  return CoresTipText(loads, cpuKinds, cpu_info.countLogical / CpuSamplerGetCount(granularity), [self barTipCoreNow], [NSLocale currentLocale]);
 }
 
 // a label's whole percentages three characters wide, "  1%", " 10%", "100%", so that a label in the monospaced font
