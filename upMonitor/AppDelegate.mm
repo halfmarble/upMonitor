@@ -1931,16 +1931,16 @@ static NSTimer* barTipWatch = nil;
 }
 
 // the core graph's label at the graph's latest tick, as its bars show it: a section per kind of core, E first, each its
-// title, "E-cores:", then a line per CPU of that kind, by logical id, named by its kind and its number within the kind,
-// with its load, "   E0  18%", then the kind's mean load, "total: 42%"; when the kinds were not read, one section,
-// "Cores:", "C0", "C1" ... A CPU of the bar hovered (bar b averages CPUs b x perBar to b x perBar + perBar - 1, as
-// CpuRender groups them; -1: none) has "›" in place of its line's first space. The names are padded to the widest in
-// any section and "total:" to a CPU line's width before its load, so that once TipPercents pads the loads every load ends in
-// one column; empty with no CPU
+// title, "Efficiency cores:" or "Performance cores:", then a line per CPU of that kind, by logical id, named by its
+// kind and its number within the kind, with its load, "   E0  18%", then the kind's mean load, "total: 42%"; when the
+// kinds were not read, one section, "Cores:", "C0", "C1" ... A CPU of the bar hovered (bar b averages CPUs b x perBar
+// to b x perBar + perBar - 1, as CpuRender groups them; -1: none) has "›" in place of its line's first space. The names
+// are padded to the widest in any section and "total:" to a CPU line's width before its load, so that once TipPercents
+// pads the loads every load ends in one column; empty with no CPU
 static NSString* CoresTipText(const std::vector<double>& loads, const char* kinds, natural_t perBar, NSInteger hovered, NSLocale* locale)
 {
   const char letters[3] = {'E', 'P', 'C'};
-  NSString* titles[3] = {@"E-cores:", @"P-cores:", @"Cores:"};
+  NSString* titles[3] = {@"Efficiency cores:", @"Performance cores:", @"Cores:"};
   std::vector<natural_t> sections[3];
   NSUInteger width = 0;
   for (int section=0; section<3; section++)
