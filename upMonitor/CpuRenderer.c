@@ -308,9 +308,10 @@ static void _render_group(CGContextRef ctx, CGFloat x, CGFloat load, CGFloat pai
 
 // an extra reading's pace and alert over its bar, as _render_group drew it at x at load and paint: a bar above pace gets
 // the part up to pace painted in its ramp's coolest colour, the share its period allows so far, and the part above it in
-// grey, as a bar without colour at paint would be; an alert bar without a pace is painted all in that grey; a bar below
-// pace gets the stretch from its top up to pace painted dim in its own colour, the headroom. Bars with colour only
-static void _render_pace(CGContextRef ctx, CGFloat x, CGFloat width, CGFloat load, CGFloat paint, double pace, bool alert, CGFloat color, CGFloat range, bool bar, bool colored, int theme, bool light, CGFloat bottom)
+// grey, the marks' colour at half opacity over the bar's background (halfway between it and the mark's line, when the
+// bar has one); an alert bar without a pace is painted all in that grey; a bar below pace gets the stretch from its top
+// up to pace painted dim in its own colour, the headroom. Bars with colour only
+static void _render_pace(CGContextRef ctx, CGFloat x, CGFloat width, CGFloat load, CGFloat paint, double pace, bool alert, CGFloat color, bool bar, bool colored, int theme, bool light, CGFloat bottom)
 {
   if (!bar || !colored)
   {
@@ -324,7 +325,8 @@ static void _render_pace(CGContextRef ctx, CGFloat x, CGFloat width, CGFloat loa
     // fill's own top would leave its antialiased edge partly coloured
     CGContextClearRect(ctx, CGRectMake(x, bottom, width, height));
     _render_background(ctx, x, width, color, light, bottom);
-    CGContextSetGrayFillColor(ctx, color, (range*paint)+(1.0-range));
+    // the marks' colour at half opacity over the background: halfway between the two, whatever the menu bar behind
+    CGContextSetGrayFillColor(ctx, light ? 0.0 : 1.0, 0.5);
     CGContextFillRect(ctx, CGRectMake(x, bottom+(share*height), width, (load-share)*height));
     if (share > 0.0)
     {
@@ -381,7 +383,7 @@ void CpuRender(CpuSummaryInfo* cpu_info, CGContextRef ctx, bool light, int granu
         _render_group(ctx, x, load, paint, color, range, bar, colored, theme, width, light, bottom);
         if ((i >= CPU_RENDER_READINGS_COUNT) && extra)
         {
-          _render_pace(ctx, x, width, load, paint, extra[i-CPU_RENDER_READINGS_COUNT].pace, extra[i-CPU_RENDER_READINGS_COUNT].alert, color, range, bar, colored, theme, light, bottom);
+          _render_pace(ctx, x, width, load, paint, extra[i-CPU_RENDER_READINGS_COUNT].pace, extra[i-CPU_RENDER_READINGS_COUNT].alert, color, bar, colored, theme, light, bottom);
         }
       }
       else if (bar)
@@ -430,7 +432,7 @@ void CpuRender(CpuSummaryInfo* cpu_info, CGContextRef ctx, bool light, int granu
           const CGFloat load = fmin(value, 1.0);
           const CGFloat paint = _extra_paint(bar, extra, i, load);
           _render_group(ctx, x, load, paint, color, range, bar, colored, theme, width, light, bottom);
-          _render_pace(ctx, x, width, load, paint, extra[i].pace, extra[i].alert, color, range, bar, colored, theme, light, bottom);
+          _render_pace(ctx, x, width, load, paint, extra[i].pace, extra[i].alert, color, bar, colored, theme, light, bottom);
         }
       }
     }
