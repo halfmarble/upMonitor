@@ -71,10 +71,16 @@ struct CpuExtraReading
   // opacity, its height still value's; 0 or below (NaN too) is the default: painted by its value. Nothing changes in Dot
   // style or for a bar not read, so a zeroed struct has none
   double tint;
+  // true: this reading is painted in colorRed, colorGreen and colorBlue (sRGB, each 0..1) in place of its ramp colour,
+  // tint and pace, and of an alert's grey: in bar style its fill opaque and its background, drawn also while it is not
+  // read, at the dim opacity of the pace's stretch (0.25 light, 0.35 dark); in Dot style a read reading's dot. Only
+  // with colour; false is the default, so a zeroed struct has none
+  bool hasColor;
+  double colorRed, colorGreen, colorBlue;
   // true: this reading's dashed bar is drawn whole, without the dashes, in its own colour (its tint's when it has one);
-  // in bar style with colour, a bar with no pace above 0 is painted all in the pace's grey instead, dashed or solid (with
-  // a pace, the pace paints it, and a bar at or below its pace keeps its colour); nothing changes in Dot style; false is
-  // the default
+  // in bar style with colour, a bar with no pace above 0 and no colour of its own (hasColor) is painted all in the
+  // pace's grey instead, dashed or solid (with a pace, the pace paints it, and a bar at or below its pace keeps its
+  // colour); nothing changes in Dot style; false is the default
   bool alert;
   // true: this reading starts a new group, after a clear gap; false is the default, and the first reading's flag is
   // ignored

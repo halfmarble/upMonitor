@@ -2247,6 +2247,7 @@ static NSString* TipPercents(NSString* text)
     NSArray<NSNumber*>* values = [rows respondsToSelector:@selector(barReadings)] ? [rows barReadings] : nil;
     NSArray<NSNumber*>* marks = [rows respondsToSelector:@selector(barMarks)] ? [rows barMarks] : nil;
     NSArray<NSNumber*>* tints = [rows respondsToSelector:@selector(barTints)] ? [rows barTints] : nil;
+    NSArray<NSColor*>* colors = [rows respondsToSelector:@selector(barColors)] ? [rows barColors] : nil;
     NSArray<NSNumber*>* alerts = [rows respondsToSelector:@selector(barAlerts)] ? [rows barAlerts] : nil;
     NSArray<NSNumber*>* paces = [rows respondsToSelector:@selector(barPaces)] ? [rows barPaces] : nil;
     NSArray<NSNumber*>* starts = [rows respondsToSelector:@selector(barGroupStarts)] ? [rows barGroupStarts] : nil;
@@ -2256,6 +2257,7 @@ static NSString* TipPercents(NSString* text)
       NSNumber* value = values[item];
       NSNumber* mark = (item < marks.count) ? marks[item] : nil;
       NSNumber* tint = (item < tints.count) ? tints[item] : nil;
+      NSColor* color = (item < colors.count) ? colors[item] : nil;
       NSNumber* alert = (item < alerts.count) ? alerts[item] : nil;
       NSNumber* pace = (item < paces.count) ? paces[item] : nil;
       NSNumber* start = (item < starts.count) ? starts[item] : nil;
@@ -2264,6 +2266,14 @@ static NSString* TipPercents(NSString* text)
       reading.value = [value isKindOfClass:[NSNumber class]] ? value.doubleValue : -1.0;
       reading.mark = [mark isKindOfClass:[NSNumber class]] ? mark.doubleValue : 0.0;
       reading.tint = [tint isKindOfClass:[NSNumber class]] ? tint.doubleValue : 0.0;
+      NSColor* rgb = [color isKindOfClass:[NSColor class]] ? [color colorUsingColorSpace:NSColorSpace.sRGBColorSpace] : nil;
+      if (rgb)
+      {
+        reading.hasColor = true;
+        reading.colorRed = rgb.redComponent;
+        reading.colorGreen = rgb.greenComponent;
+        reading.colorBlue = rgb.blueComponent;
+      }
       reading.alert = [alert isKindOfClass:[NSNumber class]] ? alert.boolValue : false;
       reading.pace = [pace isKindOfClass:[NSNumber class]] ? pace.doubleValue : 0.0;
       reading.groupStart = [start isKindOfClass:[NSNumber class]] ? start.boolValue : false;

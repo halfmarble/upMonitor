@@ -343,6 +343,30 @@ static void _render_pace(CGContextRef ctx, CGFloat x, CGFloat width, CGFloat loa
   }
 }
 
+// an extra reading drawn in its own colour (CpuExtraReading hasColor), at x and the width given: a bar over its background
+// in that colour, dim, drawn also when the bar is not read, and the bar's fill opaque; a dot as _render_group draws it
+static void _render_colored(CGContextRef ctx, CGFloat x, CGFloat width, CGFloat load, bool read, const CpuExtraReading* reading, CGFloat color, CGFloat range, bool bar, bool light, CGFloat bottom)
+{
+  if (bar)
+  {
+    CGContextSetRGBFillColor(ctx, reading->colorRed, reading->colorGreen, reading->colorBlue, light ? 0.25 : 0.35);
+    CGContextFillRect(ctx, CGRectMake(x, bottom, width, 16-bottom));
+    if (read)
+    {
+      CGContextSetRGBFillColor(ctx, reading->colorRed, reading->colorGreen, reading->colorBlue, 1.0);
+      CGContextFillRect(ctx, CGRectMake(x, bottom, width, load*(16-bottom)));
+    }
+  }
+  else if (read)
+  {
+    double w = width + 5.0;
+    CGContextSetGrayFillColor(ctx, color, range*1.25);
+    CGContextFillEllipseInRect(ctx, CGRectMake(x, ((14.0-w)/2.0), w+1.0, w+1.0));
+    CGContextSetRGBFillColor(ctx, reading->colorRed, reading->colorGreen, reading->colorBlue, 1.0);
+    CGContextFillEllipseInRect(ctx, CGRectMake(x+1.0, ((14.0-w)/2.0)+1.0, w-1.0, w-1.0));
+  }
+}
+
 void CpuRender(CpuSummaryInfo* cpu_info, CGContextRef ctx, bool light, int granularity, bool bar, bool stripped, bool colored, CGFloat tickWidth, CGFloat tickTotalWidth, CGFloat imageWidth, int theme, const CpuReadings* readings)
 {
   CGContextClearRect(ctx, CGRectMake(0, 0, imageWidth, 16));
@@ -380,6 +404,11 @@ void CpuRender(CpuSummaryInfo* cpu_info, CGContextRef ctx, bool light, int granu
       {
         const CGFloat load = fmin(value, 1.0);
         const CGFloat paint = (i < CPU_RENDER_READINGS_COUNT) ? load : _extra_paint(bar, extra, i-CPU_RENDER_READINGS_COUNT, load);
+        if (colored && (i >= CPU_RENDER_READINGS_COUNT) && extra && extra[i-CPU_RENDER_READINGS_COUNT].hasColor)
+        {
+          _render_colored(ctx, x, width, load, true, &extra[i-CPU_RENDER_READINGS_COUNT], color, range, bar, light, bottom);
+          continue;
+        }
         _render_group(ctx, x, load, paint, color, range, bar, colored, theme, width, light, bottom);
         if ((i >= CPU_RENDER_READINGS_COUNT) && extra)
         {
@@ -388,7 +417,14 @@ void CpuRender(CpuSummaryInfo* cpu_info, CGContextRef ctx, bool light, int granu
       }
       else if (bar)
       {
-        _render_background(ctx, x, width, color, light, bottom);
+        if (colored && (i >= CPU_RENDER_READINGS_COUNT) && extra && extra[i-CPU_RENDER_READINGS_COUNT].hasColor)
+        {
+          _render_colored(ctx, x, width, 0.0, false, &extra[i-CPU_RENDER_READINGS_COUNT], color, range, bar, light, bottom);
+        }
+        else
+        {
+          _render_background(ctx, x, width, color, light, bottom);
+        }
       }
     }
   }
@@ -431,6 +467,11 @@ void CpuRender(CpuSummaryInfo* cpu_info, CGContextRef ctx, bool light, int granu
           CGContextClearRect(ctx, CGRectMake(x, 0, width, 16));
           const CGFloat load = fmin(value, 1.0);
           const CGFloat paint = _extra_paint(bar, extra, i, load);
+          if (colored && extra[i].hasColor)
+          {
+            _render_colored(ctx, x, width, load, true, &extra[i], color, range, bar, light, bottom);
+            continue;
+          }
           _render_group(ctx, x, load, paint, color, range, bar, colored, theme, width, light, bottom);
           _render_pace(ctx, x, width, load, paint, extra[i].pace, extra[i].alert, color, bar, colored, theme, light, bottom);
         }
