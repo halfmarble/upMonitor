@@ -2669,7 +2669,7 @@ static NSTimeInterval TopDelay(void)
     cpuKinds = (char*)calloc(cpu_info.countLogical, 1);
     if (CpuSamplerGetKinds(cpu_info.countLogical, cpuKinds) == 0)
     {
-      NSLog(@"cores: kinds not read from the device tree; the cores' label shows the mean of all cores");
+      NSLog(@"cores: kinds not read from the device tree; the cores' label lists every CPU under \"Cores:\", then their mean");
       free(cpuKinds);
       cpuKinds = NULL;
     }
