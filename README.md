@@ -63,3 +63,5 @@ Distributed under the MIT License. See `LICENSE` for more information.
 
 ---
 Created with ❤️ by [halfmarble](https://github.com/halfmarble)
+
+halfmarble pledges **5% of software net profits** to charity — 2.5% to Team Fox, the grassroots fundraising program of The Michael J. Fox Foundation, and 2.5% to [Public Health Collaboration](https://phcuk.org/) (PHC). halfmarble is an independent Team Fox third-party fundraiser.
