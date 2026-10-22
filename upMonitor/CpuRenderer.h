@@ -59,6 +59,11 @@ struct CpuExtraReading
   // dark menu bar and black on a light one, over the dashes; none in Dot style, and drawn only above 0, so a zeroed
   // struct has none
   double mark;
+  // a share of its bar's height, 0..1 (above 1 as 1), as mark: how much of its period has passed. Above 0, in bar style
+  // with colour: a bar above it is painted in two, up to pace in its ramp's coolest colour and from pace up in its own;
+  // a bar below it has the stretch from its top up to pace painted dim in its own colour. Nothing in Dot style or
+  // without colour, and 0 or below (NaN too) is the default, so a zeroed struct has none
+  double pace;
   // above 0: in bar style the bar is painted as a bar at that load (0..1, above 1 as 1) would be, in its ramp colour and
   // opacity, its height still value's; 0 or below (NaN too) is the default: painted by its value. Nothing changes in Dot
   // style or for a bar not read, so a zeroed struct has none

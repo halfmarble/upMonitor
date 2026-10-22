@@ -306,6 +306,31 @@ static void _render_group(CGContextRef ctx, CGFloat x, CGFloat load, CGFloat pai
   }
 }
 
+// an extra reading's pace over its bar, as _render_group drew it at x at load and paint: a bar above pace gets the part
+// up to pace painted in its ramp's coolest colour, the share its period allows so far; a bar below it gets the stretch
+// from its top up to pace painted dim in its own colour, the headroom. Bars with colour only
+static void _render_pace(CGContextRef ctx, CGFloat x, CGFloat width, CGFloat load, CGFloat paint, double pace, bool bar, bool colored, int theme, bool light, CGFloat bottom)
+{
+  if (!bar || !colored || !(pace > 0.0))
+  {
+    return;
+  }
+  const CGFloat height = 16-bottom;
+  const CGFloat share = fmin(pace, 1.0);
+  if (load > share)
+  {
+    rgb cool = _color(theme, 0.0);
+    CGContextSetRGBFillColor(ctx, cool.r, cool.g, cool.b, 1.0);
+    CGContextFillRect(ctx, CGRectMake(x, bottom, width, share*height));
+  }
+  else if (load < share)
+  {
+    rgb own = _color(theme, paint);
+    CGContextSetRGBFillColor(ctx, own.r, own.g, own.b, light ? 0.25 : 0.35);
+    CGContextFillRect(ctx, CGRectMake(x, bottom+(load*height), width, (share-load)*height));
+  }
+}
+
 void CpuRender(CpuSummaryInfo* cpu_info, CGContextRef ctx, bool light, int granularity, bool bar, bool stripped, bool colored, CGFloat tickWidth, CGFloat tickTotalWidth, CGFloat imageWidth, int theme, const CpuReadings* readings)
 {
   CGContextClearRect(ctx, CGRectMake(0, 0, imageWidth, 16));
@@ -344,6 +369,10 @@ void CpuRender(CpuSummaryInfo* cpu_info, CGContextRef ctx, bool light, int granu
         const CGFloat load = fmin(value, 1.0);
         const CGFloat paint = (i < CPU_RENDER_READINGS_COUNT) ? load : _extra_paint(bar, extra, i-CPU_RENDER_READINGS_COUNT, load);
         _render_group(ctx, x, load, paint, color, range, bar, colored, theme, width, light, bottom);
+        if ((i >= CPU_RENDER_READINGS_COUNT) && extra)
+        {
+          _render_pace(ctx, x, width, load, paint, extra[i-CPU_RENDER_READINGS_COUNT].pace, bar, colored, theme, light, bottom);
+        }
       }
       else if (bar)
       {
@@ -389,7 +418,9 @@ void CpuRender(CpuSummaryInfo* cpu_info, CGContextRef ctx, bool light, int granu
           const CGFloat width = _extra_bar_width(bar, tickWidth, extra, i);
           CGContextClearRect(ctx, CGRectMake(x, 0, width, 16));
           const CGFloat load = fmin(value, 1.0);
-          _render_group(ctx, x, load, _extra_paint(bar, extra, i, load), color, range, bar, colored, theme, width, light, bottom);
+          const CGFloat paint = _extra_paint(bar, extra, i, load);
+          _render_group(ctx, x, load, paint, color, range, bar, colored, theme, width, light, bottom);
+          _render_pace(ctx, x, width, load, paint, extra[i].pace, bar, colored, theme, light, bottom);
         }
       }
     }

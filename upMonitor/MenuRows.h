@@ -88,6 +88,11 @@ NS_ASSUME_NONNULL_BEGIN
 // bar is painted in, its height still its reading; 0 or below, an entry that is not a number, a missing entry or a bar
 // not read: painted by its reading. Nothing in Dot style. Read with barReadings, at each tick of the graph
 - (NSArray<NSNumber*>*)barTints;
+// each bar's pace, in the same order as barReadings: above 0, how much of the bar's period has passed, a share of its
+// height 0..1 (above 1 as 1); a bar above it is painted up to it in its ramp's coolest colour and above it in its own,
+// a bar below it gets the stretch up to it painted dim; 0 or below, an entry that is not a number, a missing entry or a
+// bar not read: none. Nothing in Dot style or without colour. Read with barReadings, at each tick of the graph
+- (NSArray<NSNumber*>*)barPaces;
 // each bar's group, in the same order as barReadings: an entry whose boolValue is YES starts a new group, drawn after a
 // clear gap; a class's first bar starts one whenever bars of another class come before it. NO, an entry that is not a
 // number or a missing entry: the bar continues the group before it. Read with barReadings, at each tick of the graph

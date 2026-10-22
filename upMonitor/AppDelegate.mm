@@ -2248,6 +2248,7 @@ static NSString* TipPercents(NSString* text)
     NSArray<NSNumber*>* marks = [rows respondsToSelector:@selector(barMarks)] ? [rows barMarks] : nil;
     NSArray<NSNumber*>* tints = [rows respondsToSelector:@selector(barTints)] ? [rows barTints] : nil;
     NSArray<NSNumber*>* alerts = [rows respondsToSelector:@selector(barAlerts)] ? [rows barAlerts] : nil;
+    NSArray<NSNumber*>* paces = [rows respondsToSelector:@selector(barPaces)] ? [rows barPaces] : nil;
     NSArray<NSNumber*>* starts = [rows respondsToSelector:@selector(barGroupStarts)] ? [rows barGroupStarts] : nil;
     NSArray<NSNumber*>* narrows = [rows respondsToSelector:@selector(barNarrows)] ? [rows barNarrows] : nil;
     for (NSUInteger item=0; item<values.count; item++)
@@ -2256,6 +2257,7 @@ static NSString* TipPercents(NSString* text)
       NSNumber* mark = (item < marks.count) ? marks[item] : nil;
       NSNumber* tint = (item < tints.count) ? tints[item] : nil;
       NSNumber* alert = (item < alerts.count) ? alerts[item] : nil;
+      NSNumber* pace = (item < paces.count) ? paces[item] : nil;
       NSNumber* start = (item < starts.count) ? starts[item] : nil;
       NSNumber* narrow = (item < narrows.count) ? narrows[item] : nil;
       CpuExtraReading reading = {};
@@ -2263,6 +2265,7 @@ static NSString* TipPercents(NSString* text)
       reading.mark = [mark isKindOfClass:[NSNumber class]] ? mark.doubleValue : 0.0;
       reading.tint = [tint isKindOfClass:[NSNumber class]] ? tint.doubleValue : 0.0;
       reading.alert = [alert isKindOfClass:[NSNumber class]] ? alert.boolValue : false;
+      reading.pace = [pace isKindOfClass:[NSNumber class]] ? pace.doubleValue : 0.0;
       reading.groupStart = [start isKindOfClass:[NSNumber class]] ? start.boolValue : false;
       reading.narrow = [narrow isKindOfClass:[NSNumber class]] ? narrow.boolValue : false;
       if ((item == 0) && !extraBars.empty())
