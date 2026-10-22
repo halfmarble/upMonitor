@@ -44,7 +44,9 @@ enum Theme
 // there are any, at the right as before. The extra readings fall into groups: a reading that starts a group is drawn
 // after a further clear gap, CPU_RENDER_GROUP_GAP wide, and the first reading is always the first of its group. An
 // extra reading may also carry a mark, a 1-pt line across its bar at that height, an alert, which draws its bar whole,
-// without the dashes, and a tint, which paints its bar as a bar at another load would be, its height unchanged
+// without the dashes, a pace, how much of the bar's period has passed, and a tint, which paints its bar as a bar at
+// another load would be, its height unchanged; with colour, the part of a bar above its pace, and all of an alert bar
+// with no pace, is painted grey
 #define CPU_RENDER_READINGS_COUNT (3)
 #define CPU_RENDER_READINGS_GAP (4.0)
 #define CPU_RENDER_EXTRA_GAP CPU_RENDER_READINGS_GAP
@@ -60,16 +62,18 @@ struct CpuExtraReading
   // struct has none
   double mark;
   // a share of its bar's height, 0..1 (above 1 as 1), as mark: how much of its period has passed. Above 0, in bar style
-  // with colour: a bar above it is painted in two, up to pace in its ramp's coolest colour and from pace up in its own;
-  // a bar below it has the stretch from its top up to pace painted dim in its own colour. Nothing in Dot style or
-  // without colour, and 0 or below (NaN too) is the default, so a zeroed struct has none
+  // with colour: a bar above it is painted in two, up to pace in its ramp's coolest colour and from pace up in grey, as
+  // a bar without colour would be; a bar below it has the stretch from its top up to pace painted dim in its own colour.
+  // Nothing in Dot style or without colour, and 0 or below (NaN too) is the default, so a zeroed struct has none
   double pace;
   // above 0: in bar style the bar is painted as a bar at that load (0..1, above 1 as 1) would be, in its ramp colour and
   // opacity, its height still value's; 0 or below (NaN too) is the default: painted by its value. Nothing changes in Dot
   // style or for a bar not read, so a zeroed struct has none
   double tint;
   // true: this reading's dashed bar is drawn whole, without the dashes, in its own colour (its tint's when it has one);
-  // nothing changes for a solid bar or in Dot style; false is the default
+  // in bar style with colour, a bar with no pace above 0 is painted all in grey instead, dashed or solid, as a bar without
+  // colour would be (with a pace, the pace paints it, and a bar at or below its pace keeps its colour); nothing changes
+  // in Dot style; false is the default
   bool alert;
   // true: this reading starts a new group, after a clear gap; false is the default, and the first reading's flag is
   // ignored

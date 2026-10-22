@@ -81,7 +81,9 @@ NS_ASSUME_NONNULL_BEGIN
 // Nothing in Dot style. Read with barReadings, at each tick of the graph
 - (NSArray<NSNumber*>*)barMarks;
 // each bar's alert, in the same order as barReadings: an entry whose boolValue is YES draws a dashed bar whole, without
-// the dashes, in its own colour (its tint's when it has one; a solid bar and a dot do not change); NO, an entry that is not a number, a missing entry or a bar not read: none. Read with barReadings, at each
+// the dashes, in its own colour (its tint's when it has one; a solid bar is not redrawn, and a dot does not change);
+// with colour, a bar with no pace (barPaces) is painted all in grey instead, dashed or solid, as a bar without colour
+// would be; NO, an entry that is not a number, a missing entry or a bar not read: none. Read with barReadings, at each
 // tick of the graph
 - (NSArray<NSNumber*>*)barAlerts;
 // each bar's tint, in the same order as barReadings: above 0, the load 0..1 (above 1 as 1) whose colour and opacity the
@@ -89,8 +91,8 @@ NS_ASSUME_NONNULL_BEGIN
 // not read: painted by its reading. Nothing in Dot style. Read with barReadings, at each tick of the graph
 - (NSArray<NSNumber*>*)barTints;
 // each bar's pace, in the same order as barReadings: above 0, how much of the bar's period has passed, a share of its
-// height 0..1 (above 1 as 1); a bar above it is painted up to it in its ramp's coolest colour and above it in its own,
-// a bar below it gets the stretch up to it painted dim; 0 or below, an entry that is not a number, a missing entry or a
+// height 0..1 (above 1 as 1); a bar above it is painted up to it in its ramp's coolest colour and above it in grey, as
+// a bar without colour would be, a bar below it gets the stretch up to it painted dim; 0 or below, an entry that is not a number, a missing entry or a
 // bar not read: none. Nothing in Dot style or without colour. Read with barReadings, at each tick of the graph
 - (NSArray<NSNumber*>*)barPaces;
 // each bar's group, in the same order as barReadings: an entry whose boolValue is YES starts a new group, drawn after a
