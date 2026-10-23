@@ -2434,18 +2434,18 @@ static NSString* TipPercents(NSString* text)
     [userDefaults synchronize];
 }
 
-// the refresh interval the Preferences offer: 0.1, 0.2 or 0.5 s; any other stored value counts as 0.5, the default
+// the refresh interval the Preferences offer: 0.1, 0.2 or 0.5 s; any other stored value counts as 0.2, the default
 static double RefreshInterval(void)
 {
   double interval = [[NSUserDefaults standardUserDefaults] doubleForKey:RefreshKey];
-  return ((interval == 0.1) || (interval == 0.2)) ? interval : 0.5;
+  return ((interval == 0.1) || (interval == 0.5)) ? interval : 0.2;
 }
 
-// the process rows the Preferences offer: 3, 5, 10 or 15; any other stored value counts as 15, the default
+// the process rows the Preferences offer: 3, 5, 10 or 15; any other stored value counts as 5, the default
 static int TopRows(void)
 {
   NSInteger rows = [[NSUserDefaults standardUserDefaults] integerForKey:TopRowsKey];
-  return ((rows == 3) || (rows == 5) || (rows == 10)) ? (int)rows : TOP_COUNT;
+  return ((rows == 3) || (rows == 10) || (rows == TOP_COUNT)) ? (int)rows : 5;
 }
 
 // the process sample's interval: 2.5 s, whatever the Refresh setting, with the menu open or closed
@@ -2461,15 +2461,14 @@ static double TopInterval(void)
 #endif
   
   [[NSUserDefaults standardUserDefaults] registerDefaults:@{GranularityKey:@2}];
-  // 2 frames a second by default: each frame costs AppKit far more than it costs to draw
-  [[NSUserDefaults standardUserDefaults] registerDefaults:@{RefreshKey:@0.5}];
+  [[NSUserDefaults standardUserDefaults] registerDefaults:@{RefreshKey:@0.2}];
   [[NSUserDefaults standardUserDefaults] registerDefaults:@{StyleKey:@1}];
   [[NSUserDefaults standardUserDefaults] registerDefaults:@{TickLineKey:@1}];
   [[NSUserDefaults standardUserDefaults] registerDefaults:@{TickWidthKey:@3.0}];
   [[NSUserDefaults standardUserDefaults] registerDefaults:@{AppearanceKey:@1}];
   [[NSUserDefaults standardUserDefaults] registerDefaults:@{ThemeKey:@2}];
   [[NSUserDefaults standardUserDefaults] registerDefaults:@{ShowBarsKey:@YES}];
-  [[NSUserDefaults standardUserDefaults] registerDefaults:@{TopRowsKey:@TOP_COUNT}];
+  [[NSUserDefaults standardUserDefaults] registerDefaults:@{TopRowsKey:@5}];
 
   granularity = (int)[[NSUserDefaults standardUserDefaults] integerForKey:GranularityKey];
   speed = 10.0 * RefreshInterval();
