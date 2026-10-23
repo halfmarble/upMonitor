@@ -1787,6 +1787,7 @@ static NSInteger barTipIndex = -1;          // the reading under the pointer, ar
                                             // the extra bars, BAR_TIP_CORES the core graph, -1 none
 static NSPanel* barTip = nil;
 static NSTextField* barTipText = nil;
+static NSString* barTipShown = nil;         // the whole text last laid out in barTip: barTipText holds only its first part
 static NSTimer* barTipWatch = nil;
 
 // readings: what the last render drew, NULL when nothing but the core graph
@@ -1932,11 +1933,11 @@ static NSTimer* barTipWatch = nil;
 
 // the core graph's label at the graph's latest tick, as its bars show it: a section per kind of core, E first, each its
 // title, "Efficiency cores:" or "Performance cores:", then a line per CPU of that kind, by logical id, named by its
-// kind and its number within the kind, with its load, "   E0  18%", then the kind's mean load, "total: 42%"; when the
-// kinds were not read, one section, "Cores:", "C0", "C1" ... A CPU of the bar hovered (bar b averages CPUs b x perBar
-// to b x perBar + perBar - 1, as CpuRender groups them; -1: none) has "›" in place of its line's first space. The names
-// are padded to the widest in any section and "total:" to a CPU line's width before its load, so that once TipPercents
-// pads the loads every load ends in one column; empty with no CPU
+// kind and its number within the kind, with its load, "   E0  18%"; a blank line before each section after the first,
+// which SetTipText draws as a menu-style line; when the kinds were not read, one section, "Cores:", "C0", "C1" ... A
+// CPU of the bar hovered (bar b averages CPUs b x perBar to b x perBar + perBar - 1, as CpuRender groups them; -1:
+// none) has "›" in place of its line's first space. The names are padded to the widest in any section, so that once
+// TipPercents pads the loads every load ends in one column; empty with no CPU
 static NSString* CoresTipText(const std::vector<double>& loads, const char* kinds, natural_t perBar, NSInteger hovered, NSLocale* locale)
 {
   const char letters[3] = {'E', 'P', 'C'};
@@ -1967,17 +1968,17 @@ static NSString* CoresTipText(const std::vector<double>& loads, const char* kind
     {
       continue;
     }
-    double sum = 0.0;
+    if (lines.count > 0)
+    {
+      [lines addObject:@""];
+    }
     [lines addObject:titles[section]];
     for (size_t k=0; k<cpus.size(); k++)
     {
       bool marked = (hovered >= 0) && (perBar > 0) && ((NSInteger)(cpus[k] / perBar) == hovered);
       NSString* name = [[NSString stringWithFormat:@"%c%lu", letters[section], (unsigned long)k] stringByPaddingToLength:width withString:@" " startingAtIndex:0];
       [lines addObject:[[NSString alloc] initWithFormat:@"%@  %@  %ld%%" locale:locale, marked ? @"›" : @" ", name, lround(100.0 * loads[cpus[k]])]];
-      sum += loads[cpus[k]];
     }
-    NSString* total = [@"total:" stringByPaddingToLength:(3 + width + 2) withString:@" " startingAtIndex:0];
-    [lines addObject:[[NSString alloc] initWithFormat:@"%@%ld%%" locale:locale, total, lround(100.0 * sum / cpus.size())]];
   }
   return [lines componentsJoinedByString:@"\n"];
 }
@@ -2079,7 +2080,7 @@ static NSString* TipPercents(NSString* text)
       [self performSelector:@selector(showBarTip) withObject:nil afterDelay:BAR_TIP_DELAY inModes:@[NSRunLoopCommonModes]];
     }
   }
-  else if ((index >= 0) && barTip.isVisible && ![[self barTipTextAt:index] isEqualToString:barTipText.stringValue])
+  else if ((index >= 0) && barTip.isVisible && ![[self barTipTextAt:index] isEqualToString:barTipShown])
   {
     [self showBarTip];
   }
@@ -2126,6 +2127,7 @@ static NSString* TipPercents(NSString* text)
   }
   // a label with line breaks is laid out by whoever wrote it, so its lines are not wrapped
   SetTipText(barTip, barTipText, text, ([text rangeOfString:@"\n"].location != NSNotFound) ? CGFLOAT_MAX : ROW_TIP_MAX_WIDTH);
+  barTipShown = text;
   NSRect slot = [self barTipSlotFor:barTipIndex];
   slot.origin.x += barTipLayout.origin.x;
   NSRect onScreen = [button.window convertRectToScreen:[button convertRect:slot toView:nil]];
@@ -3326,13 +3328,71 @@ static NSPanel* NewTipPanel(NSTextField* __strong * label)
   return panel;
 }
 
-// the box's text, wrapped at wrap pt, the box sized to it at its present origin
+// the box's text, wrapped at wrap pt, the box sized to it at its present origin. A blank line in the text is a
+// menu-style line, INFO_SEPARATOR_HEIGHT tall as in the readings panel, between the parts above and below it: label
+// holds the first part, and the box's other labels and lines, made here, are kept for the next text
 static void SetTipText(NSPanel* panel, NSTextField* label, NSString* text, CGFloat wrap)
 {
-  label.stringValue = text;
-  NSSize size = [label sizeThatFits:NSMakeSize(wrap, CGFLOAT_MAX)];
-  size = NSMakeSize(ceil(size.width), ceil(size.height));
-  label.frame = NSMakeRect(6.0, 4.0, size.width, size.height);
+  NSArray<NSString*>* parts = [(text ?: @"") componentsSeparatedByString:@"\n\n"];
+  NSView* background = panel.contentView;
+  NSMutableArray<NSTextField*>* labels = [NSMutableArray arrayWithObject:label];
+  NSMutableArray<NSBox*>* lines = [NSMutableArray array];
+  for (NSView* view in background.subviews)
+  {
+    if ([view isKindOfClass:[NSBox class]])
+    {
+      [lines addObject:(NSBox*)view];
+    }
+    else if ((view != label) && [view isKindOfClass:[NSTextField class]])
+    {
+      [labels addObject:(NSTextField*)view];
+    }
+  }
+  while (labels.count > parts.count)
+  {
+    [labels.lastObject removeFromSuperview];
+    [labels removeLastObject];
+  }
+  while (labels.count < parts.count)
+  {
+    NSTextField* more = [NSTextField wrappingLabelWithString:@""];
+    more.font = label.font;
+    [background addSubview:more];
+    [labels addObject:more];
+  }
+  while (lines.count > parts.count - 1)
+  {
+    [lines.lastObject removeFromSuperview];
+    [lines removeLastObject];
+  }
+  while (lines.count < parts.count - 1)
+  {
+    NSBox* line = [[NSBox alloc] init];
+    line.boxType = NSBoxSeparator;
+    [background addSubview:line];
+    [lines addObject:line];
+  }
+  std::vector<NSSize> sizes;
+  NSSize size = NSMakeSize(0.0, (CGFloat)lines.count * INFO_SEPARATOR_HEIGHT);
+  for (NSUInteger i=0; i<parts.count; i++)
+  {
+    labels[i].stringValue = parts[i];
+    NSSize part = [labels[i] sizeThatFits:NSMakeSize(wrap, CGFLOAT_MAX)];
+    sizes.push_back(NSMakeSize(ceil(part.width), ceil(part.height)));
+    size.width = MAX(size.width, sizes.back().width);
+    size.height += sizes.back().height;
+  }
+  CGFloat top = 4.0 + size.height;
+  for (NSUInteger i=0; i<parts.count; i++)
+  {
+    if (i > 0)
+    {
+      lines[i - 1].frame = NSMakeRect(6.0, floor(top - INFO_SEPARATOR_HEIGHT/2.0), size.width, 1.0);
+      top -= INFO_SEPARATOR_HEIGHT;
+    }
+    labels[i].frame = NSMakeRect(6.0, top - sizes[i].height, size.width, sizes[i].height);
+    top -= sizes[i].height;
+  }
   NSRect frame = panel.frame;
   [panel setFrame:NSMakeRect(NSMinX(frame), NSMaxY(frame) - (size.height + 8.0), size.width + 12.0, size.height + 8.0) display:panel.isVisible];
 }
