@@ -220,6 +220,7 @@ static void PaintOpenMenuBackground(void)
 #define BAR_TIP_WATCH               (0.25)  // s between looks at the pointer while a label is armed or shown
 #define BAR_TIP_GAP                 (4.0)   // pt between the menu bar and the label
 #define BAR_TIP_CORES               (1000)  // the core graph's index for the labels, past any reading's
+#define BAR_TIP_GAP_REACH           (1.0)   // pt of clear space right of a bar's slot that still hovers it: with the slot's own 1-pt gap, 2 pt past the drawn bar
 
 // the item's row on screen, NSZeroRect when the window's row views do not match the menu: top first,
 // they are the menu's shown items in order, separators included
@@ -931,13 +932,15 @@ static bool readingsMemory = false;         // memory could be read, as these tw
 static uint64_t readingsMemoryUsed = 0;
 static uint64_t readingsMemoryTotal = 0;
 
+#define BAR_WIDTH_EXTRA             (1.0)   // pt each bar is drawn wider than its width setting
+
 static CGFloat tickHeight = 16.0;
-static CGFloat tickWidth = 3.0;
+static CGFloat tickWidth = 3.0;      // the width setting: 1 Thin, 2 Standard, 3 Thick; a bar is drawn BAR_WIDTH_EXTRA wider
 static CGFloat tickSpaceWidth = 1.0;
 static CGFloat tickTotalWidth = 0.0;
 static CGFloat imageWidth = 0.0;
 static CGFloat graphWidth = 0.0;     // the core graph alone, as the sine and flat previews draw it: imageWidth without the bars
-static CGFloat drawWidth = 3.0;      // the width each bar or dot is drawn: the bar width, 4 for the one package bar, 3 for dots
+static CGFloat drawWidth = 3.0;      // the width each bar or dot is drawn: the width setting plus BAR_WIDTH_EXTRA, 4 for the one package bar, 3 for dots
 
 static int granularity = 0;
 
@@ -1055,7 +1058,7 @@ static NSMutableSet<NSTask*>* runningTasks = nil;
 
 - (void)updateRendererParameters
 {
-  double tickSpace = tickWidth;
+  double tickSpace = tickWidth + BAR_WIDTH_EXTRA;
   natural_t count = CpuSamplerGetCount(granularity);
   if (bar == NO)
   {
@@ -1066,7 +1069,7 @@ static NSMutableSet<NSTask*>* runningTasks = nil;
     tickSpace = 4.0;
   }
   tickTotalWidth = tickSpace + tickSpaceWidth;
-  drawWidth = !bar ? 3.0 : ((count == 1) ? 4.0 : tickWidth);
+  drawWidth = !bar ? 3.0 : ((count == 1) ? 4.0 : (tickWidth + BAR_WIDTH_EXTRA));
   imageWidth = count * tickTotalWidth;
   if (bar == NO)
   {
@@ -1831,8 +1834,23 @@ static NSTimer* barTipWatch = nil;
 }
 
 // the reading at x, measured from the image's left: 0 disk, 1 memory, 2 CPU (when drawn), 3 on the extra bars,
-// BAR_TIP_CORES on the core graph; -1 on none of them (a gap, or past the image)
+// BAR_TIP_CORES on the core graph; in bar style, in the first BAR_TIP_GAP_REACH pt of clear space right of a block,
+// the image's right edge included, the reading or graph left of it; -1 on none of them (the rest of a gap, or past
+// that)
 - (NSInteger)barTipIndexAtX:(CGFloat)x
+{
+  NSInteger index = [self barTipSlotIndexAtX:x];
+  if ((index == -1) && bar)
+  {
+    // the slots lie edge to edge within a block, so the first BAR_TIP_GAP_REACH pt right of one are those that put
+    // x - BAR_TIP_GAP_REACH on its last slot; dots are not bars, so Dot style keeps the hit test of the slots alone
+    index = [self barTipSlotIndexAtX:(x - BAR_TIP_GAP_REACH)];
+  }
+  return index;
+}
+
+// as barTipIndexAtX, but on the slots and the graph alone, no gap
+- (NSInteger)barTipSlotIndexAtX:(CGFloat)x
 {
   // a reading's slot starts where the renderer draws it, the extra bars' after the core graph; a gap is on none of them
   for (NSInteger index=(barTipThree ? 0 : CPU_RENDER_READINGS_COUNT); index<(CPU_RENDER_READINGS_COUNT + (NSInteger)barTipBars.size()); index++)
@@ -1923,11 +1941,11 @@ static NSTimer* barTipWatch = nil;
   CGFloat graphStart = 0.0;
   CGFloat graphEnd = 0.0;
   [self graphTipStart:&graphStart end:&graphEnd];
-  if ((x < graphStart) || (x >= graphEnd))
+  if ((x < graphStart) || ([self barTipIndexAtX:x] != BAR_TIP_CORES))
   {
     return -1;
   }
-  // Dot style's last dot overhangs its slot by 1 pt: that is still the last bar
+  // Dot style's last dot overhangs its slot by 1 pt, and the clear space right of the graph hovers it: that is still the last bar
   return MIN((NSInteger)floor((x - graphStart) / tickTotalWidth), (NSInteger)count - 1);
 }
 
