@@ -1730,7 +1730,10 @@ static NSString* OthersRowText(int count)
   }
 
   {
-    NSMenuItem* item = [menu addItemWithTitle:@"Quit" action:@selector(terminate:) keyEquivalent:@""];
+    // the build number, raised on every build by scripts/raise-build-number.sh
+    NSString* build = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleVersion"];
+    NSString* title = [NSString stringWithFormat:@"Quit (b%@)", build];
+    NSMenuItem* item = [menu addItemWithTitle:title action:@selector(terminate:) keyEquivalent:@""];
     [item setAttributedTitle:[[NSAttributedString alloc] initWithString:[item title] attributes:attributesStandard]];
   }
   
