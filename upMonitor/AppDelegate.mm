@@ -941,6 +941,8 @@ static NSString* diskTipText = nil;         // the same, its free and used figur
 static NSString* diskTitle = nil;           // its title, with the volume's size ("995GB Disk usage:")
 static NSTimeInterval lastReadings = 0.0;   // when overall CPU and memory were last read, system uptime; 0: read soon
 static double readingsCpu = -1.0;           // overall CPU over the 1 s before it (after a reset, one tick), 0..1, -1 before the first
+static double readingsCpuEfficiency = -1.0; // the E-cores' and the P-cores' over the same window, read with it; -1: not read
+static double readingsCpuPerformance = -1.0;
 static bool readingsMemory = false;         // memory could be read, as these two bytes
 static uint64_t readingsMemoryUsed = 0;
 static uint64_t readingsMemoryTotal = 0;
@@ -966,7 +968,7 @@ static bool stripped = true;
 static bool colored = false;
 static int theme = THEME_YELLOW;
 
-static bool showBars = true;         // the disk, memory and CPU bars left of the graph
+static bool showBars = true;         // the disk, memory, CPU, E-cores' and P-cores' bars left of the graph
 // the bars MenuRows classes add right of the graph, read each tick (collectExtraBars): cleared and filled again at each
 // one, so a pointer into extraBars is good only until the next; each one's value, mark, tint, alert and group
 static std::vector<CpuExtraReading> extraBars;
@@ -1097,7 +1099,7 @@ static NSMutableSet<NSTask*>* runningTasks = nil;
   }
   else
   {
-    // the three readings are off; the extra bars, if any, still follow the core graph (0 with none)
+    // the five readings are off; the extra bars, if any, still follow the core graph (0 with none)
     imageWidth += CpuRenderExtraWidth(bar, drawWidth, tickTotalWidth, (int)extraBars.size(), extraBars.data());
   }
 }
@@ -1792,20 +1794,20 @@ static bool IsLight(NSAppearance* appearance)
 }
 
 // a tooltip-style label under each reading's bar (or dot) in the status item: disk, memory, CPU, worded as the panel's
-// rows, and each extra bar's, worded by its class (barLabels); and one under the core graph, with or without the
-// readings: each CPU's load by kind, with each kind's mean, the bar under the pointer marked (CoresTipText); the
-// mark follows the pointer along the graph without hiding the label. On macOS 27 no tooltip showed on the status item when
-// tried (a tooltip rect was never asked for its text), but the pointer reaches the button, so the label is the app's
-// own panel. updateBarTips: records where the readings are after each render; the pointer's entry and moves start a
-// watch timer that follows the pointer while it is on the item, since no exit was delivered either, and a reading
-// under it arms the label (BAR_TIP_DELAY)
+// rows, the E-cores' and the P-cores' as "Efficiency cores: 22%" and "Performance cores: 13%", and each extra bar's,
+// worded by its class (barLabels); and one under the core graph, with or without the readings: each CPU's load by kind,
+// with each kind's mean, the bar under the pointer marked (CoresTipText); the mark follows the pointer along the graph
+// without hiding the label. On macOS 27 no tooltip showed on the status item when tried (a tooltip rect was never asked
+// for its text), but the pointer reaches the button, so the label is the app's own panel. updateBarTips: records where
+// the readings are after each render; the pointer's entry and moves start a watch timer that follows the pointer while
+// it is on the item, since no exit was delivered either, and a reading under it arms the label (BAR_TIP_DELAY)
 static NSPanel* NewTipPanel(NSTextField* __strong * label);
 static void SetTipText(NSPanel* panel, NSTextField* label, NSString* text, CGFloat wrap);
 static NSRect barTipLayout = {{-1.0, -1.0}, {-1.0, -1.0}}; // x: the image's left in the button, width: the readings' slot; none: -1
-static bool barTipThree = false;            // the three readings (disk, memory, CPU) are drawn
+static bool barTipThree = false;            // the five readings (disk, memory, CPU, E-cores, P-cores) are drawn
 static std::vector<CpuExtraReading> barTipBars; // the extra bars drawn right of the core graph, as drawn (a copy: extraBars is refilled each tick)
-static NSInteger barTipIndex = -1;          // the reading under the pointer, armed or shown: 0 disk, 1 memory, 2 CPU, 3 on
-                                            // the extra bars, BAR_TIP_CORES the core graph, -1 none
+static NSInteger barTipIndex = -1;          // the reading under the pointer, armed or shown: 0 disk, 1 memory, 2 CPU, 3 E-cores,
+                                            // 4 P-cores, 5 on the extra bars, BAR_TIP_CORES the core graph, -1 none
 static NSPanel* barTip = nil;
 static NSTextField* barTipText = nil;
 static NSString* barTipShown = nil;         // the whole text last laid out in barTip: barTipText holds only its first part
@@ -1851,10 +1853,10 @@ static NSTimer* barTipWatch = nil;
   CpuRenderGraphSpan(bar, drawWidth, tickTotalWidth, imageWidth, barTipThree, (int)barTipBars.size(), barTipBars.data(), start, end);
 }
 
-// the reading at x, measured from the image's left: 0 disk, 1 memory, 2 CPU (when drawn), 3 on the extra bars,
-// BAR_TIP_CORES on the core graph; in bar style, in the first BAR_TIP_GAP_REACH pt of clear space right of a block,
-// the image's right edge included, the reading or graph left of it; -1 on none of them (the rest of a gap, or past
-// that)
+// the reading at x, measured from the image's left: 0 disk, 1 memory, 2 CPU, 3 E-cores, 4 P-cores (when drawn), 5 on
+// the extra bars, BAR_TIP_CORES on the core graph; in bar style, in the first BAR_TIP_GAP_REACH pt of clear space right
+// of a block, the image's right edge included, the reading or graph left of it; -1 on none of them (the rest of a gap,
+// or past that)
 - (NSInteger)barTipIndexAtX:(CGFloat)x
 {
   NSInteger index = [self barTipSlotIndexAtX:x];
@@ -1938,9 +1940,8 @@ static NSTimer* barTipWatch = nil;
   return YES;
 }
 
-// the reading under the pointer, from where it is now: 0 disk, 1 memory, 2 CPU, 3 on the extra bars, BAR_TIP_CORES on
-// the core graph; -1 on the item but on none of them;
-// -2 off the item, or nothing rendered yet
+// the reading under the pointer, from where it is now: 0 disk, 1 memory, 2 CPU, 3 E-cores, 4 P-cores, 5 on the extra
+// bars, BAR_TIP_CORES on the core graph; -1 on the item but on none of them; -2 off the item, or nothing rendered yet
 - (NSInteger)barTipIndexNow
 {
   CGFloat x = 0.0;
@@ -2075,6 +2076,13 @@ static NSString* TipPercents(NSString* text)
     NSArray<NSString*>* labels = [rows respondsToSelector:@selector(barLabels)] ? [rows barLabels] : nil;
     NSString* label = (extraBarItem[extra] < labels.count) ? labels[extraBarItem[extra]] : nil;
     return [label isKindOfClass:[NSString class]] ? label : @"";
+  }
+  if ((index == CPU_RENDER_READING_EFFICIENCY) || (index == CPU_RENDER_READING_PERFORMANCE))
+  {
+    bool efficiency = (index == CPU_RENDER_READING_EFFICIENCY);
+    double busy = efficiency ? readingsCpuEfficiency : readingsCpuPerformance;
+    NSString* value = (busy < 0.0) ? @"—" : [[NSString alloc] initWithFormat:@"%ld%%" locale:[NSLocale currentLocale], lround(busy * 100.0)];
+    return [NSString stringWithFormat:@"%@ %@", efficiency ? @"Efficiency cores:" : @"Performance cores:", value];
   }
   NSArray<NSArray<NSString*>*>* rows = [self readingRowsPadded:true];
   if ((index < 0) || (index >= (NSInteger)rows.count))
@@ -2338,10 +2346,20 @@ static NSString* TipPercents(NSString* text)
   // samples, after a reset) both keep their last reading and are tried again on the next tick
   if (([[NSProcessInfo processInfo] systemUptime] - lastReadings) >= ((READINGS_TICKS - 0.5)*RefreshInterval()))
   {
-    double cpu = SystemInfoCpuBusy(NULL);
+    double efficiency = -1.0;
+    double performance = -1.0;
+    double cpu = SystemInfoCpuBusy(NULL, &efficiency, &performance);
     if (cpu >= 0.0)
     {
       readingsCpu = cpu;
+      readingsCpuEfficiency = efficiency;
+      readingsCpuPerformance = performance;
+      static bool kindsLogged = false;
+      if ((cpuKinds != NULL) && ((efficiency < 0.0) || (performance < 0.0)) && !kindsLogged)
+      {
+        kindsLogged = true;
+        NSLog(@"CPU by kind could not be read (efficiency %.3f, performance %.3f): the CPU row leaves it out", efficiency, performance);
+      }
       readingsMemory = SystemInfoMemory(&readingsMemoryUsed, &readingsMemoryTotal);
       readingsSwap = SystemInfoSwap(&readingsSwapUsed);
       static bool swapLogged = false;
@@ -2359,7 +2377,7 @@ static NSString* TipPercents(NSString* text)
 
   // one set of readings per tick, for the menu bar and the real-time preview; CPU or memory that cannot be read is -1,
   // and its bar shows only its background (no dot in Dot style); the disk keeps its last reading, -1 before the first
-  CpuReadings readings = {-1.0, -1.0, diskFraction};
+  CpuReadings readings = {-1.0, -1.0, diskFraction, -1.0, -1.0};
   // the pointer is used only by the renders below, within this call; the next tick refills extraBars
   readings.extraCount = (int)extraBars.size();
   readings.extra = extraBars.data();
@@ -2367,6 +2385,8 @@ static NSString* TipPercents(NSString* text)
   if (showBars)
   {
     readings.cpu = readingsCpu;
+    readings.efficiency = readingsCpuEfficiency;
+    readings.performance = readingsCpuPerformance;
     if (readingsMemory && (readingsMemoryTotal > 0))
     {
       readings.memory = MIN((double)readingsMemoryUsed / (double)readingsMemoryTotal, 1.0);
@@ -2732,6 +2752,7 @@ static NSTimeInterval TopDelay(void)
       free(cpuKinds);
       cpuKinds = NULL;
     }
+    SystemInfoCpuSetKinds(cpu_info.countLogical, cpuKinds);
     CpuSamplerSineDemoInit(&cpu_sine_demo_info);
     CpuSamplerFlatDemoInit(&cpu_flat_demo_info);
     TopInit(); // takes the first sample: the CPU baseline
@@ -3662,6 +3683,12 @@ static void SetTipText(NSPanel* panel, NSTextField* label, NSString* text, CGFlo
 
   double busy = readingsCpu;
   NSString* cpu = (busy < 0.0) ? @"—" : [[NSString alloc] initWithFormat:@"%ld%%" locale:locale, lround(busy * 100.0)];
+  // each kind's share beside it, "21% (Efficiency cores: 30%, Performance cores: 12%)", when both were read; the hover
+  // label pads these percentages too (TipPercents)
+  if ((busy >= 0.0) && (readingsCpuEfficiency >= 0.0) && (readingsCpuPerformance >= 0.0))
+  {
+    cpu = [[NSString alloc] initWithFormat:@"%@ (Efficiency cores: %ld%%, Performance cores: %ld%%)" locale:locale, cpu, lround(readingsCpuEfficiency * 100.0), lround(readingsCpuPerformance * 100.0)];
+  }
 
   NSString* memoryTitle = @"Memory usage:";
   NSString* memoryUsed = @"—";

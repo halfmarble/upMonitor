@@ -380,23 +380,23 @@ void CpuRender(CpuSummaryInfo* cpu_info, CGContextRef ctx, bool light, int granu
   const CGFloat range = 0.75;
   const CGFloat bottom = stripped ? DASHED_BOTTOM : 0.0;
   
-  // the core graph starts after the readings block and its gap when the three readings are drawn, and ends before the
+  // the core graph starts after the readings block and its gap when the five readings are drawn, and ends before the
   // extra readings' gap
-  const bool three = (readings != NULL) && !readings->extraOnly;
+  const bool block = (readings != NULL) && !readings->extraOnly;
   CGFloat offset = 0.0;
   CGFloat end = imageWidth;
   const int extraCount = (readings != NULL) ? _extra_count(readings->extraCount) : 0;
   const CpuExtraReading* extra = (readings != NULL) ? readings->extra : NULL;
-  CpuRenderGraphSpan(bar, tickWidth, tickTotalWidth, imageWidth, three, extraCount, extra, &offset, &end);
+  CpuRenderGraphSpan(bar, tickWidth, tickTotalWidth, imageWidth, block, extraCount, extra, &offset, &end);
   if (readings)
   {
     const int count = CPU_RENDER_READINGS_COUNT + extraCount;
-    // disk, memory, CPU from the left, then the extra readings; a value below 0 or NaN is not read and draws only the
+    // disk, memory, CPU, the E-cores', the P-cores' from the left, then the extra readings; a value below 0 or NaN is not read and draws only the
     // bar's background, one above 1 draws as 1
-    const double three_values[CPU_RENDER_READINGS_COUNT] = {readings->disk, readings->memory, readings->cpu};
-    for (int i=three ? 0 : CPU_RENDER_READINGS_COUNT; i<count; i++)
+    const double block_values[CPU_RENDER_READINGS_COUNT] = {readings->disk, readings->memory, readings->cpu, readings->efficiency, readings->performance};
+    for (int i=block ? 0 : CPU_RENDER_READINGS_COUNT; i<count; i++)
     {
-      const double value = (i < CPU_RENDER_READINGS_COUNT) ? three_values[i] : (extra ? extra[i-CPU_RENDER_READINGS_COUNT].value : -1.0);
+      const double value = (i < CPU_RENDER_READINGS_COUNT) ? block_values[i] : (extra ? extra[i-CPU_RENDER_READINGS_COUNT].value : -1.0);
       const CGFloat width = (i < CPU_RENDER_READINGS_COUNT) ? (bar ? 2.0*tickWidth : tickWidth) :
         _extra_bar_width(bar, tickWidth, extra, i-CPU_RENDER_READINGS_COUNT);
       CGFloat x = CpuRenderReadingX(bar, tickWidth, tickTotalWidth, imageWidth, extraCount, extra, i);

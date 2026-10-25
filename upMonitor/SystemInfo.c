@@ -23,6 +23,8 @@
 #include "SystemInfo.h"
 
 #include <mach/mach.h>
+#include <stdlib.h>
+#include <string.h>
 #include <sys/sysctl.h>
 #include <time.h>
 
@@ -44,7 +46,11 @@ static mach_port_t HostPort(void)
 
 struct CpuSample
 {
-  uint32_t ticks[CPU_STATE_MAX];
+  uint32_t ticks[CPU_STATE_MAX];        // the host's
+  uint32_t cpuTicks[CPU_STATE_MAX];     // every CPU's, summed
+  uint32_t kindTicks[2][CPU_STATE_MAX]; // [0] the E-cores', [1] the P-cores', each summed over its CPUs
+  bool     perCpu;              // cpuTicks were read
+  bool     kinds;               // kindTicks were read
   double   time;                // s, CLOCK_MONOTONIC_RAW
 }
 typedef CpuSample;
@@ -52,6 +58,72 @@ typedef CpuSample;
 static CpuSample cpuRing[CPU_RING_SIZE];
 static int cpuCount = 0;        // samples stored, at most CPU_RING_SIZE
 static int cpuNewest = -1;      // index of the newest sample
+
+static char* cpuKinds = NULL;   // each logical CPU's kind, 'E' or 'P', in host_processor_info's order; NULL: none
+static natural_t cpuKindsCount = 0;
+
+void SystemInfoCpuSetKinds(natural_t count, const char* kinds)
+{
+  free(cpuKinds);
+  cpuKinds = NULL;
+  cpuKindsCount = 0;
+  if ((kinds != NULL) && (count > 0))
+  {
+    cpuKinds = (char*)malloc(count);
+    if (cpuKinds != NULL)
+    {
+      memcpy(cpuKinds, kinds, count);
+      cpuKindsCount = count;
+    }
+  }
+}
+
+// every CPU's ticks, summed, into the sample's cpuTicks (perCpu: false when the CPUs cannot be read), and each kind's,
+// summed over its CPUs, into its kindTicks (kinds: false also when there are no kinds or the CPUs' count is not the
+// kinds'). The sums wrap in 32 bits as the kernel's counters do, so a difference of two of them is still right across
+// a wrap. Each CPU's counters advance about 100 ticks a second, steadily, where the host's stall and catch up (over
+// three 1 s windows on an M3, 798-803 summed over its 8 CPUs against the host's 794, 1,121 and 655)
+static void CpuEachTicks(CpuSample* sample)
+{
+  sample->perCpu = false;
+  sample->kinds = false;
+  natural_t count = 0;
+  processor_cpu_load_info_t load = NULL;
+  mach_msg_type_number_t size = 0;
+  if (host_processor_info(HostPort(), PROCESSOR_CPU_LOAD_INFO, &count, (processor_info_array_t*)&load, &size) != KERN_SUCCESS)
+  {
+    return;
+  }
+  bool kinds = (cpuKinds != NULL) && (count == cpuKindsCount);
+  memset(sample->cpuTicks, 0, sizeof(sample->cpuTicks));
+  memset(sample->kindTicks, 0, sizeof(sample->kindTicks));
+  for (natural_t c=0; c<count; c++)
+  {
+    int kind = (kinds && (cpuKinds[c] == 'E')) ? 0 : 1;
+    for (int i=0; i<CPU_STATE_MAX; i++)
+    {
+      sample->cpuTicks[i] += load[c].cpu_ticks[i];
+      sample->kindTicks[kind][i] += load[c].cpu_ticks[i];
+    }
+  }
+  sample->perCpu = true;
+  sample->kinds = kinds;
+  // size counts integers; vm_deallocate takes bytes
+  vm_deallocate(mach_task_self(), (vm_address_t)load, (vm_size_t)size * sizeof(integer_t));
+}
+
+// the busy share (0..1) of the ticks between then and now, or -1 with none; differenced in 32 bits, so a wrap is
+// harmless
+static double CpuTicksBusy(const uint32_t* now, const uint32_t* then)
+{
+  uint32_t user   = now[CPU_STATE_USER]   - then[CPU_STATE_USER];
+  uint32_t system = now[CPU_STATE_SYSTEM] - then[CPU_STATE_SYSTEM];
+  uint32_t nice   = now[CPU_STATE_NICE]   - then[CPU_STATE_NICE];
+  uint32_t idle   = now[CPU_STATE_IDLE]   - then[CPU_STATE_IDLE];
+  double used = (double)user + (double)system + (double)nice;
+  double total = used + (double)idle;
+  return (total == 0.0) ? -1.0 : used/total;
+}
 
 void SystemInfoCpuReset(void)
 {
@@ -73,6 +145,7 @@ void SystemInfoCpuTick(void)
   {
     cpuRing[index].ticks[i] = load.cpu_ticks[i];
   }
+  CpuEachTicks(&cpuRing[index]);
   cpuRing[index].time = (double)clock_gettime_nsec_np(CLOCK_MONOTONIC_RAW) / 1e9;
   cpuNewest = index;
   if (cpuCount < CPU_RING_SIZE)
@@ -81,11 +154,19 @@ void SystemInfoCpuTick(void)
   }
 }
 
-double SystemInfoCpuBusy(double* span)
+double SystemInfoCpuBusy(double* span, double* efficiency, double* performance)
 {
   if (span != NULL)
   {
     *span = 0.0;
+  }
+  if (efficiency != NULL)
+  {
+    *efficiency = -1.0;
+  }
+  if (performance != NULL)
+  {
+    *performance = -1.0;
   }
   if (cpuCount < 2)
   {
@@ -96,8 +177,8 @@ double SystemInfoCpuBusy(double* span)
   // CPU_WINDOW, as the readings' own threshold allows the same
   const double slack = 0.5 * (now->time - cpuRing[(cpuNewest - 1 + CPU_RING_SIZE) % CPU_RING_SIZE].time);
   // walk back from the newest to the first sample at least CPU_WINDOW older, less that half tick, and on while the
-  // host's counters have not moved since it (they can stall for most of a second, then catch up); none that old: the
-  // oldest stored
+  // counters have not moved since it (the host's can stall for most of a second, then catch up); none that old: the
+  // oldest stored. The CPUs' own summed counters when both samples have them, else the host's
   for (int back=1; back<cpuCount; back++)
   {
     const CpuSample* then = &cpuRing[(cpuNewest - back + CPU_RING_SIZE) % CPU_RING_SIZE];
@@ -105,14 +186,9 @@ double SystemInfoCpuBusy(double* span)
     {
       continue;
     }
-    // the counters are differenced in 32 bits, so a wrap is harmless
-    uint32_t user   = now->ticks[CPU_STATE_USER]   - then->ticks[CPU_STATE_USER];
-    uint32_t system = now->ticks[CPU_STATE_SYSTEM] - then->ticks[CPU_STATE_SYSTEM];
-    uint32_t nice   = now->ticks[CPU_STATE_NICE]   - then->ticks[CPU_STATE_NICE];
-    uint32_t idle   = now->ticks[CPU_STATE_IDLE]   - then->ticks[CPU_STATE_IDLE];
-    double used = (double)user + (double)system + (double)nice;
-    double total = used + (double)idle;
-    if (total == 0.0)
+    bool perCpu = now->perCpu && then->perCpu;
+    double busy = perCpu ? CpuTicksBusy(now->cpuTicks, then->cpuTicks) : CpuTicksBusy(now->ticks, then->ticks);
+    if (busy < 0.0)
     {
       continue;
     }
@@ -120,7 +196,18 @@ double SystemInfoCpuBusy(double* span)
     {
       *span = now->time - then->time;
     }
-    return used/total;
+    if (now->kinds && then->kinds)
+    {
+      if (efficiency != NULL)
+      {
+        *efficiency = CpuTicksBusy(now->kindTicks[0], then->kindTicks[0]);
+      }
+      if (performance != NULL)
+      {
+        *performance = CpuTicksBusy(now->kindTicks[1], then->kindTicks[1]);
+      }
+    }
+    return busy;
   }
   return -1.0;
 }
