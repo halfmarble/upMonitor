@@ -43,6 +43,9 @@ double SystemInfoCpuBusy(double* span);
 // memory used as Activity Monitor counts it (app memory, wired and compressed) and the physical memory, in bytes
 bool SystemInfoMemory(uint64_t* used, uint64_t* total);
 
+// swap in use, vm.swapusage's used, in bytes
+bool SystemInfoSwap(uint64_t* used);
+
 // seconds since the last boot, sleep included, past the first minute rounded to the nearest minute as uptime(1)
 // does; -1 when the kernel cannot be read
 long SystemInfoUptimeSeconds(void);

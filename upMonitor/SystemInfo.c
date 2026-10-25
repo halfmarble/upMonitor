@@ -153,6 +153,18 @@ bool SystemInfoMemory(uint64_t* used, uint64_t* total)
   return true;
 }
 
+bool SystemInfoSwap(uint64_t* used)
+{
+  struct xsw_usage swap;
+  size_t size = sizeof(swap);
+  if ((sysctlbyname("vm.swapusage", &swap, &size, NULL, 0) != 0) || (size != sizeof(swap)))
+  {
+    return false;
+  }
+  *used = swap.xsu_used;
+  return true;
+}
+
 #pragma mark - Uptime
 
 long SystemInfoUptimeSeconds(void)

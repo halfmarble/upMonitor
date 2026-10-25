@@ -349,6 +349,17 @@ static NSString* PercentText(uint64_t part, uint64_t whole, NSLocale* locale)
   return [[NSString alloc] initWithFormat:@"%ld%%" locale:locale, percent];
 }
 
+// text led by figure spaces (U+2007), as wide as a digit in the menu font, to at least width characters, so that a
+// hover label's figure keeps its width as its value changes
+static NSString* FigurePadded(NSString* text, NSUInteger width)
+{
+  if (text.length >= width)
+  {
+    return text;
+  }
+  return [[@"" stringByPaddingToLength:(width - text.length) withString:@"\u2007" startingAtIndex:0] stringByAppendingString:text];
+}
+
 // "0.51 GB", "1.23 GB": a process's memory, always in GB, in units of 1024, two decimals
 static NSString* MemoryText(uint64_t bytes)
 {
@@ -925,13 +936,16 @@ static bool diskReadInFlight = false;
 static NSTimeInterval lastDiskRead = 0.0;   // when the last disk read started, system uptime
 static NSTimeInterval lastDiskAttempt = 0.0; // when the last disk read started, never reset: a failing read is retried once a minute
 static double diskFraction = -1.0;          // how full the volume was at the last reading, 0..1, -1 before the first
-static NSString* diskText = nil;            // the last reading of the startup volume, nil before the first
+static NSString* diskText = nil;            // the last reading of the startup volume ("72% (free 279 GB, used 716 GB)"), nil before the first
+static NSString* diskTipText = nil;         // the same, its free and used figures padded to one width, for the hover label
 static NSString* diskTitle = nil;           // its title, with the volume's size ("995GB Disk usage:")
 static NSTimeInterval lastReadings = 0.0;   // when overall CPU and memory were last read, system uptime; 0: read soon
 static double readingsCpu = -1.0;           // overall CPU over the 1 s before it (after a reset, one tick), 0..1, -1 before the first
 static bool readingsMemory = false;         // memory could be read, as these two bytes
 static uint64_t readingsMemoryUsed = 0;
 static uint64_t readingsMemoryTotal = 0;
+static bool readingsSwap = false;           // swap could be read, as these bytes, read with memory
+static uint64_t readingsSwapUsed = 0;
 
 #define BAR_WIDTH_EXTRA             (1.0)   // pt each bar is drawn wider than its width setting
 
@@ -2042,8 +2056,8 @@ static NSString* TipPercents(NSString* text)
   return TipPercents([self barTipTextUnpaddedAt:index]);
 }
 
-// a reading's text, as its panel row: "995GB Disk usage: 72%"; an extra bar's, its class's barLabels entry; the core
-// graph's, coresTipText; empty when there is none
+// a reading's text, as its panel row with its figures padded (readingRowsPadded:): "995GB Disk usage: 72% (free 279 GB,
+// used 716 GB)"; an extra bar's, its class's barLabels entry; the core graph's, coresTipText; empty when there is none
 - (NSString*)barTipTextUnpaddedAt:(NSInteger)index
 {
   if (index == BAR_TIP_CORES)
@@ -2062,7 +2076,7 @@ static NSString* TipPercents(NSString* text)
     NSString* label = (extraBarItem[extra] < labels.count) ? labels[extraBarItem[extra]] : nil;
     return [label isKindOfClass:[NSString class]] ? label : @"";
   }
-  NSArray<NSArray<NSString*>*>* rows = [self readingRows];
+  NSArray<NSArray<NSString*>*>* rows = [self readingRowsPadded:true];
   if ((index < 0) || (index >= (NSInteger)rows.count))
   {
     return @"";
@@ -2147,8 +2161,10 @@ static NSString* TipPercents(NSString* text)
   {
     barTip = NewTipPanel(&barTipText);
   }
-  // a label with line breaks is laid out by whoever wrote it, so its lines are not wrapped
-  SetTipText(barTip, barTipText, text, ([text rangeOfString:@"\n"].location != NSNotFound) ? CGFLOAT_MAX : ROW_TIP_MAX_WIDTH);
+  // a label with line breaks is laid out by whoever wrote it, so its lines are not wrapped; nor is a reading's, one
+  // line as its panel row
+  bool unwrapped = (barTipIndex < CPU_RENDER_READINGS_COUNT) || ([text rangeOfString:@"\n"].location != NSNotFound);
+  SetTipText(barTip, barTipText, text, unwrapped ? CGFLOAT_MAX : ROW_TIP_MAX_WIDTH);
   barTipShown = text;
   NSRect slot = [self barTipSlotFor:barTipIndex];
   slot.origin.x += barTipLayout.origin.x;
@@ -2327,6 +2343,13 @@ static NSString* TipPercents(NSString* text)
     {
       readingsCpu = cpu;
       readingsMemory = SystemInfoMemory(&readingsMemoryUsed, &readingsMemoryTotal);
+      readingsSwap = SystemInfoSwap(&readingsSwapUsed);
+      static bool swapLogged = false;
+      if (!readingsSwap && !swapLogged)
+      {
+        swapLogged = true;
+        NSLog(@"swap could not be read: the memory row leaves it out");
+      }
       lastReadings = [[NSProcessInfo processInfo] systemUptime];
     }
   }
@@ -3628,6 +3651,13 @@ static void SetTipText(NSPanel* panel, NSTextField* label, NSString* text, CGFlo
 // (updateCPU:), the disk row the last reading of readDisk
 - (NSArray<NSArray<NSString*>*>*)readingRows
 {
+  return [self readingRowsPadded:false];
+}
+
+// padded: the disk's and memory's figures in parentheses led by figure spaces to one width, as the hover labels show
+// them, so that a label keeps its width as its values change
+- (NSArray<NSArray<NSString*>*>*)readingRowsPadded:(bool)padded
+{
   NSLocale* locale = [NSLocale currentLocale];
 
   double busy = readingsCpu;
@@ -3639,9 +3669,18 @@ static void SetTipText(NSPanel* panel, NSTextField* label, NSString* text, CGFlo
   {
     memoryTitle = TotalTitle(GiBText(readingsMemoryTotal, locale), @"Memory usage:");
     memoryUsed = PercentText(readingsMemoryUsed, readingsMemoryTotal, locale);
+    if (readingsMemoryTotal > 0)
+    {
+      uint64_t used = MIN(readingsMemoryUsed, readingsMemoryTotal);
+      // as wide as the whole with one decimal, "16.0 GB": no free or used figure is wider (swap can be)
+      NSUInteger width = padded ? [NSString stringWithFormat:@"%.1f GB", (double)readingsMemoryTotal / 1073741824.0].length : 0;
+      NSString* swapped = readingsSwap ? [NSString stringWithFormat:@", swapped %@", FigurePadded(GiBText(readingsSwapUsed, locale), width)] : @"";
+      memoryUsed = [NSString stringWithFormat:@"%@ (free %@, used %@%@)", memoryUsed, FigurePadded(GiBText(readingsMemoryTotal - used, locale), width), FigurePadded(GiBText(used, locale), width), swapped];
+    }
   }
 
-  return @[@[diskTitle ?: @"Disk usage:", diskText ?: @"—"], @[memoryTitle, memoryUsed], @[@"CPU:", cpu]];
+  NSString* disk = (padded ? diskTipText : diskText) ?: @"—";
+  return @[@[diskTitle ?: @"Disk usage:", disk], @[memoryTitle, memoryUsed], @[@"CPU:", cpu]];
 }
 
 // the panel's rows as shown: uptime, read now, then the readings as a section, then each MenuRows' panel rows as a
@@ -3810,8 +3849,21 @@ static void SetTipText(NSPanel* panel, NSTextField* label, NSString* text, CGFlo
       uint64_t wholeBytes = total.unsignedLongLongValue;
       uint64_t freeBytes = available.unsignedLongLongValue;
       diskTitle = TotalTitle(GBText(wholeBytes, locale), @"Disk usage:");
-      diskText = PercentText((wholeBytes > freeBytes) ? (wholeBytes - freeBytes) : 0, wholeBytes, locale);
-      diskFraction = (wholeBytes > 0) ? ((double)((wholeBytes > freeBytes) ? (wholeBytes - freeBytes) : 0) / (double)wholeBytes) : -1.0;
+      uint64_t usedBytes = (wholeBytes > freeBytes) ? (wholeBytes - freeBytes) : 0;
+      diskText = PercentText(usedBytes, wholeBytes, locale);
+      diskTipText = diskText;
+      if (wholeBytes > 0)
+      {
+        NSString* freeText = GBText(wholeBytes - usedBytes, locale);
+        NSString* usedText = GBText(usedBytes, locale);
+        // "999 GB" and "9.9 TB" are six characters; a larger volume's figures are no wider than its whole with one
+        // decimal ("16.0 TB")
+        NSString* wholeTB = [NSString stringWithFormat:@"%.1f TB", (double)wholeBytes / 1e12];
+        NSUInteger width = MAX((NSUInteger)6, wholeTB.length);
+        diskTipText = [NSString stringWithFormat:@"%@ (free %@, used %@)", diskText, FigurePadded(freeText, width), FigurePadded(usedText, width)];
+        diskText = [NSString stringWithFormat:@"%@ (free %@, used %@)", diskText, freeText, usedText];
+      }
+      diskFraction = (wholeBytes > 0) ? ((double)usedBytes / (double)wholeBytes) : -1.0;
       if (generation == infoGeneration)
       {
         [self applyInfoValues];
