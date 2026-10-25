@@ -1147,9 +1147,9 @@
                         </connections>
                     </button>
                     <button verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="sB4-rs-Btn">
-                        <rect key="frame" x="30" y="95" width="232" height="18"/>
+                        <rect key="frame" x="30" y="95" width="283" height="18"/>
                         <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
-                        <buttonCell key="cell" type="check" title="Show Disk, RAM, CPU usage bars" bezelStyle="regularSquare" imagePosition="left" alignment="left" inset="2" id="sB4-rs-Cel">
+                        <buttonCell key="cell" type="check" title="Show Disk, RAM, CPU, E-core, P-core bars" bezelStyle="regularSquare" imagePosition="left" alignment="left" inset="2" id="sB4-rs-Cel">
                             <behavior key="behavior" changeContents="YES" doesNotDimImage="YES" lightByContents="YES"/>
                             <font key="font" metaFont="system"/>
                         </buttonCell>

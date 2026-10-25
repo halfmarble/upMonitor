@@ -67,11 +67,11 @@ NS_ASSUME_NONNULL_BEGIN
 - (NSArray<NSString*>*)barLabels;
 // check boxes for the Preferences window, made once: the app asks for them once, right after it has made the menus,
 // before the window is first shown. The class owns each box: its title, target, action, state and its own defaults key;
-// the app only places it, and is not told of a click. The app's own "Show Disk, RAM, CPU usage bars" is the first box;
-// these take the places after it, two to a row, left column then right, so the first one sits to the right of the app's
-// box on the same row and the later ones on rows below, in the order the classes registered and then in each array's
-// order; the app gives each the font and size of its own box and fits its width. The right column starts 20 pt after
-// the app's box, with about 180 pt of room, and a wider title is cut. Each row after the first adds 22 pt to the
+// the app only places it, and is not told of a click. The app's own "Show Disk, RAM, CPU, E-core, P-core bars" is the
+// first box; these take the places after it, two to a row, left column then right, so the first one sits to the right
+// of the app's box on the same row and the later ones on rows below, in the order the classes registered and then in
+// each array's order; the app gives each the font and size of its own box and fits its width. The right column starts
+// 20 pt after the app's box, with about 130 pt of room, and a wider title is cut. Each row after the first adds 22 pt to the
 // window's height. An entry that is not an NSButton is skipped. A box that hides its class's bars makes barReadings
 // (and barLabels) return none while it is off, and the status item follows at the next tick of the graph
 - (NSArray<NSButton*>*)preferenceCheckboxes;

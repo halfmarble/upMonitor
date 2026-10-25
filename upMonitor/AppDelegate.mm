@@ -1542,8 +1542,8 @@ static NSString* OthersRowText(int count)
   [menu update];
 }
 
-// the checkboxes the MenuRows classes add to Preferences, after "Show Disk, RAM, CPU usage bars": two to a row, the
-// app's own box and then each class's in registration order, left then right. The right column starts PREFS_BOX_GAP
+// the checkboxes the MenuRows classes add to Preferences, after "Show Disk, RAM, CPU, E-core, P-core bars": two to a
+// row, the app's own box and then each class's in registration order, left then right. The right column starts PREFS_BOX_GAP
 // after the app's box and ends PREFS_BOX_MARGIN short of the window's right edge, a wider title is cut; each row after
 // the first adds PREFS_BOX_ROW to the window, whose views keep their place from the top or the bottom by their
 // autoresizing masks. A class owns its box (title, target, action, state, defaults key); the app only places it and is
