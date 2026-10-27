@@ -960,6 +960,7 @@ static CGFloat graphWidth = 0.0;     // the core graph alone, as the sine and fl
 static CGFloat drawWidth = 3.0;      // the width each bar or dot is drawn: the width setting plus BAR_WIDTH_EXTRA, 4 for the one package bar, 3 for dots
 
 static int granularity = 0;
+static int coreSplit = 0;            // the core graph's E-cores' bars, which the E-cores' bar heads, the P-cores' bar after them (CpuRenderEfficiencyBars); 0: the five bars in one block
 
 static bool bar = true;
 
@@ -1093,9 +1094,10 @@ static NSMutableSet<NSTask*>* runningTasks = nil;
     imageWidth += 1.0;
   }
   graphWidth = imageWidth;
+  coreSplit = CpuRenderEfficiencyBars(granularity, cpu_info.countLogical, cpuKinds);
   if (showBars)
   {
-    imageWidth += CpuRenderReadingsWidth(bar, drawWidth, tickTotalWidth, (int)extraBars.size(), extraBars.data());
+    imageWidth += CpuRenderReadingsWidth(bar, drawWidth, tickTotalWidth, coreSplit, (int)extraBars.size(), extraBars.data());
   }
   else
   {
@@ -1805,6 +1807,7 @@ static NSPanel* NewTipPanel(NSTextField* __strong * label);
 static void SetTipText(NSPanel* panel, NSTextField* label, NSString* text, CGFloat wrap);
 static NSRect barTipLayout = {{-1.0, -1.0}, {-1.0, -1.0}}; // x: the image's left in the button, width: the readings' slot; none: -1
 static bool barTipThree = false;            // the five readings (disk, memory, CPU, E-cores, P-cores) are drawn
+static int barTipSplit = 0;                 // with them, the core graph's split as drawn (CpuReadings efficiencyBars); 0: none
 static std::vector<CpuExtraReading> barTipBars; // the extra bars drawn right of the core graph, as drawn (a copy: extraBars is refilled each tick)
 static NSInteger barTipIndex = -1;          // the reading under the pointer, armed or shown: 0 disk, 1 memory, 2 CPU, 3 E-cores,
                                             // 4 P-cores, 5 on the extra bars, BAR_TIP_CORES the core graph, -1 none
@@ -1824,6 +1827,7 @@ static NSTimer* barTipWatch = nil;
     [button addTrackingArea:tracking];
   }
   bool three = (readings != NULL) && !readings->extraOnly;
+  int split = (three && (readings->efficiencyBars > 0)) ? readings->efficiencyBars : 0;
   std::vector<CpuExtraReading> bars;
   if ((readings != NULL) && (readings->extra != NULL) && (readings->extraCount > 0))
   {
@@ -1837,10 +1841,11 @@ static NSTimer* barTipWatch = nil;
   }
   NSRect bounds = button.bounds;
   NSRect layout = NSMakeRect(round(NSMidX(bounds) - imageWidth/2.0), NSMinY(bounds), CpuRenderReadingsSlot(bar, drawWidth, tickTotalWidth), NSHeight(bounds));
-  if (!NSEqualRects(layout, barTipLayout) || (three != barTipThree) || !sameBars)
+  if (!NSEqualRects(layout, barTipLayout) || (three != barTipThree) || (split != barTipSplit) || !sameBars)
   {
     barTipLayout = layout;
     barTipThree = three;
+    barTipSplit = split;
     barTipBars = bars;
     [self hideBarTip];
   }
@@ -1850,7 +1855,7 @@ static NSTimer* barTipWatch = nil;
 // besides the graph)
 - (void)graphTipStart:(CGFloat*)start end:(CGFloat*)end
 {
-  CpuRenderGraphSpan(bar, drawWidth, tickTotalWidth, imageWidth, barTipThree, (int)barTipBars.size(), barTipBars.data(), start, end);
+  CpuRenderGraphSpan(bar, drawWidth, tickTotalWidth, imageWidth, barTipThree, barTipSplit, (int)barTipBars.size(), barTipBars.data(), start, end);
 }
 
 // the reading at x, measured from the image's left: 0 disk, 1 memory, 2 CPU, 3 E-cores, 4 P-cores (when drawn), 5 on
@@ -1872,10 +1877,11 @@ static NSTimer* barTipWatch = nil;
 // as barTipIndexAtX, but on the slots and the graph alone, no gap
 - (NSInteger)barTipSlotIndexAtX:(CGFloat)x
 {
-  // a reading's slot starts where the renderer draws it, the extra bars' after the core graph; a gap is on none of them
+  // a reading's slot starts where the renderer draws it, the extra bars' after the core graph; a gap is on none of them,
+  // the split's gap inside the graph included (the P-cores' reading beside it is found first, by its slot)
   for (NSInteger index=(barTipThree ? 0 : CPU_RENDER_READINGS_COUNT); index<(CPU_RENDER_READINGS_COUNT + (NSInteger)barTipBars.size()); index++)
   {
-    CGFloat start = CpuRenderReadingX(bar, drawWidth, tickTotalWidth, imageWidth, (int)barTipBars.size(), barTipBars.data(), (int)index);
+    CGFloat start = CpuRenderReadingX(bar, drawWidth, tickTotalWidth, imageWidth, barTipSplit, (int)barTipBars.size(), barTipBars.data(), (int)index);
     if ((x >= start) && (x < (start + CpuRenderReadingSlot(bar, drawWidth, tickTotalWidth, (int)barTipBars.size(), barTipBars.data(), (int)index))))
     {
       return index;
@@ -1886,7 +1892,7 @@ static NSTimer* barTipWatch = nil;
   [self graphTipStart:&graphStart end:&graphEnd];
   if ((x >= graphStart) && (x < graphEnd))
   {
-    return BAR_TIP_CORES;
+    return (CpuRenderCoreAtX(bar, drawWidth, tickTotalWidth, graphStart, barTipSplit, (int)CpuSamplerGetCount(granularity), x) >= 0) ? BAR_TIP_CORES : -1;
   }
   return -1;
 }
@@ -1920,7 +1926,7 @@ static NSTimer* barTipWatch = nil;
     [self graphTipStart:&graphStart end:&graphEnd];
     return NSMakeRect(graphStart, barTipLayout.origin.y, graphEnd - graphStart, barTipLayout.size.height);
   }
-  return NSMakeRect(CpuRenderReadingX(bar, drawWidth, tickTotalWidth, imageWidth, (int)barTipBars.size(), barTipBars.data(), (int)index), barTipLayout.origin.y, CpuRenderReadingSlot(bar, drawWidth, tickTotalWidth, (int)barTipBars.size(), barTipBars.data(), (int)index), barTipLayout.size.height);
+  return NSMakeRect(CpuRenderReadingX(bar, drawWidth, tickTotalWidth, imageWidth, barTipSplit, (int)barTipBars.size(), barTipBars.data(), (int)index), barTipLayout.origin.y, CpuRenderReadingSlot(bar, drawWidth, tickTotalWidth, (int)barTipBars.size(), barTipBars.data(), (int)index), barTipLayout.size.height);
 }
 
 // the pointer's x, measured from the image's left; NO off the item, or nothing rendered yet
@@ -1964,8 +1970,15 @@ static NSTimer* barTipWatch = nil;
   {
     return -1;
   }
-  // Dot style's last dot overhangs its slot by 1 pt, and the clear space right of the graph hovers it: that is still the last bar
-  return MIN((NSInteger)floor((x - graphStart) / tickTotalWidth), (NSInteger)count - 1);
+  // the bar as CpuRender places it (the P-cores' after the split's gap and their reading); Dot style's last dot overhangs
+  // its slot by 1 pt, and the clear space right of the graph hovers it: that is still the last bar. In bar style the
+  // first BAR_TIP_GAP_REACH pt of the split's gap hover the cores (barTipIndexAtX): those are the last E-core bar's
+  NSInteger core = CpuRenderCoreAtX(bar, drawWidth, tickTotalWidth, graphStart, barTipSplit, (int)count, x);
+  if ((core < 0) && bar)
+  {
+    core = CpuRenderCoreAtX(bar, drawWidth, tickTotalWidth, graphStart, barTipSplit, (int)count, x - BAR_TIP_GAP_REACH);
+  }
+  return core;
 }
 
 // the core graph's label at the graph's latest tick, as its bars show it: a section per kind of core, E first, each its
@@ -2382,6 +2395,7 @@ static NSString* TipPercents(NSString* text)
   readings.extraCount = (int)extraBars.size();
   readings.extra = extraBars.data();
   readings.extraOnly = !showBars;
+  readings.efficiencyBars = coreSplit;
   if (showBars)
   {
     readings.cpu = readingsCpu;

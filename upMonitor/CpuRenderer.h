@@ -39,7 +39,11 @@ enum Theme
 
 // the readings block at the left of the image, five bars drawn as the core graph's but twice as wide (disk, memory,
 // CPU, the E-cores' CPU and the P-cores' CPU from the left; in Dot style five dots as the graph's), then a clear gap
-// before the core graph; any number of extra readings that a build adds are drawn in the same way at the right of the
+// before the core graph. When the graph splits into the E-cores' bars and then the P-cores' (efficiencyBars above 0, the
+// count of the graph's bars that are E-cores', CpuRenderEfficiencyBars), the E-cores' and the P-cores' readings each head
+// their own cores instead: disk, memory and CPU, the gap, the E-cores' reading and their bars, a group gap, the P-cores'
+// reading and their bars; the image is a group gap wider (in Dot style 1 pt more, the last E-core dot's overhang). Any
+// number of extra readings that a build adds are drawn in the same way at the right of the
 // image, after the core graph and a gap as wide. The five may be left out (extraOnly): the core graph then starts at x = 0, with the extra readings, when
 // there are any, at the right as before. The extra readings fall into groups: a reading that starts a group is drawn
 // after a further clear gap, CPU_RENDER_GROUP_GAP wide, and the first reading is always the first of its group. An
@@ -105,30 +109,49 @@ struct CpuReadings
   const CpuExtraReading* extra;
   // true: the five readings and their block are not drawn, only the extra readings (false is the default)
   bool extraOnly;
+  // above 0: the graph splits after this many bars, the E-cores', and the E-cores' and P-cores' readings head their own
+  // bars (CpuRenderEfficiencyBars, for the granularity drawn); 0 is the default: the five readings in one block. Ignored
+  // when the five are not drawn
+  int efficiencyBars;
 } typedef CpuReadings;
 
 void CpuRenderInit(void);
+// how many of the core graph's bars at granularity are the E-cores', when the graph splits into them and then the
+// P-cores': kinds (countLogical of 'E' or 'P', CpuSamplerGetKinds) all E-cores' first and then all P-cores', both
+// present, and each bar's CPUs of one kind; 0 when it does not split (one bar, kinds NULL, any other order)
+int CpuRenderEfficiencyBars(int granularity, natural_t countLogical, const char* kinds);
 // the width the readings block and its gap add to the image, and the extra readings' block with its gap, for the core
-// graph's style, bar width and tick spacing, with extraCount extra readings, extra giving their groups (NULL: one group)
-CGFloat CpuRenderReadingsWidth(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth, int extraCount, const CpuExtraReading* extra);
+// graph's style, bar width and tick spacing, the split after efficiencyBars bars (0: none), with extraCount extra
+// readings, extra giving their groups (NULL: one group)
+CGFloat CpuRenderReadingsWidth(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth, int efficiencyBars, int extraCount, const CpuExtraReading* extra);
 // the width the extra readings' block with its gap adds to the image, with extraCount extra readings and their groups;
 // 0 with none
 CGFloat CpuRenderExtraWidth(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth, int extraCount, const CpuExtraReading* extra);
 // the slot width of reading index in an image with extraCount extra readings: the readings' slot for the five, an extra
 // reading's own for the others, which is a core bar's when it is narrow (extra NULL: none is)
 CGFloat CpuRenderReadingSlot(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth, int extraCount, const CpuExtraReading* extra, int index);
-// the x step from one of the five readings, or one extra reading that is not narrow, to the next (disk at 0, memory at one step, CPU at two, the E-cores' at three, the P-cores' at four; the extra readings,
+// the x step from one of the five readings, or one extra reading that is not narrow, to the next (disk at 0, memory at one step, CPU at two, the E-cores' at three, the P-cores' at four, unless the graph splits,
+// CpuRenderReadingX; the extra readings,
 // right of the core graph, the same step apart; a narrow extra reading's step is a core bar's, a group's gap is added
 // where a group starts)
 CGFloat CpuRenderReadingsSlot(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth);
 // where reading index starts in an image imageWidth wide with extraCount extra readings and their groups: the five
-// readings index slots from the left, the extra ones (index CPU_RENDER_READINGS_COUNT on) after the core graph and its
-// gap, each group's gap added where a group starts; an index past the last extra reading gives the last one's x
-CGFloat CpuRenderReadingX(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth, CGFloat imageWidth, int extraCount, const CpuExtraReading* extra, int index);
+// readings index slots from the left (split after efficiencyBars bars: the E-cores' before their bars, the P-cores'
+// before theirs), the extra ones (index CPU_RENDER_READINGS_COUNT on) after the core graph and its gap, each group's gap
+// added where a group starts; an index past the last extra reading gives the last one's x
+CGFloat CpuRenderReadingX(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth, CGFloat imageWidth, int efficiencyBars, int extraCount, const CpuExtraReading* extra, int index);
 // where the core graph starts and ends in an image imageWidth wide: after the readings block and its gap when the five
-// readings are drawn (readings), else at x = 0; before the extra readings' block (extraCount and extra, read with or
+// readings are drawn (readings), else at x = 0; split after efficiencyBars bars, from the first E-core bar, past the
+// P-cores' reading, to the last P-core bar; before the extra readings' block (extraCount and extra, read with or
 // without the five)
-void CpuRenderGraphSpan(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth, CGFloat imageWidth, bool readings, int extraCount, const CpuExtraReading* extra, CGFloat* start, CGFloat* end);
+void CpuRenderGraphSpan(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth, CGFloat imageWidth, bool readings, int efficiencyBars, int extraCount, const CpuExtraReading* extra, CGFloat* start, CGFloat* end);
+// where the core graph's bar index is drawn, the graph starting at start (CpuRenderGraphSpan): a core bar's slot per
+// bar, the P-cores' bars (index efficiencyBars on, when above 0) after the split's gap and the P-cores' reading
+CGFloat CpuRenderCoreX(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth, CGFloat start, int efficiencyBars, int index);
+// the core graph's bar whose slot (CpuRenderCoreX, a core bar's slot wide) holds x, of count bars; the last bar's
+// reaches on past its slot (Dot style's overhang, the clear space right of the graph); -1 left of the first bar, and
+// between the last E-core bar's slot and the first P-core bar (the split's gap and the P-cores' reading)
+int CpuRenderCoreAtX(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth, CGFloat start, int efficiencyBars, int count, CGFloat x);
 // readings NULL: no block, the core graph starts at x = 0; else it starts after the block and the gap, unless
 // readings->extraOnly leaves the five out
 void CpuRender(CpuSummaryInfo* cpu_info, CGContextRef ctx, bool light, int granularity, bool bar, bool stripped, bool colored, CGFloat tickWidth, CGFloat tickTotalWidth, CGFloat imageWidth, int theme, const CpuReadings* readings);
