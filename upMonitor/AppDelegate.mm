@@ -220,6 +220,8 @@ static void PaintOpenMenuBackground(void)
 #define BAR_TIP_WATCH               (0.25)  // s between looks at the pointer while a label is armed or shown
 #define BAR_TIP_GAP                 (4.0)   // pt between the menu bar and the label
 #define BAR_TIP_CORES               (1000)  // the core graph's index for the labels, past any reading's
+#define BAR_TIP_CORES_E             (1001)  // split (barTipSplit above 0): the E-cores' reading's and bars'
+#define BAR_TIP_CORES_P             (1002)  // the P-cores' reading's and bars'
 #define BAR_TIP_GAP_REACH           (1.0)   // pt of clear space right of a bar's slot that still hovers it: with the slot's own 1-pt gap, 2 pt past the drawn bar
 
 // the item's row on screen, NSZeroRect when the window's row views do not match the menu: top first,
@@ -1798,7 +1800,9 @@ static bool IsLight(NSAppearance* appearance)
 // a tooltip-style label under each reading's bar (or dot) in the status item: disk, memory, CPU, worded as the panel's
 // rows, the E-cores' and the P-cores' as "Efficiency cores: 22%" and "Performance cores: 13%", and each extra bar's,
 // worded by its class (barLabels); and one under the core graph, with or without the readings: each CPU's load by kind,
-// with each kind's mean, the bar under the pointer marked (CoresTipText); the mark follows the pointer along the graph
+// the bar under the pointer marked (CoresTipText); when the graph splits, one under the E-cores' reading and bars, the
+// reading's line and then their CPUs alone, and one under the P-cores' with theirs; the mark follows the pointer along
+// the graph, or along one kind's bars,
 // without hiding the label. On macOS 27 no tooltip showed on the status item when tried (a tooltip rect was never asked
 // for its text), but the pointer reaches the button, so the label is the app's own panel. updateBarTips: records where
 // the readings are after each render; the pointer's entry and moves start a watch timer that follows the pointer while
@@ -1810,11 +1814,18 @@ static bool barTipThree = false;            // the five readings (disk, memory, 
 static int barTipSplit = 0;                 // with them, the core graph's split as drawn (CpuReadings efficiencyBars); 0: none
 static std::vector<CpuExtraReading> barTipBars; // the extra bars drawn right of the core graph, as drawn (a copy: extraBars is refilled each tick)
 static NSInteger barTipIndex = -1;          // the reading under the pointer, armed or shown: 0 disk, 1 memory, 2 CPU, 3 E-cores,
-                                            // 4 P-cores, 5 on the extra bars, BAR_TIP_CORES the core graph, -1 none
+                                            // 4 P-cores, 5 on the extra bars, BAR_TIP_CORES the core graph (split:
+                                            // BAR_TIP_CORES_E or BAR_TIP_CORES_P, the bars of one kind), -1 none
 static NSPanel* barTip = nil;
 static NSTextField* barTipText = nil;
 static NSString* barTipShown = nil;         // the whole text last laid out in barTip: barTipText holds only its first part
 static NSTimer* barTipWatch = nil;
+
+// whether a label index is the core graph's, whole or one kind's bars
+static bool BarTipIsCores(NSInteger index)
+{
+  return (index == BAR_TIP_CORES) || (index == BAR_TIP_CORES_E) || (index == BAR_TIP_CORES_P);
+}
 
 // readings: what the last render drew, NULL when nothing but the core graph
 - (void)updateBarTips:(const CpuReadings*)readings
@@ -1859,7 +1870,8 @@ static NSTimer* barTipWatch = nil;
 }
 
 // the reading at x, measured from the image's left: 0 disk, 1 memory, 2 CPU, 3 E-cores, 4 P-cores (when drawn), 5 on
-// the extra bars, BAR_TIP_CORES on the core graph; in bar style, in the first BAR_TIP_GAP_REACH pt of clear space right
+// the extra bars, BAR_TIP_CORES on the core graph (split: BAR_TIP_CORES_E on the E-cores' reading and bars,
+// BAR_TIP_CORES_P on the P-cores', in place of 3 and 4); in bar style, in the first BAR_TIP_GAP_REACH pt of clear space right
 // of a block, the image's right edge included, the reading or graph left of it; -1 on none of them (the rest of a gap,
 // or past that)
 - (NSInteger)barTipIndexAtX:(CGFloat)x
@@ -1879,11 +1891,20 @@ static NSTimer* barTipWatch = nil;
 {
   // a reading's slot starts where the renderer draws it, the extra bars' after the core graph; a gap is on none of them,
   // the split's gap inside the graph included (the P-cores' reading beside it is found first, by its slot)
+  // split, the E-cores' and the P-cores' readings head their own bars, and each reading and its bars hover as one
   for (NSInteger index=(barTipThree ? 0 : CPU_RENDER_READINGS_COUNT); index<(CPU_RENDER_READINGS_COUNT + (NSInteger)barTipBars.size()); index++)
   {
     CGFloat start = CpuRenderReadingX(bar, drawWidth, tickTotalWidth, imageWidth, barTipSplit, (int)barTipBars.size(), barTipBars.data(), (int)index);
     if ((x >= start) && (x < (start + CpuRenderReadingSlot(bar, drawWidth, tickTotalWidth, (int)barTipBars.size(), barTipBars.data(), (int)index))))
     {
+      if ((barTipSplit > 0) && (index == CPU_RENDER_READING_EFFICIENCY))
+      {
+        return BAR_TIP_CORES_E;
+      }
+      if ((barTipSplit > 0) && (index == CPU_RENDER_READING_PERFORMANCE))
+      {
+        return BAR_TIP_CORES_P;
+      }
       return index;
     }
   }
@@ -1892,7 +1913,12 @@ static NSTimer* barTipWatch = nil;
   [self graphTipStart:&graphStart end:&graphEnd];
   if ((x >= graphStart) && (x < graphEnd))
   {
-    return (CpuRenderCoreAtX(bar, drawWidth, tickTotalWidth, graphStart, barTipSplit, (int)CpuSamplerGetCount(granularity), x) >= 0) ? BAR_TIP_CORES : -1;
+    int core = CpuRenderCoreAtX(bar, drawWidth, tickTotalWidth, graphStart, barTipSplit, (int)CpuSamplerGetCount(granularity), x);
+    if (core < 0)
+    {
+      return -1;
+    }
+    return (barTipSplit <= 0) ? BAR_TIP_CORES : ((core < barTipSplit) ? BAR_TIP_CORES_E : BAR_TIP_CORES_P);
   }
   return -1;
 }
@@ -1916,14 +1942,24 @@ static NSTimer* barTipWatch = nil;
   return YES;
 }
 
-// where reading index (or BAR_TIP_CORES) sits in the image, in image coordinates
+// where reading index (or BAR_TIP_CORES, BAR_TIP_CORES_E, BAR_TIP_CORES_P) sits in the image, in image coordinates: one
+// kind's from its reading to the end of its last bar's slot, the P-cores' to the graph's end
 - (NSRect)barTipSlotFor:(NSInteger)index
 {
-  if (index == BAR_TIP_CORES)
+  if (BarTipIsCores(index))
   {
     CGFloat graphStart = 0.0;
     CGFloat graphEnd = 0.0;
     [self graphTipStart:&graphStart end:&graphEnd];
+    if ((index == BAR_TIP_CORES_E) && (barTipSplit > 0))
+    {
+      graphEnd = CpuRenderCoreX(bar, drawWidth, tickTotalWidth, graphStart, barTipSplit, barTipSplit - 1) + tickTotalWidth;
+      graphStart = CpuRenderReadingX(bar, drawWidth, tickTotalWidth, imageWidth, barTipSplit, (int)barTipBars.size(), barTipBars.data(), CPU_RENDER_READING_EFFICIENCY);
+    }
+    else if ((index == BAR_TIP_CORES_P) && (barTipSplit > 0))
+    {
+      graphStart = CpuRenderReadingX(bar, drawWidth, tickTotalWidth, imageWidth, barTipSplit, (int)barTipBars.size(), barTipBars.data(), CPU_RENDER_READING_PERFORMANCE);
+    }
     return NSMakeRect(graphStart, barTipLayout.origin.y, graphEnd - graphStart, barTipLayout.size.height);
   }
   return NSMakeRect(CpuRenderReadingX(bar, drawWidth, tickTotalWidth, imageWidth, barTipSplit, (int)barTipBars.size(), barTipBars.data(), (int)index), barTipLayout.origin.y, CpuRenderReadingSlot(bar, drawWidth, tickTotalWidth, (int)barTipBars.size(), barTipBars.data(), (int)index), barTipLayout.size.height);
@@ -1947,7 +1983,8 @@ static NSTimer* barTipWatch = nil;
 }
 
 // the reading under the pointer, from where it is now: 0 disk, 1 memory, 2 CPU, 3 E-cores, 4 P-cores, 5 on the extra
-// bars, BAR_TIP_CORES on the core graph; -1 on the item but on none of them; -2 off the item, or nothing rendered yet
+// bars, BAR_TIP_CORES on the core graph (split: BAR_TIP_CORES_E, BAR_TIP_CORES_P); -1 on the item but on none of them;
+// -2 off the item, or nothing rendered yet
 - (NSInteger)barTipIndexNow
 {
   CGFloat x = 0.0;
@@ -1966,7 +2003,7 @@ static NSTimer* barTipWatch = nil;
   CGFloat graphStart = 0.0;
   CGFloat graphEnd = 0.0;
   [self graphTipStart:&graphStart end:&graphEnd];
-  if ((x < graphStart) || ([self barTipIndexAtX:x] != BAR_TIP_CORES))
+  if ((x < graphStart) || !BarTipIsCores([self barTipIndexAtX:x]))
   {
     return -1;
   }
@@ -1983,19 +2020,25 @@ static NSTimer* barTipWatch = nil;
 
 // the core graph's label at the graph's latest tick, as its bars show it: a section per kind of core, E first, each its
 // title, "Efficiency cores:" or "Performance cores:", then a line per CPU of that kind, by logical id, named by its
-// kind and its number within the kind, with its load, "   E0  18%"; a blank line before each section after the first,
-// which SetTipText draws as a menu-style line; when the kinds were not read, one section, "Cores:", "C0", "C1" ... A
-// CPU of the bar hovered (bar b averages CPUs b x perBar to b x perBar + perBar - 1, as CpuRender groups them; -1:
-// none) has "›" in place of its line's first space. The names are padded to the widest in any section, so that once
-// TipPercents pads the loads every load ends in one column; empty with no CPU
-static NSString* CoresTipText(const std::vector<double>& loads, const char* kinds, natural_t perBar, NSInteger hovered, NSLocale* locale)
+// kind and its number within the kind, with its load, "              E0: 18%"; a blank line before each section after
+// the first, which SetTipText draws as a menu-style line; when the kinds were not read, one section, "Cores:", "C0:",
+// "C1:" ... Every title and name is right-aligned to the widest title shown (or the widest name, 2 cells more), so that its colon
+// is under the titles' and, once TipPercents pads the loads, every load ends in one column, under a title's reading
+// put after it ("Efficiency cores:  22%"). A CPU of the bar hovered (bar b averages CPUs b x perBar to b x perBar +
+// perBar - 1, as CpuRender groups them; -1: none) has "›" two cells left of its name, "            › E1: 42%". only
+// 'E' or 'P': that kind's section alone (0: every section); empty with no CPU
+static NSString* CoresTipText(const std::vector<double>& loads, const char* kinds, natural_t perBar, NSInteger hovered, char only, NSLocale* locale)
 {
   const char letters[3] = {'E', 'P', 'C'};
   NSString* titles[3] = {@"Efficiency cores:", @"Performance cores:", @"Cores:"};
   std::vector<natural_t> sections[3];
-  NSUInteger width = 0;
+  NSUInteger width = 0;     // the column the colons end in, the titles' and the names' with "›" and its space
   for (int section=0; section<3; section++)
   {
+    if ((only != 0) && (letters[section] != only))
+    {
+      continue;
+    }
     for (natural_t i=0; i<loads.size(); i++)
     {
       char kind = (kinds == NULL) ? 'C' : ((kinds[i] == 'E') ? 'E' : 'P');
@@ -2006,8 +2049,8 @@ static NSString* CoresTipText(const std::vector<double>& loads, const char* kind
     }
     if (!sections[section].empty())
     {
-      NSUInteger last = [NSString stringWithFormat:@"%c%lu", letters[section], (unsigned long)(sections[section].size() - 1)].length;
-      width = MAX(width, last);
+      NSUInteger last = [NSString stringWithFormat:@"%c%lu:", letters[section], (unsigned long)(sections[section].size() - 1)].length;
+      width = MAX(width, MAX(titles[section].length, last + 2));
     }
   }
   NSMutableArray<NSString*>* lines = [NSMutableArray array];
@@ -2022,26 +2065,33 @@ static NSString* CoresTipText(const std::vector<double>& loads, const char* kind
     {
       [lines addObject:@""];
     }
-    [lines addObject:titles[section]];
+    [lines addObject:[[@"" stringByPaddingToLength:(width - titles[section].length) withString:@" " startingAtIndex:0] stringByAppendingString:titles[section]]];
     for (size_t k=0; k<cpus.size(); k++)
     {
       bool marked = (hovered >= 0) && (perBar > 0) && ((NSInteger)(cpus[k] / perBar) == hovered);
-      NSString* name = [[NSString stringWithFormat:@"%c%lu", letters[section], (unsigned long)k] stringByPaddingToLength:width withString:@" " startingAtIndex:0];
-      [lines addObject:[[NSString alloc] initWithFormat:@"%@  %@  %ld%%" locale:locale, marked ? @"›" : @" ", name, lround(100.0 * loads[cpus[k]])]];
+      NSString* name = [NSString stringWithFormat:@"%c%lu:", letters[section], (unsigned long)k];
+      NSMutableString* lead = [[@"" stringByPaddingToLength:(width - name.length) withString:@" " startingAtIndex:0] mutableCopy];
+      if (marked)
+      {
+        [lead replaceCharactersInRange:NSMakeRange(lead.length - 2, 1) withString:@"›"];
+      }
+      [lines addObject:[[NSString alloc] initWithFormat:@"%@%@ %ld%%" locale:locale, lead, name, lround(100.0 * loads[cpus[k]])]];
     }
   }
   return [lines componentsJoinedByString:@"\n"];
 }
 
-// the core graph's label at its latest tick, the bar under the pointer marked (CoresTipText)
-- (NSString*)coresTipText
+// the core graph's label at its latest tick, the bar under the pointer marked (CoresTipText); index BAR_TIP_CORES_E or
+// BAR_TIP_CORES_P: that kind's section alone
+- (NSString*)coresTipText:(NSInteger)index
 {
   std::vector<double> loads;
   for (natural_t i=0; i<cpu_info.countLogical; i++)
   {
     loads.push_back(fmin(fmax(cpu_info.now[i].load, 0.0), 1.0));
   }
-  return CoresTipText(loads, cpuKinds, cpu_info.countLogical / CpuSamplerGetCount(granularity), [self barTipCoreNow], [NSLocale currentLocale]);
+  char only = (index == BAR_TIP_CORES_E) ? 'E' : ((index == BAR_TIP_CORES_P) ? 'P' : 0);
+  return CoresTipText(loads, cpuKinds, cpu_info.countLogical / CpuSamplerGetCount(granularity), [self barTipCoreNow], only, [NSLocale currentLocale]);
 }
 
 // a label's whole percentages three characters wide, "  1%", " 10%", "100%", so that a label in the monospaced font
@@ -2071,12 +2121,23 @@ static NSString* TipPercents(NSString* text)
 }
 
 // a reading's text, as its panel row with its figures padded (readingRowsPadded:): "995GB Disk usage: 72% (free 279 GB,
-// used 716 GB)"; an extra bar's, its class's barLabels entry; the core graph's, coresTipText; empty when there is none
+// used 716 GB)"; an extra bar's, its class's barLabels entry; the core graph's, coresTipText, one kind's (split) with
+// that kind's reading, "Efficiency cores: 22%", in place of its section's title; empty when there is none
 - (NSString*)barTipTextUnpaddedAt:(NSInteger)index
 {
-  if (index == BAR_TIP_CORES)
+  if (BarTipIsCores(index))
   {
-    return [self coresTipText];
+    NSString* cores = [self coresTipText:index];
+    if ((index == BAR_TIP_CORES_E) || (index == BAR_TIP_CORES_P))
+    {
+      NSRange title = [cores rangeOfString:@"\n"];
+      NSInteger reading = (index == BAR_TIP_CORES_E) ? CPU_RENDER_READING_EFFICIENCY : CPU_RENDER_READING_PERFORMANCE;
+      if (title.location != NSNotFound)
+      {
+        cores = [[self barTipTextUnpaddedAt:reading] stringByAppendingString:[cores substringFromIndex:title.location]];
+      }
+    }
+    return cores;
   }
   if (index >= CPU_RENDER_READINGS_COUNT)
   {
