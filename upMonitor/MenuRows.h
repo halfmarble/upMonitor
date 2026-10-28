@@ -82,9 +82,8 @@ NS_ASSUME_NONNULL_BEGIN
 - (NSArray<NSNumber*>*)barMarks;
 // each bar's alert, in the same order as barReadings: an entry whose boolValue is YES draws a dashed bar whole, without
 // the dashes, in its own colour (its tint's when it has one; a solid bar is not redrawn, and a dot does not change);
-// with colour, a bar with no pace (barPaces) and no colour of its own (barColors) is painted all in grey instead,
-// dashed or solid: the marks' colour at half opacity over the bar's background, halfway between it and the mark's line
-// when the bar has one; NO, an entry that is not a number, a missing entry or a bar not read: none. Read with
+// with colour, a bar with no pace (barPaces) and no colour of its own (barColors) is painted all in its ramp's hottest
+// colour instead, dashed or solid; NO, an entry that is not a number, a missing entry or a bar not read: none. Read with
 // barReadings, at each tick of the graph
 - (NSArray<NSNumber*>*)barAlerts;
 // each bar's tint, in the same order as barReadings: above 0, the load 0..1 (above 1 as 1) whose colour and opacity the
@@ -92,16 +91,16 @@ NS_ASSUME_NONNULL_BEGIN
 // not read: painted by its reading. Nothing in Dot style. Read with barReadings, at each tick of the graph
 - (NSArray<NSNumber*>*)barTints;
 // each bar's colour, in the same order as barReadings: an NSColor paints the bar in that colour in place of its ramp
-// colour, tint and pace, and of an alert's grey: its fill opaque, its background, drawn also while the bar is not read,
+// colour, tint and pace, and of an alert's hottest colour: its fill opaque, its background, drawn also while the bar is not read,
 // in that colour at a dim opacity (0.25 on a light menu bar, 0.35 on a dark one); in Dot style a read bar's dot in that
 // colour. Nothing changes without colour; an entry that is not an NSColor or a missing entry: none. Read with
 // barReadings, at each tick of the graph
 - (NSArray<NSColor*>*)barColors;
 // each bar's pace, in the same order as barReadings: above 0, how much of the bar's period has passed, a share of its
-// height 0..1 (above 1 as 1); a bar above it is painted up to it in its ramp's coolest colour and above it in grey, the
-// marks' colour at half opacity over the bar's background (halfway between it and the mark's line), a bar below it
-// gets the stretch up to it painted dim; 0 or below, an entry that is not a number, a missing entry or a bar not read:
-// none. Nothing in Dot style or without colour. Read with barReadings, at each tick of the graph
+// height 0..1 (above 1 as 1); a bar above it is painted up to it in its ramp's coolest colour and above it in its
+// ramp's hottest colour, a bar below it gets the stretch up to it painted dim; 0 or below, an entry that is not a
+// number, a missing entry or a bar not read: none. Nothing in Dot style or without colour. Read with barReadings, at
+// each tick of the graph
 - (NSArray<NSNumber*>*)barPaces;
 // each bar's group, in the same order as barReadings: an entry whose boolValue is YES starts a new group, drawn after a
 // clear gap; a class's first bar starts one whenever bars of another class come before it. NO, an entry that is not a

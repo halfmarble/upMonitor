@@ -383,10 +383,9 @@ static void _render_group(CGContextRef ctx, CGFloat x, CGFloat load, CGFloat pai
 }
 
 // an extra reading's pace and alert over its bar, as _render_group drew it at x at load and paint: a bar above pace gets
-// the part up to pace painted in its ramp's coolest colour, the share its period allows so far, and the part above it in
-// grey, the marks' colour at half opacity over the bar's background (halfway between it and the mark's line, when the
-// bar has one); an alert bar without a pace is painted all in that grey; a bar below pace gets the stretch from its top
-// up to pace painted dim in its own colour, the headroom. Bars with colour only
+// the part up to pace painted in its ramp's coolest colour, the share its period allows so far, and the part above it,
+// the overspend, in its ramp's hottest colour; an alert bar without a pace is painted all in that hottest colour; a bar
+// below pace gets the stretch from its top up to pace painted dim in its own colour, the headroom. Bars with colour only
 static void _render_pace(CGContextRef ctx, CGFloat x, CGFloat width, CGFloat load, CGFloat paint, double pace, bool alert, CGFloat color, bool bar, bool colored, int theme, bool light, CGFloat bottom)
 {
   if (!bar || !colored)
@@ -401,8 +400,8 @@ static void _render_pace(CGContextRef ctx, CGFloat x, CGFloat width, CGFloat loa
     // fill's own top would leave its antialiased edge partly coloured
     CGContextClearRect(ctx, CGRectMake(x, bottom, width, height));
     _render_background(ctx, x, width, color, light, bottom);
-    // the marks' colour at half opacity over the background: halfway between the two, whatever the menu bar behind
-    CGContextSetGrayFillColor(ctx, light ? 0.0 : 1.0, 0.5);
+    rgb hot = _color(theme, 1.0);
+    CGContextSetRGBFillColor(ctx, hot.r, hot.g, hot.b, 1.0);
     CGContextFillRect(ctx, CGRectMake(x, bottom+(share*height), width, (load-share)*height));
     if (share > 0.0)
     {

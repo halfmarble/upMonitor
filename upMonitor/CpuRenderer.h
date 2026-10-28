@@ -50,7 +50,7 @@ enum Theme
 // extra reading may also carry a mark, a 1-pt line across its bar at that height, an alert, which draws its bar whole,
 // without the dashes, a pace, how much of the bar's period has passed, and a tint, which paints its bar as a bar at
 // another load would be, its height unchanged; with colour, the part of a bar above its pace, and all of an alert bar
-// with no pace, is painted grey
+// with no pace, is painted in its ramp's hottest colour
 #define CPU_RENDER_READINGS_COUNT (5)
 #define CPU_RENDER_READING_EFFICIENCY (3) // the E-cores' CPU's index among the readings
 #define CPU_RENDER_READING_PERFORMANCE (4) // the P-cores' CPU's
@@ -68,24 +68,23 @@ struct CpuExtraReading
   // struct has none
   double mark;
   // a share of its bar's height, 0..1 (above 1 as 1), as mark: how much of its period has passed. Above 0, in bar style
-  // with colour: a bar above it is painted in two, up to pace in its ramp's coolest colour and from pace up in grey,
-  // the marks' colour at half opacity over its background (halfway between it and the mark's line); a bar below it has
-  // the stretch from its top up to pace painted dim in its own colour. Nothing in Dot style or without colour, and 0 or
-  // below (NaN too) is the default, so a zeroed struct has none
+  // with colour: a bar above it is painted in two, up to pace in its ramp's coolest colour and from pace up in its
+  // ramp's hottest colour; a bar below it has the stretch from its top up to pace painted dim in its own colour.
+  // Nothing in Dot style or without colour, and 0 or below (NaN too) is the default, so a zeroed struct has none
   double pace;
   // above 0: in bar style the bar is painted as a bar at that load (0..1, above 1 as 1) would be, in its ramp colour and
   // opacity, its height still value's; 0 or below (NaN too) is the default: painted by its value. Nothing changes in Dot
   // style or for a bar not read, so a zeroed struct has none
   double tint;
   // true: this reading is painted in colorRed, colorGreen and colorBlue (sRGB, each 0..1) in place of its ramp colour,
-  // tint and pace, and of an alert's grey: in bar style its fill opaque and its background, drawn also while it is not
-  // read, at the dim opacity of the pace's stretch (0.25 light, 0.35 dark); in Dot style a read reading's dot. Only
-  // with colour; false is the default, so a zeroed struct has none
+  // tint and pace, and of an alert's hottest colour: in bar style its fill opaque and its background, drawn also while
+  // it is not read, at the dim opacity of the pace's stretch (0.25 light, 0.35 dark); in Dot style a read reading's
+  // dot. Only with colour; false is the default, so a zeroed struct has none
   bool hasColor;
   double colorRed, colorGreen, colorBlue;
   // true: this reading's dashed bar is drawn whole, without the dashes, in its own colour (its tint's when it has one);
-  // in bar style with colour, a bar with no pace above 0 and no colour of its own (hasColor) is painted all in the
-  // pace's grey instead, dashed or solid (with a pace, the pace paints it, and a bar at or below its pace keeps its
+  // in bar style with colour, a bar with no pace above 0 and no colour of its own (hasColor) is painted all in its
+  // ramp's hottest colour instead, dashed or solid (with a pace, the pace paints it, and a bar at or below its pace keeps its
   // colour); nothing changes in Dot style; false is the default
   bool alert;
   // true: this reading starts a new group, after a clear gap; false is the default, and the first reading's flag is
