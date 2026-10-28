@@ -21,12 +21,8 @@ A lightweight, highly customizable CPU monitoring tool designed specifically for
 * **System readings:** when the menu opens, a panel beside it shows uptime, then startup-volume, memory and overall CPU usage as percentages with their sizes, the disk and memory with their free and used space, memory with its swap in use and CPU with its efficiency and performance cores' use, all read on the Mac; nothing is sent over the network.
 * **Freeze:** pause the process list to examine it while the CPU graph keeps running; while frozen, rest on a ↳ row to see what it is a helper of.
 * **Launch at login:** tick it in Preferences to open upMonitor when you log in.
-* **Highly Customizable:**
-    * **Granularity:** Monitor at the Package, Core, or Logical Processor level.
+* **Customizable:**
     * **Refresh Rates:** Choose between 2, 5, or 10 updates per second for ultra-responsive feedback (5 by default).
-    * **Visual Styles:** Switch between Bar and Dot styles to match your preference.
-    * **Appearance:** Choose from various color themes (including vibrant gradients) or a classic grey look.
-    * **Line Weights:** Adjust thickness and choose between solid or dashed lines.
     * **Top Processes:** Show 3, 5, 10 or 15 processes in the menu (5 by default).
 * **System Integration:** One-click access to the macOS native **Activity Monitor**.
 
