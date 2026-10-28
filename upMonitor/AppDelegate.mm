@@ -63,7 +63,7 @@
 #define SETTINGS_GROUP_WIDTH        (SETTINGS_WIDTH - 2.0*SETTINGS_INSET_X)
 #define SETTINGS_GROUP_RADIUS       (10.0)  // pt: a group's rounded corners
 #define SETTINGS_ROW_HEIGHT         (36.0)  // pt: one row of a group
-#define SETTINGS_ROW_INSET          (12.0)  // pt from a group's edges to a row's title and control, and to the lines between rows
+#define SETTINGS_ROW_INSET          (MENU_ROWS_SETTINGS_INSET)  // pt from a group's edges to a row's title and control, and to the lines between rows
 #define SETTINGS_TITLE_GAP          (8.0)   // pt kept between a row's title and its control
 #define SETTINGS_SECTION_GAP        (14.0)  // pt from one section to the next
 #define SETTINGS_HEADING_GAP        (6.0)   // pt from a heading to its group
@@ -654,9 +654,11 @@ NSSegmentedControl* MenuRowsSettingsChoice(NSArray<NSString*>* labels, CGFloat s
 
 #pragma mark - Settings window
 
-// a group of the Settings window: a rounded card, with a 1-pt line between its rows, each SETTINGS_ROW_HEIGHT tall
+// a group of the Settings window: a rounded card, with a 1-pt line between its rows, each SETTINGS_ROW_HEIGHT tall, or,
+// with rowViews, at the top of each row view after the first
 @interface SettingsGroupView : NSView
 @property (nonatomic, assign) NSInteger rowCount;
+@property (nonatomic, copy) NSArray<NSView*>* rowViews;
 @end
 
 @implementation SettingsGroupView
@@ -682,10 +684,38 @@ NSSegmentedControl* MenuRowsSettingsChoice(NSArray<NSString*>* labels, CGFloat s
   [card setLineWidth:1.0];
   [card stroke];
   [[NSColor separatorColor] setFill];
-  for (NSInteger n=1; n<self.rowCount; n++)
+  NSMutableArray<NSNumber*>* tops = [[NSMutableArray alloc] init];
+  if (self.rowViews != nil)
   {
-    NSRect line = NSMakeRect(SETTINGS_ROW_INSET, n*SETTINGS_ROW_HEIGHT - 0.5, NSWidth(self.bounds) - 2.0*SETTINGS_ROW_INSET, 1.0);
+    for (NSView* row in self.rowViews)
+    {
+      if (!row.hidden)
+      {
+        [tops addObject:@(NSMinY([self convertRect:row.bounds fromView:row]))];
+      }
+    }
+  }
+  else
+  {
+    for (NSInteger n=0; n<self.rowCount; n++)
+    {
+      [tops addObject:@(n*SETTINGS_ROW_HEIGHT)];
+    }
+  }
+  for (NSUInteger n=1; n<tops.count; n++)
+  {
+    NSRect line = NSMakeRect(SETTINGS_ROW_INSET, tops[n].doubleValue - 0.5, NSWidth(self.bounds) - 2.0*SETTINGS_ROW_INSET, 1.0);
     NSRectFillUsingOperation(line, NSCompositingOperationSourceOver);
+  }
+}
+
+// the rows' heights may change with their content: the lines are drawn again where they now are
+- (void)layout
+{
+  [super layout];
+  if (self.rowViews != nil)
+  {
+    [self setNeedsDisplay:YES];
   }
 }
 
@@ -699,6 +729,39 @@ static NSTextField* SettingsLabel(NSString* text, NSFont* font, NSColor* color)
   label.textColor = color;
   label.translatesAutoresizingMaskIntoConstraints = NO;
   return label;
+}
+
+NSTextField* MenuRowsSettingsHeading(NSString* title)
+{
+  return SettingsLabel(title, [NSFont systemFontOfSize:13.0 weight:NSFontWeightSemibold], [NSColor labelColor]);
+}
+
+NSView* MenuRowsSettingsCard(NSArray<NSView*>* rows)
+{
+  SettingsGroupView* card = [[SettingsGroupView alloc] init];
+  card.translatesAutoresizingMaskIntoConstraints = NO;
+  card.rowViews = rows;
+  // a stack, so that a hidden row takes no room (and gets no line)
+  NSStackView* stack = [NSStackView stackViewWithViews:rows];
+  stack.orientation = NSUserInterfaceLayoutOrientationVertical;
+  stack.alignment = NSLayoutAttributeLeading;
+  stack.spacing = 0.0;
+  stack.translatesAutoresizingMaskIntoConstraints = NO;
+  [card addSubview:stack];
+  NSMutableArray<NSLayoutConstraint*>* constraints = [[NSMutableArray alloc] init];
+  [constraints addObjectsFromArray:@[
+    [stack.topAnchor constraintEqualToAnchor:card.topAnchor],
+    [stack.bottomAnchor constraintEqualToAnchor:card.bottomAnchor],
+    [stack.leadingAnchor constraintEqualToAnchor:card.leadingAnchor],
+    [stack.trailingAnchor constraintEqualToAnchor:card.trailingAnchor],
+  ]];
+  for (NSView* row in rows)
+  {
+    row.translatesAutoresizingMaskIntoConstraints = NO;
+    [constraints addObject:[row.widthAnchor constraintEqualToAnchor:stack.widthAnchor]];
+  }
+  [NSLayoutConstraint activateConstraints:constraints];
+  return card;
 }
 
 // the entries of rows that are a pair @[NSString title, NSView control], in their order
@@ -1769,8 +1832,7 @@ static NSString* OthersRowText(int count)
     gap = gapAfter;
   };
   void (^heading)(NSString*) = ^(NSString* title) {
-    place(SettingsLabel(title, [NSFont systemFontOfSize:13.0 weight:NSFontWeightSemibold], [NSColor labelColor]),
-          SETTINGS_HEADING_INSET, SETTINGS_HEADING_GAP);
+    place(MenuRowsSettingsHeading(title), SETTINGS_HEADING_INSET, SETTINGS_HEADING_GAP);
   };
 
   // Demo: the previews from the window's nib side by side, as far apart from each other as from the card's edges,

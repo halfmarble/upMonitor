@@ -133,6 +133,19 @@ NSSwitch* MenuRowsSettingsSwitch(BOOL on, SEL action, id target);
 // wide, the segment at selected chosen (none when out of range), that sends action to target when a segment is chosen
 NSSegmentedControl* MenuRowsSettingsChoice(NSArray<NSString*>* labels, CGFloat segmentWidth, NSInteger selected, SEL action, id target);
 
+// pt from the sides of a Settings group to its rows' titles and controls, and to the lines between its rows
+#define MENU_ROWS_SETTINGS_INSET    (12.0)
+
+// a heading above a group, as the app's own in Settings: 13 pt semibold, in the label colour
+NSTextField* MenuRowsSettingsHeading(NSString* title);
+
+// a card drawn as the app's own Settings groups, for a window of the class's own: a rounded fill and border, the rows
+// stacked top to bottom at its full width, and a 1-pt line between two rows, MENU_ROWS_SETTINGS_INSET in from its
+// sides. Each row is the caller's view, laid out by constraints, as tall as its content makes it; the caller insets its
+// content by MENU_ROWS_SETTINGS_INSET. A hidden row takes no room and gets no line, and the lines follow the rows as
+// their heights change. The caller gives the card its width and its place; its height is the rows'
+NSView* MenuRowsSettingsCard(NSArray<NSView*>* rows);
+
 __END_DECLS
 
 NS_ASSUME_NONNULL_END
