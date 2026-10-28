@@ -70,7 +70,9 @@ NS_ASSUME_NONNULL_BEGIN
 // order the classes registered, each under its heading (none when settingsTitle is missing or empty). Each entry of
 // settingsRows is one row, @[title, control]: the title (an NSString) on the left in the app's label font, cut at the
 // control when too long, the control (an NSView) at the right, centred on the row. The class owns each control: its
-// target, action, state and its own defaults key; the app only places it, and is not told of a click. Make on/off
+// target, action, state and its own defaults key; the app only places it, and is not told of a click. The app names the
+// control by its title for VoiceOver unless the control has an accessibilityLabel of its own, and draws the title dimmed
+// while an NSControl is disabled (its enabled, set by the class, is followed as it changes). Make on/off
 // controls with MenuRowsSettingsSwitch and choices with MenuRowsSettingsChoice, so that they look like the app's own.
 // An entry that is not such a pair is skipped; with no row, there is no group and no buttons. settingsButtons are laid
 // out left to right below the group, the last at its right edge. A control that hides its class's bars makes

@@ -42,7 +42,7 @@
 
 #pragma mark Constants
 
-#define TOP_COUNT                   (15)    // the process rows the menu holds, the most Preferences offer
+#define TOP_COUNT                   (15)    // the process rows the menu holds, the most Settings offers
 #define TOP_REFRESH_RATE            (2.5)   // s between process samples, whatever the Refresh setting
 
 //   32 space bar  3.333984
@@ -720,8 +720,33 @@ static NSArray<NSArray*>* SettingsValidRows(id rows)
   return valid;
 }
 
+// a row's title follows its control: drawn in the label colour while the control is enabled, the tertiary label colour
+// while it is not. Kept in settingsTitleWatchers for the app's life, as the window and its controls are
+@interface SettingsTitleWatcher : NSObject
+@property (nonatomic, weak) NSTextField* title;
+@end
+
+@implementation SettingsTitleWatcher
+
+- (void)follow:(NSControl*)control
+{
+  self.title.textColor = control.enabled ? [NSColor labelColor] : [NSColor tertiaryLabelColor];
+}
+
+- (void)observeValueForKeyPath:(NSString*)keyPath ofObject:(id)object change:(NSDictionary*)change context:(void*)context
+{
+  (void)keyPath; (void)change; (void)context;
+  [self follow:(NSControl*)object];
+}
+
+@end
+
+static NSMutableArray<SettingsTitleWatcher*>* settingsTitleWatchers = nil;
+
 // a group of rows, each @[title, control], SETTINGS_ROW_HEIGHT tall: the title at the left, cut at the control when
-// too long, the control at the right, both centred on the row. A control with no size of its own keeps its frame's
+// too long, the control at the right, both centred on the row. The control is named by its title for VoiceOver (unless
+// it has a label of its own), and an NSControl's title dims while it is disabled. A control with no size of its own
+// keeps its frame's
 static SettingsGroupView* SettingsGroup(NSArray<NSArray*>* rows)
 {
   SettingsGroupView* group = [[SettingsGroupView alloc] init];
@@ -748,6 +773,22 @@ static SettingsGroupView* SettingsGroup(NSArray<NSArray*>* rows)
     }
     [group addSubview:title];
     [group addSubview:control];
+    if (control.accessibilityLabel.length == 0)
+    {
+      control.accessibilityLabel = rows[n][0];
+    }
+    if ([control isKindOfClass:[NSControl class]])
+    {
+      if (settingsTitleWatchers == nil)
+      {
+        settingsTitleWatchers = [[NSMutableArray alloc] init];
+      }
+      SettingsTitleWatcher* watcher = [[SettingsTitleWatcher alloc] init];
+      watcher.title = title;
+      [watcher follow:(NSControl*)control];
+      [control addObserver:watcher forKeyPath:@"enabled" options:0 context:NULL];
+      [settingsTitleWatchers addObject:watcher];
+    }
     CGFloat centre = n*SETTINGS_ROW_HEIGHT + SETTINGS_ROW_HEIGHT/2.0;
     [constraints addObjectsFromArray:@[
       [title.leadingAnchor constraintEqualToAnchor:group.leadingAnchor constant:SETTINGS_ROW_INSET],
@@ -1040,7 +1081,7 @@ static bool menuIsOpen = false;            // from menuWillOpen: to menuDidClose
 static bool baselineOnly = false;
 static bool topListValid = false;
 static int topCount = 0;
-static int topShown = TOP_COUNT;         // the process rows shown, from Preferences (TopRows)
+static int topShown = TOP_COUNT;         // the process rows shown, from Settings (TopRows)
 static TopOrder topOrder;                 // the order of the rows; TopOrderCpu (0) until set
 static int topOthersCount = 0;            // other users' processes at the last sample, whose CPU cannot be read
 static NSMenuItem* othersItem = nil;      // the row below the process rows that counts them
@@ -1845,6 +1886,10 @@ static NSString* OthersRowText(int count)
     [settings.topAnchor constraintEqualToAnchor:content.topAnchor],
     [settings.bottomAnchor constraintEqualToAnchor:content.bottomAnchor],
   ]];
+
+  // the Demo card has its width only now: space the previews in it before the window is first shown
+  [content layoutSubtreeIfNeeded];
+  [self placeDemoPreviews];
 }
 
 - (void)setupMenus
@@ -2844,14 +2889,14 @@ static NSString* TipPercents(NSString* text)
     [userDefaults synchronize];
 }
 
-// the refresh interval the Preferences offer: 0.1, 0.2 or 0.5 s; any other stored value counts as 0.2, the default
+// the refresh interval Settings offers: 0.1, 0.2 or 0.5 s; any other stored value counts as 0.2, the default
 static double RefreshInterval(void)
 {
   double interval = [[NSUserDefaults standardUserDefaults] doubleForKey:RefreshKey];
   return ((interval == 0.1) || (interval == 0.5)) ? interval : 0.2;
 }
 
-// the process rows the Preferences offer: 3, 5, 10 or 15; any other stored value counts as 5, the default
+// the process rows Settings offers: 3, 5, 10 or 15; any other stored value counts as 5, the default
 static int TopRows(void)
 {
   NSInteger rows = [[NSUserDefaults standardUserDefaults] integerForKey:TopRowsKey];
