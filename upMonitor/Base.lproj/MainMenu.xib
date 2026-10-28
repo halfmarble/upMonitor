@@ -15,11 +15,7 @@
         <customObject id="-3" userLabel="Application" customClass="NSObject"/>
         <customObject id="Voe-Tx-rLC" customClass="AppDelegate">
             <connections>
-                <outlet property="buildLabel" destination="Ty1-Ll-nkm" id="TsU-7X-aCD"/>
-                <outlet property="fastButton" destination="ee3-iy-z0D" id="Zx4-Eu-X3V"/>
                 <outlet property="flatDemoView" destination="XCP-O9-lhq" id="dVl-d1-hWZ"/>
-                <outlet property="loginButton" destination="i8L-og-Btn" id="i8L-og-Out"/>
-                <outlet property="normalButton" destination="kRS-mY-bve" id="0TT-N3-4ef"/>
                 <outlet property="procAppIcon" destination="AdB-FV-8nM" id="Hd4-J2-EEn"/>
                 <outlet property="procAppName" destination="bz2-4D-pPb" id="8jm-4m-ao6"/>
                 <outlet property="procAppView" destination="RyE-qN-E6o" id="IF1-QT-KoG"/>
@@ -28,13 +24,7 @@
                 <outlet property="procDescScrollView" destination="0gi-97-Fcr" id="x0z-Lb-nMg"/>
                 <outlet property="procDescTextView" destination="FTi-L5-byM" id="HWH-55-EPX"/>
                 <outlet property="realDemoView" destination="gVk-nX-pyM" id="HVq-Wx-Srz"/>
-                <outlet property="showBarsButton" destination="sB4-rs-Btn" id="sB4-rs-Out"/>
-                <outlet property="top3Button" destination="tpR-03-Btn" id="tpR-03-Out"/>
-                <outlet property="top5Button" destination="tpR-05-Btn" id="tpR-05-Out"/>
-                <outlet property="top10Button" destination="tpR-10-Btn" id="tpR-10-Out"/>
-                <outlet property="top15Button" destination="tpR-15-Btn" id="tpR-15-Out"/>
                 <outlet property="sineDemoView" destination="hg7-21-NjN" id="kcw-4f-9yd"/>
-                <outlet property="slowButton" destination="5i3-Hm-ue0" id="XAk-Bm-HkG"/>
                 <outlet property="top" destination="1WH-Xs-GJj" id="Hwj-3b-7mT"/>
                 <outlet property="window" destination="QvC-M9-y7g" id="gIp-Ho-8D9"/>
             </connections>
@@ -53,7 +43,7 @@
                                 </connections>
                             </menuItem>
                             <menuItem isSeparatorItem="YES" id="VOq-y0-SEH"/>
-                            <menuItem title="Preferences…" keyEquivalent="," id="BOF-NM-1cW">
+                            <menuItem title="Settings…" keyEquivalent="," id="BOF-NM-1cW">
                                 <connections>
                                     <action selector="openPreferences:" target="Voe-Tx-rLC" id="xqE-2a-E14"/>
                                 </connections>
@@ -706,7 +696,7 @@
             </items>
             <point key="canvasLocation" x="-238" y="-642"/>
         </menu>
-        <window title="upMonitor Preferences" allowsToolTipsWhenApplicationIsInactive="NO" autorecalculatesKeyViewLoop="NO" releasedWhenClosed="NO" visibleAtLaunch="NO" animationBehavior="default" id="QvC-M9-y7g">
+        <window title="upMonitor Settings" allowsToolTipsWhenApplicationIsInactive="NO" autorecalculatesKeyViewLoop="NO" releasedWhenClosed="NO" visibleAtLaunch="NO" animationBehavior="default" id="QvC-M9-y7g">
             <windowStyleMask key="styleMask" titled="YES" closable="YES"/>
             <windowPositionMask key="initialPositionMask" leftStrut="YES" rightStrut="YES" topStrut="YES" bottomStrut="YES"/>
             <rect key="contentRect" x="335" y="390" width="485" height="305"/>
@@ -730,198 +720,6 @@
                         <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
                         <imageCell key="cell" refusesFirstResponder="YES" alignment="left" imageScaling="proportionallyDown" image="NSStatusNone" id="eKa-Gu-4Ku"/>
                     </imageView>
-                    <box verticalHuggingPriority="750" boxType="separator" id="xqg-5L-Dw0">
-                        <rect key="frame" x="20" y="198" width="453" height="5"/>
-                        <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
-                    </box>
-                    <textField horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" textCompletion="NO" translatesAutoresizingMaskIntoConstraints="NO" id="qlE-63-n7D">
-                        <rect key="frame" x="191" y="225" width="101" height="14"/>
-                        <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
-                        <textFieldCell key="cell" controlSize="small" lineBreakMode="clipping" enabled="NO" alignment="center" title="(sine wave)" usesSingleLineMode="YES" id="PRL-zg-Rm2">
-                            <font key="font" metaFont="label" size="11"/>
-                            <color key="textColor" name="tertiaryLabelColor" catalog="System" colorSpace="catalog"/>
-                            <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
-                            <allowedInputSourceLocales>
-                                <string>NSAllRomanInputSourcesLocaleIdentifier</string>
-                            </allowedInputSourceLocales>
-                        </textFieldCell>
-                    </textField>
-                    <textField horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" textCompletion="NO" translatesAutoresizingMaskIntoConstraints="NO" id="r3Q-iK-9uo">
-                        <rect key="frame" x="324" y="225" width="96" height="14"/>
-                        <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
-                        <textFieldCell key="cell" controlSize="small" lineBreakMode="clipping" enabled="NO" alignment="center" title="(flat wave)" usesSingleLineMode="YES" id="QhX-Ay-8WL">
-                            <font key="font" metaFont="label" size="11"/>
-                            <color key="textColor" name="tertiaryLabelColor" catalog="System" colorSpace="catalog"/>
-                            <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
-                            <allowedInputSourceLocales>
-                                <string>NSAllRomanInputSourcesLocaleIdentifier</string>
-                            </allowedInputSourceLocales>
-                        </textFieldCell>
-                    </textField>
-                    <textField horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" textCompletion="NO" translatesAutoresizingMaskIntoConstraints="NO" id="dM0-lb-Txt">
-                        <rect key="frame" x="212" y="271" width="61" height="15"/>
-                        <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
-                        <textFieldCell key="cell" controlSize="small" lineBreakMode="clipping" enabled="NO" alignment="center" title="DEMO:" usesSingleLineMode="YES" id="dM0-lb-Cel">
-                            <font key="font" size="13" name="HelveticaNeue"/>
-                            <color key="textColor" name="secondaryLabelColor" catalog="System" colorSpace="catalog"/>
-                            <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
-                            <allowedInputSourceLocales>
-                                <string>NSAllRomanInputSourcesLocaleIdentifier</string>
-                            </allowedInputSourceLocales>
-                        </textFieldCell>
-                    </textField>
-                    <textField horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" textCompletion="NO" translatesAutoresizingMaskIntoConstraints="NO" id="XEL-e8-mXw">
-                        <rect key="frame" x="64" y="225" width="91" height="14"/>
-                        <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
-                        <textFieldCell key="cell" controlSize="small" lineBreakMode="clipping" enabled="NO" alignment="center" title="(real-time CPU)" usesSingleLineMode="YES" id="hZS-xm-32n">
-                            <font key="font" metaFont="label" size="11"/>
-                            <color key="textColor" name="tertiaryLabelColor" catalog="System" colorSpace="catalog"/>
-                            <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
-                            <allowedInputSourceLocales>
-                                <string>NSAllRomanInputSourcesLocaleIdentifier</string>
-                            </allowedInputSourceLocales>
-                        </textFieldCell>
-                    </textField>
-                    <textField horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" textCompletion="NO" translatesAutoresizingMaskIntoConstraints="NO" id="uiN-8J-93j">
-                        <rect key="frame" x="29" y="169" width="57" height="15"/>
-                        <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
-                        <textFieldCell key="cell" controlSize="small" lineBreakMode="clipping" enabled="NO" alignment="center" title="Refresh:" usesSingleLineMode="YES" id="iIJ-n4-xzF">
-                            <font key="font" size="13" name="HelveticaNeue"/>
-                            <color key="textColor" name="secondaryLabelColor" catalog="System" colorSpace="catalog"/>
-                            <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
-                            <allowedInputSourceLocales>
-                                <string>NSAllRomanInputSourcesLocaleIdentifier</string>
-                            </allowedInputSourceLocales>
-                        </textFieldCell>
-                    </textField>
-                    <button verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="ee3-iy-z0D">
-                        <rect key="frame" x="140" y="168" width="109" height="18"/>
-                        <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
-                        <buttonCell key="cell" type="radio" title="10 times a sec" bezelStyle="regularSquare" imagePosition="left" alignment="left" state="on" inset="2" id="B5c-f7-zWW">
-                            <behavior key="behavior" changeContents="YES" doesNotDimImage="YES" lightByContents="YES"/>
-                            <font key="font" metaFont="system"/>
-                        </buttonCell>
-                        <connections>
-                            <action selector="fastButtonClicked:" target="Voe-Tx-rLC" id="Fpu-nh-cCE"/>
-                        </connections>
-                    </button>
-                    <button verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="kRS-mY-bve">
-                        <rect key="frame" x="255" y="168" width="103" height="18"/>
-                        <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
-                        <buttonCell key="cell" type="radio" title="5 times a sec" bezelStyle="regularSquare" imagePosition="left" alignment="left" inset="2" id="dWA-Sg-kFi">
-                            <behavior key="behavior" changeContents="YES" doesNotDimImage="YES" lightByContents="YES"/>
-                            <font key="font" metaFont="system"/>
-                        </buttonCell>
-                        <connections>
-                            <action selector="normalButtonClicked:" target="Voe-Tx-rLC" id="uqa-i3-ktj"/>
-                        </connections>
-                    </button>
-                    <button verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="5i3-Hm-ue0">
-                        <rect key="frame" x="364" y="168" width="103" height="18"/>
-                        <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
-                        <buttonCell key="cell" type="radio" title="2 times a sec" bezelStyle="regularSquare" imagePosition="left" alignment="left" inset="2" id="62R-Ze-Hy4">
-                            <behavior key="behavior" changeContents="YES" doesNotDimImage="YES" lightByContents="YES"/>
-                            <font key="font" metaFont="system"/>
-                        </buttonCell>
-                        <connections>
-                            <action selector="slowButtonClicked:" target="Voe-Tx-rLC" id="318-x9-jLZ"/>
-                        </connections>
-                    </button>
-                    <box verticalHuggingPriority="750" boxType="separator" id="i8S-ep-L0g">
-                        <rect key="frame" x="20" y="125" width="453" height="5"/>
-                        <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
-                    </box>
-                    <textField horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" textCompletion="NO" translatesAutoresizingMaskIntoConstraints="NO" id="tpL-ab-Lbl">
-                        <rect key="frame" x="29" y="143" width="98" height="15"/>
-                        <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
-                        <textFieldCell key="cell" controlSize="small" lineBreakMode="clipping" enabled="NO" alignment="center" title="Top processes:" usesSingleLineMode="YES" id="tpL-ab-Cel">
-                            <font key="font" size="13" name="HelveticaNeue"/>
-                            <color key="textColor" name="secondaryLabelColor" catalog="System" colorSpace="catalog"/>
-                            <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
-                            <allowedInputSourceLocales>
-                                <string>NSAllRomanInputSourcesLocaleIdentifier</string>
-                            </allowedInputSourceLocales>
-                        </textFieldCell>
-                    </textField>
-                    <button verticalHuggingPriority="750" fixedFrame="YES" tag="3" translatesAutoresizingMaskIntoConstraints="NO" id="tpR-03-Btn">
-                        <rect key="frame" x="140" y="142" width="32" height="18"/>
-                        <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
-                        <buttonCell key="cell" type="radio" title="3" bezelStyle="regularSquare" imagePosition="left" alignment="left" tag="3" inset="2" id="tpR-03-Cel">
-                            <behavior key="behavior" changeContents="YES" doesNotDimImage="YES" lightByContents="YES"/>
-                            <font key="font" metaFont="system"/>
-                        </buttonCell>
-                        <connections>
-                            <action selector="topRowsButtonClicked:" target="Voe-Tx-rLC" id="tpR-03-Act"/>
-                        </connections>
-                    </button>
-                    <button verticalHuggingPriority="750" fixedFrame="YES" tag="5" translatesAutoresizingMaskIntoConstraints="NO" id="tpR-05-Btn">
-                        <rect key="frame" x="233" y="142" width="32" height="18"/>
-                        <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
-                        <buttonCell key="cell" type="radio" title="5" bezelStyle="regularSquare" imagePosition="left" alignment="left" tag="5" inset="2" id="tpR-05-Cel">
-                            <behavior key="behavior" changeContents="YES" doesNotDimImage="YES" lightByContents="YES"/>
-                            <font key="font" metaFont="system"/>
-                        </buttonCell>
-                        <connections>
-                            <action selector="topRowsButtonClicked:" target="Voe-Tx-rLC" id="tpR-05-Act"/>
-                        </connections>
-                    </button>
-                    <button verticalHuggingPriority="750" fixedFrame="YES" tag="10" translatesAutoresizingMaskIntoConstraints="NO" id="tpR-10-Btn">
-                        <rect key="frame" x="326" y="142" width="40" height="18"/>
-                        <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
-                        <buttonCell key="cell" type="radio" title="10" bezelStyle="regularSquare" imagePosition="left" alignment="left" tag="10" inset="2" id="tpR-10-Cel">
-                            <behavior key="behavior" changeContents="YES" doesNotDimImage="YES" lightByContents="YES"/>
-                            <font key="font" metaFont="system"/>
-                        </buttonCell>
-                        <connections>
-                            <action selector="topRowsButtonClicked:" target="Voe-Tx-rLC" id="tpR-10-Act"/>
-                        </connections>
-                    </button>
-                    <button verticalHuggingPriority="750" fixedFrame="YES" tag="15" translatesAutoresizingMaskIntoConstraints="NO" id="tpR-15-Btn">
-                        <rect key="frame" x="427" y="142" width="40" height="18"/>
-                        <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
-                        <buttonCell key="cell" type="radio" title="15" bezelStyle="regularSquare" imagePosition="left" alignment="left" tag="15" inset="2" id="tpR-15-Cel">
-                            <behavior key="behavior" changeContents="YES" doesNotDimImage="YES" lightByContents="YES"/>
-                            <font key="font" metaFont="system"/>
-                        </buttonCell>
-                        <connections>
-                            <action selector="topRowsButtonClicked:" target="Voe-Tx-rLC" id="tpR-15-Act"/>
-                        </connections>
-                    </button>
-                    <box verticalHuggingPriority="750" boxType="separator" id="bS2-ep-L0g">
-                        <rect key="frame" x="20" y="78" width="453" height="5"/>
-                        <autoresizingMask key="autoresizingMask" flexibleMaxY="YES"/>
-                    </box>
-                    <button verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="i8L-og-Btn">
-                        <rect key="frame" x="30" y="48" width="120" height="18"/>
-                        <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMaxY="YES"/>
-                        <buttonCell key="cell" type="check" title="Launch at login" bezelStyle="regularSquare" imagePosition="left" alignment="left" inset="2" id="i8L-og-Cel">
-                            <behavior key="behavior" changeContents="YES" doesNotDimImage="YES" lightByContents="YES"/>
-                            <font key="font" metaFont="system"/>
-                        </buttonCell>
-                        <connections>
-                            <action selector="loginButtonClicked:" target="Voe-Tx-rLC" id="i8L-og-Act"/>
-                        </connections>
-                    </button>
-                    <button verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="sB4-rs-Btn">
-                        <rect key="frame" x="30" y="95" width="283" height="18"/>
-                        <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
-                        <buttonCell key="cell" type="check" title="Show Disk, RAM, CPU, E-core, P-core bars" bezelStyle="regularSquare" imagePosition="left" alignment="left" inset="2" id="sB4-rs-Cel">
-                            <behavior key="behavior" changeContents="YES" doesNotDimImage="YES" lightByContents="YES"/>
-                            <font key="font" metaFont="system"/>
-                        </buttonCell>
-                        <connections>
-                            <action selector="showBarsButtonClicked:" target="Voe-Tx-rLC" id="sB4-rs-Act"/>
-                        </connections>
-                    </button>
-                    <textField horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" textCompletion="NO" translatesAutoresizingMaskIntoConstraints="NO" id="Ty1-Ll-nkm">
-                        <rect key="frame" x="18" y="20" width="449" height="14"/>
-                        <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMaxY="YES"/>
-                        <textFieldCell key="cell" controlSize="small" lineBreakMode="clipping" enabled="NO" alignment="center" title="b2048" usesSingleLineMode="YES" id="kQR-fT-WjZ">
-                            <font key="font" metaFont="label" size="11"/>
-                            <color key="textColor" name="tertiaryLabelColor" catalog="System" colorSpace="catalog"/>
-                            <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
-                        </textFieldCell>
-                    </textField>
                 </subviews>
             </view>
             <point key="canvasLocation" x="-226.5" y="-80.5"/>

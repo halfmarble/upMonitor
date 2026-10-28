@@ -37,10 +37,6 @@
 @property (weak) IBOutlet NSButton *coreButton;
 @property (weak) IBOutlet NSButton *logicalButton;
 
-@property (weak) IBOutlet NSButton *fastButton;
-@property (weak) IBOutlet NSButton *normalButton;
-@property (weak) IBOutlet NSButton *slowButton;
-
 @property (weak) IBOutlet NSButton *barButton;
 @property (weak) IBOutlet NSButton *dotButton;
 
@@ -57,16 +53,6 @@
 @property (weak) IBOutlet NSButton *yellowButton;
 @property (weak) IBOutlet NSButton *greenButton;
 @property (weak) IBOutlet NSButton *blueButton;
-
-@property (weak) IBOutlet NSButton *loginButton;
-@property (weak) IBOutlet NSButton *showBarsButton;
-
-@property (weak) IBOutlet NSButton *top3Button;
-@property (weak) IBOutlet NSButton *top5Button;
-@property (weak) IBOutlet NSButton *top10Button;
-@property (weak) IBOutlet NSButton *top15Button;
-
-@property (weak) IBOutlet NSTextField *buildLabel;
 
 @property (nonatomic, strong, readwrite) NSStatusItem *statusItem;
 

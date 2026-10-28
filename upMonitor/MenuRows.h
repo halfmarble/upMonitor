@@ -28,7 +28,7 @@ NS_ASSUME_NONNULL_BEGIN
 // class that adopts MenuRows registers itself with MenuRowsRegister from its +load; upMonitor makes one instance of
 // each when it builds the menu and adds its rows, then a separator, and its panel rows, any of them a heading, as a
 // section of their own. It may also add views to the process inspector's header, bars to the menu bar, at the right of
-// the core graph, with a mark, a tint, an alert, a group and a width per bar, and check boxes to the Preferences
+// the core graph, with a mark, a tint, an alert, a group and a width per bar, and a group of rows to the Settings
 // window.
 // Everything here runs on the main thread, +load aside.
 @protocol MenuRows <NSObject>
@@ -65,16 +65,19 @@ NS_ASSUME_NONNULL_BEGIN
 // each bar's text, in the same order, shown below it while the pointer rests on it ("Title: value"); read when the
 // label shows and every 0.25 s while it is shown. A missing or empty text shows no label
 - (NSArray<NSString*>*)barLabels;
-// check boxes for the Preferences window, made once: the app asks for them once, right after it has made the menus,
-// before the window is first shown. The class owns each box: its title, target, action, state and its own defaults key;
-// the app only places it, and is not told of a click. The app's own "Show Disk, RAM, CPU, E-core, P-core bars" is the
-// first box; these take the places after it, two to a row, left column then right, so the first one sits to the right
-// of the app's box on the same row and the later ones on rows below, in the order the classes registered and then in
-// each array's order; the app gives each the font and size of its own box and fits its width. The right column starts
-// 20 pt after the app's box, with about 130 pt of room, and a wider title is cut. Each row after the first adds 22 pt to the
-// window's height. An entry that is not an NSButton is skipped. A box that hides its class's bars makes barReadings
-// (and barLabels) return none while it is off, and the status item follows at the next tick of the graph
-- (NSArray<NSButton*>*)preferenceCheckboxes;
+// the class's group in the Settings window, asked once, right after the app has made the menus, before the window is
+// first shown: its heading, its rows and the buttons below it. The groups follow the app's "Menu bar" group, in the
+// order the classes registered, each under its heading (none when settingsTitle is missing or empty). Each entry of
+// settingsRows is one row, @[title, control]: the title (an NSString) on the left in the app's label font, cut at the
+// control when too long, the control (an NSView) at the right, centred on the row. The class owns each control: its
+// target, action, state and its own defaults key; the app only places it, and is not told of a click. Make on/off
+// controls with MenuRowsSettingsSwitch and choices with MenuRowsSettingsChoice, so that they look like the app's own.
+// An entry that is not such a pair is skipped; with no row, there is no group and no buttons. settingsButtons are laid
+// out left to right below the group, the last at its right edge. A control that hides its class's bars makes
+// barReadings (and barLabels) return none while it is off, and the status item follows at the next tick of the graph
+- (NSString*)settingsTitle;
+- (NSArray<NSArray*>*)settingsRows;
+- (NSArray<NSButton*>*)settingsButtons;
 // each bar's mark, in the same order as barReadings: a share of the bar's height, 0..1 (above 1 at the top row; near 0
 // on its lowest row), shown by a 1-pt line across the bar at that height, drawn over the dashes, white on a dark menu
 // bar and black on a light one; 0 or below, an entry that is not a number, a missing entry or a bar not read: none.
@@ -119,6 +122,14 @@ void MenuRowsRegister(Class<MenuRows> rowsClass);
 // a row that a click leaves open: it sends action to target on mouse-up (and on VoiceOver's press), drawn as a
 // native row; disabled, it is grey and a click does nothing
 NSMenuItem* MenuRowsStayOpenItem(NSString* title, SEL action, id target, NSDictionary<NSAttributedStringKey, id>* attributes);
+
+// a Settings row's on/off control, as the app's own: a mini switch, on or off, that sends action to target when it is
+// clicked
+NSSwitch* MenuRowsSettingsSwitch(BOOL on, SEL action, id target);
+
+// a Settings row's choice, as the app's own: a segmented control with one segment per label, each segmentWidth pt
+// wide, the segment at selected chosen (none when out of range), that sends action to target when a segment is chosen
+NSSegmentedControl* MenuRowsSettingsChoice(NSArray<NSString*>* labels, CGFloat segmentWidth, NSInteger selected, SEL action, id target);
 
 __END_DECLS
 

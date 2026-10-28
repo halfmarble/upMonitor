@@ -57,9 +57,21 @@
 #define INSPECTOR_MARGIN            (20.0)  // pt: the icon's own left margin
 #define INSPECTOR_GAP               (8.0)   // pt between two of the header's views
 #define INSPECTOR_LINE              (16.0)  // pt: one line of the header's text
-#define PREFS_BOX_GAP               (20.0)  // pt from the app's own preferences checkbox to the right column
-#define PREFS_BOX_ROW               (22.0)  // pt from one row of preferences checkboxes to the next
-#define PREFS_BOX_MARGIN            (20.0)  // pt kept clear at the window's right edge
+#define SETTINGS_WIDTH              (485.0) // pt: the Settings window's content width
+#define SETTINGS_INSET_X            (20.0)  // pt from the window's left and right edges to the groups
+#define SETTINGS_INSET_Y            (14.0)  // pt above the first heading and below the build number
+#define SETTINGS_GROUP_WIDTH        (SETTINGS_WIDTH - 2.0*SETTINGS_INSET_X)
+#define SETTINGS_GROUP_RADIUS       (10.0)  // pt: a group's rounded corners
+#define SETTINGS_ROW_HEIGHT         (36.0)  // pt: one row of a group
+#define SETTINGS_ROW_INSET          (12.0)  // pt from a group's edges to a row's title and control, and to the lines between rows
+#define SETTINGS_TITLE_GAP          (8.0)   // pt kept between a row's title and its control
+#define SETTINGS_SECTION_GAP        (14.0)  // pt from one section to the next
+#define SETTINGS_HEADING_GAP        (6.0)   // pt from a heading to its group
+#define SETTINGS_HEADING_INSET      (4.0)   // pt from a group's left edge to its heading
+#define SETTINGS_BUTTONS_GAP        (8.0)   // pt from a group to the buttons below it, and between two of them
+#define SETTINGS_BUILD_GAP          (10.0)  // pt from the last group to the build number
+#define SETTINGS_DEMO_HEIGHT        (72.0)  // pt: the Demo card
+#define SETTINGS_DEMO_CAPTION_GAP   (6.0)   // pt from a preview to its caption
 #define MENU_FONT_NAME              @"IBMPlexMono" // IBM Plex Mono Regular, in the app's Resources, registered at launch
 #define MENU_FONT(points)           ([NSFont fontWithName:MENU_FONT_NAME size:(points)] ?: [NSFont monospacedSystemFontOfSize:(points) weight:NSFontWeightRegular])
 #define MENU_TITLE_FONT_NAME        @"Verdana"
@@ -615,6 +627,143 @@ NSMenuItem* MenuRowsStayOpenItem(NSString* title, SEL action, id target, NSDicti
   return item;
 }
 
+NSSwitch* MenuRowsSettingsSwitch(BOOL on, SEL action, id target)
+{
+  NSSwitch* control = [[NSSwitch alloc] init];
+  control.controlSize = NSControlSizeMini;
+  control.state = on ? NSControlStateValueOn : NSControlStateValueOff;
+  control.target = target;
+  control.action = action;
+  [control sizeToFit];
+  return control;
+}
+
+NSSegmentedControl* MenuRowsSettingsChoice(NSArray<NSString*>* labels, CGFloat segmentWidth, NSInteger selected, SEL action, id target)
+{
+  NSSegmentedControl* control = [NSSegmentedControl segmentedControlWithLabels:labels trackingMode:NSSegmentSwitchTrackingSelectOne target:target action:action];
+  control.controlSize = NSControlSizeRegular;
+  control.segmentDistribution = NSSegmentDistributionFillEqually;
+  for (NSInteger n=0; n<control.segmentCount; n++)
+  {
+    [control setWidth:segmentWidth forSegment:n];
+  }
+  control.selectedSegment = ((selected >= 0) && (selected < control.segmentCount)) ? selected : -1;
+  [control sizeToFit];
+  return control;
+}
+
+#pragma mark - Settings window
+
+// a group of the Settings window: a rounded card, with a 1-pt line between its rows, each SETTINGS_ROW_HEIGHT tall
+@interface SettingsGroupView : NSView
+@property (nonatomic, assign) NSInteger rowCount;
+@end
+
+@implementation SettingsGroupView
+
+- (BOOL)isFlipped
+{
+  return YES;
+}
+
+- (void)drawRect:(NSRect)dirtyRect
+{
+  static NSColor* fill = nil;
+  if (fill == nil)
+  {
+    fill = [NSColor colorWithName:nil dynamicProvider:^NSColor*(NSAppearance* appearance) {
+      return [NSColor colorWithWhite:1.0 alpha:IsLight(appearance) ? 0.6 : 0.05];
+    }];
+  }
+  NSBezierPath* card = [NSBezierPath bezierPathWithRoundedRect:NSInsetRect(self.bounds, 0.5, 0.5) xRadius:SETTINGS_GROUP_RADIUS yRadius:SETTINGS_GROUP_RADIUS];
+  [fill setFill];
+  [card fill];
+  [[NSColor separatorColor] setStroke];
+  [card setLineWidth:1.0];
+  [card stroke];
+  [[NSColor separatorColor] setFill];
+  for (NSInteger n=1; n<self.rowCount; n++)
+  {
+    NSRect line = NSMakeRect(SETTINGS_ROW_INSET, n*SETTINGS_ROW_HEIGHT - 0.5, NSWidth(self.bounds) - 2.0*SETTINGS_ROW_INSET, 1.0);
+    NSRectFillUsingOperation(line, NSCompositingOperationSourceOver);
+  }
+}
+
+@end
+
+// a label of the Settings window, laid out by constraints
+static NSTextField* SettingsLabel(NSString* text, NSFont* font, NSColor* color)
+{
+  NSTextField* label = [NSTextField labelWithString:text];
+  label.font = font;
+  label.textColor = color;
+  label.translatesAutoresizingMaskIntoConstraints = NO;
+  return label;
+}
+
+// the entries of rows that are a pair @[NSString title, NSView control], in their order
+static NSArray<NSArray*>* SettingsValidRows(id rows)
+{
+  NSMutableArray<NSArray*>* valid = [[NSMutableArray alloc] init];
+  if (![rows isKindOfClass:[NSArray class]])
+  {
+    return valid;
+  }
+  for (id row in (NSArray*)rows)
+  {
+    if ([row isKindOfClass:[NSArray class]] && ([(NSArray*)row count] == 2) &&
+        [((NSArray*)row)[0] isKindOfClass:[NSString class]] && [((NSArray*)row)[1] isKindOfClass:[NSView class]])
+    {
+      [valid addObject:row];
+    }
+  }
+  return valid;
+}
+
+// a group of rows, each @[title, control], SETTINGS_ROW_HEIGHT tall: the title at the left, cut at the control when
+// too long, the control at the right, both centred on the row. A control with no size of its own keeps its frame's
+static SettingsGroupView* SettingsGroup(NSArray<NSArray*>* rows)
+{
+  SettingsGroupView* group = [[SettingsGroupView alloc] init];
+  group.translatesAutoresizingMaskIntoConstraints = NO;
+  group.rowCount = (NSInteger)rows.count;
+  NSMutableArray<NSLayoutConstraint*>* constraints = [[NSMutableArray alloc] init];
+  [constraints addObject:[group.widthAnchor constraintEqualToConstant:SETTINGS_GROUP_WIDTH]];
+  [constraints addObject:[group.heightAnchor constraintEqualToConstant:rows.count*SETTINGS_ROW_HEIGHT]];
+  for (NSUInteger n=0; n<rows.count; n++)
+  {
+    NSTextField* title = SettingsLabel(rows[n][0], [NSFont systemFontOfSize:13.0], [NSColor labelColor]);
+    title.lineBreakMode = NSLineBreakByTruncatingTail;
+    [title setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
+    NSView* control = rows[n][1];
+    NSSize size = control.frame.size;
+    control.translatesAutoresizingMaskIntoConstraints = NO;
+    if (control.intrinsicContentSize.width == NSViewNoIntrinsicMetric)
+    {
+      [constraints addObject:[control.widthAnchor constraintEqualToConstant:size.width]];
+    }
+    if (control.intrinsicContentSize.height == NSViewNoIntrinsicMetric)
+    {
+      [constraints addObject:[control.heightAnchor constraintEqualToConstant:size.height]];
+    }
+    [group addSubview:title];
+    [group addSubview:control];
+    CGFloat centre = n*SETTINGS_ROW_HEIGHT + SETTINGS_ROW_HEIGHT/2.0;
+    [constraints addObjectsFromArray:@[
+      [title.leadingAnchor constraintEqualToAnchor:group.leadingAnchor constant:SETTINGS_ROW_INSET],
+      [title.centerYAnchor constraintEqualToAnchor:group.topAnchor constant:centre],
+      [title.trailingAnchor constraintLessThanOrEqualToAnchor:control.leadingAnchor constant:-SETTINGS_TITLE_GAP],
+      [control.trailingAnchor constraintEqualToAnchor:group.trailingAnchor constant:-SETTINGS_ROW_INSET],
+      [control.centerYAnchor constraintEqualToAnchor:group.topAnchor constant:centre],
+    ]];
+  }
+  [NSLayoutConstraint activateConstraints:constraints];
+  return group;
+}
+
+// the Demo card's captions' horizontal centres, which placeDemoPreviews moves with their previews
+static NSLayoutConstraint* demoCaptionCentres[3] = {nil, nil, nil};
+
 #pragma mark - Process icons
 
 typedef NS_ENUM(NSInteger, ProcessIconRule)
@@ -980,6 +1129,33 @@ static std::vector<NSUInteger> extraBarItem;  // and its index in that class's b
 
 static float speed = 1.0f;
 
+// the app's own Settings controls, made by setupSettings
+static NSSegmentedControl* refreshChoice = nil;  // Refresh: 10, 5 or 2 times a second
+static NSSegmentedControl* topRowsChoice = nil;  // Top processes: its segments' counts are topRowsChoices
+static NSSwitch* showBarsSwitch = nil;           // Show Disk, RAM, CPU, E-core, P-core bars
+static NSSwitch* loginSwitch = nil;              // Launch at login
+static const int topRowsChoices[] = {3, 5, 10, TOP_COUNT};
+#define TOP_ROWS_CHOICES (sizeof(topRowsChoices)/sizeof(topRowsChoices[0]))
+
+// the Refresh segment of the current speed (ten times the interval): 0.1, 0.2 or 0.5 s
+static NSInteger RefreshChoiceIndex(void)
+{
+  return (speed == 1.0f) ? 0 : ((speed == 2.0f) ? 1 : 2);
+}
+
+// the Top processes segment of the rows shown, -1 for none
+static NSInteger TopRowsChoiceIndex(void)
+{
+  for (NSUInteger n=0; n<TOP_ROWS_CHOICES; n++)
+  {
+    if (topRowsChoices[n] == topShown)
+    {
+      return (NSInteger)n;
+    }
+  }
+  return -1;
+}
+
 static NSDictionary* attributesStandard = nil;
 static NSDictionary* attributesPad = nil;      // the hair spaces that pad a process row's columns
 static NSDictionary* attributesGrey = nil;
@@ -1124,10 +1300,6 @@ static NSMutableSet<NSTask*>* runningTasks = nil;
   [self.standardButton setState:NSControlStateValueOff];
   [self.thickButton setState:NSControlStateValueOff];
   
-  [self.fastButton setState:NSControlStateValueOff];
-  [self.normalButton setState:NSControlStateValueOff];
-  [self.slowButton setState:NSControlStateValueOff];
-  
   [self.greyButton setState:NSControlStateValueOff];
   [self.colorButton setState:NSControlStateValueOff];
   
@@ -1135,12 +1307,8 @@ static NSMutableSet<NSTask*>* runningTasks = nil;
   [self.greenButton setState:NSControlStateValueOff];
   [self.blueButton setState:NSControlStateValueOff];
 
-  [self.showBarsButton setState:showBars ? NSControlStateValueOn : NSControlStateValueOff];
-
-  [self.top3Button setState:(topShown == 3) ? NSControlStateValueOn : NSControlStateValueOff];
-  [self.top5Button setState:(topShown == 5) ? NSControlStateValueOn : NSControlStateValueOff];
-  [self.top10Button setState:(topShown == 10) ? NSControlStateValueOn : NSControlStateValueOff];
-  [self.top15Button setState:(topShown == 15) ? NSControlStateValueOn : NSControlStateValueOff];
+  showBarsSwitch.state = showBars ? NSControlStateValueOn : NSControlStateValueOff;
+  topRowsChoice.selectedSegment = TopRowsChoiceIndex();
     
   if (granularity == 0)
   {
@@ -1224,18 +1392,7 @@ static NSMutableSet<NSTask*>* runningTasks = nil;
     [self.thickButton setState:NSControlStateValueOn];
   }
   
-  if (speed == 1.0)
-  {
-    [self.fastButton setState:NSControlStateValueOn];
-  }
-  else if (speed == 2.0)
-  {
-    [self.normalButton setState:NSControlStateValueOn];
-  }
-  else
-  {
-    [self.slowButton setState:NSControlStateValueOn];
-  }
+  refreshChoice.selectedSegment = RefreshChoiceIndex();
   
   if (!colored)
   {
@@ -1546,56 +1703,148 @@ static NSString* OthersRowText(int count)
   [menu update];
 }
 
-// the checkboxes the MenuRows classes add to Preferences, after "Show Disk, RAM, CPU, E-core, P-core bars": two to a
-// row, the app's own box and then each class's in registration order, left then right. The right column starts PREFS_BOX_GAP
-// after the app's box and ends PREFS_BOX_MARGIN short of the window's right edge, a wider title is cut; each row after
-// the first adds PREFS_BOX_ROW to the window, whose views keep their place from the top or the bottom by their
-// autoresizing masks. A class owns its box (title, target, action, state, defaults key); the app only places it and is
-// never told of a click. Called once, after setupMenus, which makes menuRows
-- (void)setupPreferenceCheckboxes
+// the Settings window, built once, after setupMenus, which makes menuRows. Top to bottom: the Demo card with the three
+// previews, the "Menu bar" group, then each MenuRows class's group in registration order, under its heading and above
+// its buttons, then "Launch at login" and the build number. A class owns its controls (target, action, state, defaults
+// key); the app only places them and is never told of a click. The window then takes the content's fitting size
+- (void)setupSettings
 {
-  NSMutableArray<NSButton*>* boxes = [[NSMutableArray alloc] init];
+  NSView* content = self.window.contentView;
+  NSView* settings = [[NSView alloc] init];
+  settings.translatesAutoresizingMaskIntoConstraints = NO;
+  [content addSubview:settings];
+  NSMutableArray<NSLayoutConstraint*>* constraints = [[NSMutableArray alloc] init];
+  [constraints addObject:[settings.widthAnchor constraintEqualToConstant:SETTINGS_WIDTH]];
+
+  // each view goes under the one before it, gap below it, indent in from the groups' left edge
+  __block NSLayoutYAxisAnchor* below = settings.topAnchor;
+  __block CGFloat gap = SETTINGS_INSET_Y;
+  void (^place)(NSView*, CGFloat, CGFloat) = ^(NSView* view, CGFloat indent, CGFloat gapAfter) {
+    view.translatesAutoresizingMaskIntoConstraints = NO;
+    [settings addSubview:view];
+    [constraints addObject:[view.topAnchor constraintEqualToAnchor:below constant:gap]];
+    [constraints addObject:[view.leadingAnchor constraintEqualToAnchor:settings.leadingAnchor constant:SETTINGS_INSET_X + indent]];
+    below = view.bottomAnchor;
+    gap = gapAfter;
+  };
+  void (^heading)(NSString*) = ^(NSString* title) {
+    place(SettingsLabel(title, [NSFont systemFontOfSize:13.0 weight:NSFontWeightSemibold], [NSColor labelColor]),
+          SETTINGS_HEADING_INSET, SETTINGS_HEADING_GAP);
+  };
+
+  // Demo: the previews from the window's nib side by side, as far apart from each other as from the card's edges,
+  // each with its caption under it, the previews and captions together centred on the card's height; placeDemoPreviews
+  // spaces them again whenever a render changes a preview's width
+  heading(@"Demo");
+  SettingsGroupView* demo = [[SettingsGroupView alloc] init];
+  [constraints addObject:[demo.widthAnchor constraintEqualToConstant:SETTINGS_GROUP_WIDTH]];
+  [constraints addObject:[demo.heightAnchor constraintEqualToConstant:SETTINGS_DEMO_HEIGHT]];
+  place(demo, 0.0, SETTINGS_SECTION_GAP);
+  NSArray<NSImageView*>* previews = @[self.realDemoView, self.sineDemoView, self.flatDemoView];
+  NSArray<NSString*>* captions = @[@"real-time CPU", @"sine wave", @"flat wave"];
+  for (int n=0; n<3; n++)
+  {
+    NSImageView* preview = previews[n];
+    // added without a removeFromSuperview first: the outlets are weak, and the card takes the view from the window
+    [demo addSubview:preview];
+    preview.translatesAutoresizingMaskIntoConstraints = YES;
+    preview.autoresizingMask = NSViewNotSizable;
+    NSTextField* caption = SettingsLabel(captions[n], [NSFont systemFontOfSize:11.0], [NSColor secondaryLabelColor]);
+    [demo addSubview:caption];
+    CGFloat top = floor((SETTINGS_DEMO_HEIGHT - (tickHeight + SETTINGS_DEMO_CAPTION_GAP + caption.fittingSize.height))/2.0);
+    [preview setFrameOrigin:NSMakePoint(NSMinX(preview.frame), top)];
+    demoCaptionCentres[n] = [caption.centerXAnchor constraintEqualToAnchor:demo.leadingAnchor constant:0.0];
+    [constraints addObject:demoCaptionCentres[n]];
+    [constraints addObject:[caption.topAnchor constraintEqualToAnchor:demo.topAnchor constant:top + tickHeight + SETTINGS_DEMO_CAPTION_GAP]];
+  }
+  [self placeDemoPreviews];
+
+  // Menu bar
+  heading(@"Menu bar");
+  refreshChoice = MenuRowsSettingsChoice(@[@"10 a sec", @"5 a sec", @"2 a sec"], 66.0, RefreshChoiceIndex(), @selector(refreshChoiceChanged:), self);
+  NSMutableArray<NSString*>* topLabels = [[NSMutableArray alloc] init];
+  for (NSUInteger n=0; n<TOP_ROWS_CHOICES; n++)
+  {
+    [topLabels addObject:[NSString stringWithFormat:@"%d", topRowsChoices[n]]];
+  }
+  topRowsChoice = MenuRowsSettingsChoice(topLabels, 44.0, TopRowsChoiceIndex(), @selector(topRowsChoiceChanged:), self);
+  showBarsSwitch = MenuRowsSettingsSwitch(showBars, @selector(showBarsButtonClicked:), self);
+  place(SettingsGroup(@[@[@"Refresh", refreshChoice],
+                        @[@"Top processes", topRowsChoice],
+                        @[@"Show Disk, RAM, CPU, E-core, P-core bars", showBarsSwitch]]), 0.0, SETTINGS_SECTION_GAP);
+
+  // each class's group, with at least one valid row
   for (id<MenuRows> rows in menuRows)
   {
-    if (![rows respondsToSelector:@selector(preferenceCheckboxes)])
+    if (![rows respondsToSelector:@selector(settingsRows)])
     {
       continue;
     }
-    for (NSButton* box in [rows preferenceCheckboxes])
+    NSArray<NSArray*>* valid = SettingsValidRows([rows settingsRows]);
+    if (valid.count == 0)
     {
-      if ([box isKindOfClass:[NSButton class]])
+      continue;
+    }
+    id title = [rows respondsToSelector:@selector(settingsTitle)] ? [rows settingsTitle] : nil;
+    if ([title isKindOfClass:[NSString class]] && ([(NSString*)title length] > 0))
+    {
+      heading(title);
+    }
+    SettingsGroupView* group = SettingsGroup(valid);
+    place(group, 0.0, SETTINGS_SECTION_GAP);
+    NSMutableArray<NSButton*>* buttons = [[NSMutableArray alloc] init];
+    if ([rows respondsToSelector:@selector(settingsButtons)])
+    {
+      for (id button in [rows settingsButtons])
       {
-        [boxes addObject:box];
+        if ([button isKindOfClass:[NSButton class]])
+        {
+          [buttons addObject:button];
+        }
       }
     }
+    if (buttons.count > 0)
+    {
+      // left to right, the last at the group's right edge
+      NSStackView* row = [NSStackView stackViewWithViews:buttons];
+      row.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+      row.alignment = NSLayoutAttributeCenterY;
+      row.spacing = SETTINGS_BUTTONS_GAP;
+      [row setHuggingPriority:NSLayoutPriorityDefaultHigh forOrientation:NSLayoutConstraintOrientationHorizontal];
+      row.translatesAutoresizingMaskIntoConstraints = NO;
+      [settings addSubview:row];
+      [constraints addObjectsFromArray:@[
+        [row.topAnchor constraintEqualToAnchor:group.bottomAnchor constant:SETTINGS_BUTTONS_GAP],
+        [row.trailingAnchor constraintEqualToAnchor:group.trailingAnchor],
+        [row.leadingAnchor constraintGreaterThanOrEqualToAnchor:group.leadingAnchor],
+      ]];
+      below = row.bottomAnchor;
+    }
   }
-  if (boxes.count == 0)
-  {
-    return;
-  }
-  NSView* content = self.window.contentView;
-  NSInteger rowCount = (NSInteger)((boxes.count + 2) / 2); // slot 0 is the app's own box
-  if (rowCount > 1)
-  {
-    NSSize size = content.frame.size;
-    size.height += (rowCount - 1) * PREFS_BOX_ROW;
-    [self.window setContentSize:size];
-  }
-  NSRect own = self.showBarsButton.frame;
-  for (NSUInteger n=0; n<boxes.count; n++)
-  {
-    NSButton* box = boxes[n];
-    NSUInteger slot = n + 1;
-    box.font = self.showBarsButton.font;
-    box.controlSize = self.showBarsButton.controlSize;
-    [box sizeToFit];
-    CGFloat x = (slot % 2 == 0) ? NSMinX(own) : (NSMaxX(own) + PREFS_BOX_GAP);
-    CGFloat y = NSMinY(own) - (CGFloat)(slot / 2) * PREFS_BOX_ROW;
-    CGFloat width = MIN(NSWidth(box.frame), NSWidth(content.frame) - PREFS_BOX_MARGIN - x);
-    box.frame = NSMakeRect(x, y, width, NSHeight(own));
-    box.autoresizingMask = self.showBarsButton.autoresizingMask;
-    [content addSubview:box];
-  }
+
+  // Launch at login
+  loginSwitch = MenuRowsSettingsSwitch([SMAppService mainAppService].status == SMAppServiceStatusEnabled, @selector(loginButtonClicked:), self);
+  place(SettingsGroup(@[@[@"Launch at login", loginSwitch]]), 0.0, SETTINGS_BUILD_GAP);
+
+  // the build number, raised on every build by scripts/raise-build-number.sh, centred under the last group
+  NSString* build = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleVersion"];
+  NSTextField* buildLabel = SettingsLabel([NSString stringWithFormat:@"b%@", build], [NSFont systemFontOfSize:11.0], [NSColor secondaryLabelColor]);
+  [settings addSubview:buildLabel];
+  [constraints addObjectsFromArray:@[
+    [buildLabel.topAnchor constraintEqualToAnchor:below constant:gap],
+    [buildLabel.centerXAnchor constraintEqualToAnchor:settings.centerXAnchor],
+    [buildLabel.bottomAnchor constraintEqualToAnchor:settings.bottomAnchor constant:-SETTINGS_INSET_Y],
+  ]];
+  [NSLayoutConstraint activateConstraints:constraints];
+
+  // the window fits the content, which then fills it
+  [self.window setContentSize:settings.fittingSize];
+  [NSLayoutConstraint activateConstraints:@[
+    [settings.leadingAnchor constraintEqualToAnchor:content.leadingAnchor],
+    [settings.trailingAnchor constraintEqualToAnchor:content.trailingAnchor],
+    [settings.topAnchor constraintEqualToAnchor:content.topAnchor],
+    [settings.bottomAnchor constraintEqualToAnchor:content.bottomAnchor],
+  ]];
 }
 
 - (void)setupMenus
@@ -1713,7 +1962,7 @@ static NSString* OthersRowText(int count)
   }
 
   {
-    NSMenuItem* item = [menu addItemWithTitle:@"Open upMonitor Preferences..." action:@selector(openPreferences:) keyEquivalent:@""];
+    NSMenuItem* item = [menu addItemWithTitle:@"Open upMonitor Settings..." action:@selector(openPreferences:) keyEquivalent:@""];
     [item setAttributedTitle:[[NSAttributedString alloc] initWithString:[item title] attributes:attributesStandard]];
     //NSImage* appIcon = [NSImage imageNamed:@"AppIcon"];
     NSImage* appIcon = [NSImage imageNamed:@"NSPreferencesGeneral"];
@@ -2270,12 +2519,33 @@ static NSString* TipPercents(NSString* text)
   [barTip orderOut:nil];
 }
 
+// the Demo card's three previews side by side, with equal room before, between and after them (none when they are
+// wider than the card), each caption centred under its preview; their heights and tops do not change
+- (void)placeDemoPreviews
+{
+  NSArray<NSImageView*>* previews = @[self.realDemoView, self.sineDemoView, self.flatDemoView];
+  CGFloat cardWidth = NSWidth(self.realDemoView.superview.bounds);
+  CGFloat widths = 0.0;
+  for (NSImageView* preview in previews)
+  {
+    widths += NSWidth(preview.frame);
+  }
+  CGFloat gap = MAX(0.0, (cardWidth - widths)/4.0);
+  CGFloat x = gap;
+  for (int n=0; n<3; n++)
+  {
+    NSImageView* preview = previews[n];
+    [preview setFrameOrigin:NSMakePoint((int)x, NSMinY(preview.frame))];
+    demoCaptionCentres[n].constant = (int)x + NSWidth(preview.frame)/2.0;
+    x += NSWidth(preview.frame) + gap;
+  }
+}
+
 - (void)renderPrefsRealWithLight:(BOOL)light readings:(const CpuReadings*)readings
 {
   [self.realDemoView setBoundsSize:NSMakeSize(imageWidth, tickHeight)];
   [self.realDemoView setFrameSize:NSMakeSize(imageWidth, tickHeight)];
-  NSRect imgFrame = [self.realDemoView frame];
-  [self.realDemoView setFrameOrigin:NSMakePoint((int)((([self.window frame].size.width-imageWidth)/2.0)-135.0), imgFrame.origin.y)];
+  [self placeDemoPreviews];
   static NSImage* image = nil;
   {
 //    if (image == nil)
@@ -2303,8 +2573,7 @@ static NSString* TipPercents(NSString* text)
 
   [self.sineDemoView setBoundsSize:NSMakeSize(graphWidth, tickHeight)];
   [self.sineDemoView setFrameSize:NSMakeSize(graphWidth, tickHeight)];
-  NSRect imgFrame = [self.sineDemoView frame];
-  [self.sineDemoView setFrameOrigin:NSMakePoint((int)(([self.window frame].size.width-graphWidth)/2.0), imgFrame.origin.y)];
+  [self placeDemoPreviews];
   static NSImage* image = nil;
   {
 //    if (image == nil)
@@ -2332,8 +2601,7 @@ static NSString* TipPercents(NSString* text)
   
   [self.flatDemoView setBoundsSize:NSMakeSize(graphWidth, tickHeight)];
   [self.flatDemoView setFrameSize:NSMakeSize(graphWidth, tickHeight)];
-  NSRect imgFrame = [self.flatDemoView frame];
-  [self.flatDemoView setFrameOrigin:NSMakePoint((int)((([self.window frame].size.width-graphWidth)/2.0)+125.0), imgFrame.origin.y)];
+  [self placeDemoPreviews];
   static NSImage* image = nil;
   {
 //    if (image == nil)
@@ -2625,10 +2893,6 @@ static double TopInterval(void)
   [self updateRendererParameters];
   [self updateUI];
   [self updateLoginButton];
-
-  // the build number, raised on every build by scripts/raise-build-number.sh
-  NSString* build = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleVersion"];
-  [self.buildLabel setStringValue:[NSString stringWithFormat:@"b%@", build]];
 }
 
 // both timers, at launch and after a pause; none while paused (nothing can be seen: updatePause starts them again)
@@ -2836,7 +3100,7 @@ static NSTimeInterval TopDelay(void)
     [self setupPreferences];
     [self setupStatusItem];
     [self setupMenus];
-    [self setupPreferenceCheckboxes];
+    [self setupSettings];
 
     // pause while nothing can be seen (updatePause)
     NSNotificationCenter* workspaceCenter = [[NSWorkspace sharedWorkspace] notificationCenter];
@@ -3275,32 +3539,56 @@ static NSTimeInterval TopDelay(void)
 
 - (IBAction)showBarsButtonClicked:(id)sender
 {
-  showBars = (self.showBarsButton.state == NSControlStateValueOn);
+  showBars = (showBarsSwitch.state == NSControlStateValueOn);
   [[NSUserDefaults standardUserDefaults] setBool:showBars forKey:ShowBarsKey];
   [self updateRendererParameters];
   [self updateUI];
 }
 
-// Top processes: 3, 5, 10 or 15 rows, each button's tag its count. The menu is closed while Preferences is used, and
-// its next opening redraws the rows (updateMenuTop); while frozen they keep what they showed until the unfreeze
-- (IBAction)topRowsButtonClicked:(id)sender
+// Refresh: 10, 5 or 2 times a second, by the segment chosen
+- (IBAction)refreshChoiceChanged:(id)sender
 {
-  [[NSUserDefaults standardUserDefaults] setInteger:[sender tag] forKey:TopRowsKey];
+  switch (refreshChoice.selectedSegment)
+  {
+    case 0:
+      [self fastButtonClicked:sender];
+      break;
+    case 1:
+      [self normalButtonClicked:sender];
+      break;
+    case 2:
+      [self slowButtonClicked:sender];
+      break;
+    default:
+      break;
+  }
+}
+
+// Top processes: 3, 5, 10 or 15 rows, by the segment chosen. The menu is closed while Settings is used, and its next
+// opening redraws the rows (updateMenuTop); while frozen they keep what they showed until the unfreeze
+- (IBAction)topRowsChoiceChanged:(id)sender
+{
+  NSInteger index = topRowsChoice.selectedSegment;
+  if ((index < 0) || (index >= (NSInteger)TOP_ROWS_CHOICES))
+  {
+    return;
+  }
+  [[NSUserDefaults standardUserDefaults] setInteger:topRowsChoices[index] forKey:TopRowsKey];
   topShown = TopRows();
   [self updateUI];
 }
 
-// Launch at login: macOS keeps the setting (System Settings, Login Items), so the checkbox shows what macOS
+// Launch at login: macOS keeps the setting (System Settings, Login Items), so the switch shows what macOS
 // reports.
 - (void)updateLoginButton
 {
-  [self.loginButton setState:([SMAppService mainAppService].status == SMAppServiceStatusEnabled) ? NSControlStateValueOn : NSControlStateValueOff];
+  loginSwitch.state = ([SMAppService mainAppService].status == SMAppServiceStatusEnabled) ? NSControlStateValueOn : NSControlStateValueOff;
 }
 
 - (IBAction)loginButtonClicked:(id)sender
 {
   SMAppService* service = [SMAppService mainAppService];
-  BOOL on = (self.loginButton.state == NSControlStateValueOn);
+  BOOL on = (loginSwitch.state == NSControlStateValueOn);
   NSError* error = nil;
   BOOL ok = on ? [service registerAndReturnError:&error] : [service unregisterAndReturnError:&error];
   if (!ok)
@@ -3317,7 +3605,7 @@ static NSTimeInterval TopDelay(void)
 
 - (void)preferencesBecameKey:(NSNotification*)notification
 {
-  // the setting may have changed in System Settings while Preferences was open
+  // the setting may have changed in System Settings while the Settings window was open
   [self updateLoginButton];
 }
 
