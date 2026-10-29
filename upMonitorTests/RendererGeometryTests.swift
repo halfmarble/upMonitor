@@ -31,15 +31,15 @@ extension FreeTests {
       // _readings_slot (CpuRenderer.c:144): bar tickTotalWidth + tickWidth = 10, dot tickTotalWidth = 6
       #expect(CpuRenderReadingsSlot(true, 4, 6) == 10)
       #expect(CpuRenderReadingsSlot(false, 4, 6) == 6)
-      // CpuRenderReadingsWidth (CpuRenderer.c:301): 5 slots + (dot 1) + gap 4 + (split) split gap + extras
-      #expect(CpuRenderReadingsWidth(true, 4, 6, 0, 0, nil) == 54)   // 5*10 + 0 + 4
-      #expect(CpuRenderReadingsWidth(false, 4, 6, 0, 0, nil) == 35)  // 5*6 + 1 + 4
-      #expect(CpuRenderReadingsWidth(true, 4, 6, 2, 0, nil) == 58)   // 54 + _split_gap(bar) = 0 + 4
-      #expect(CpuRenderReadingsWidth(false, 4, 6, 2, 0, nil) == 40)  // 35 + _split_gap(dot) = 1 + 4
+      // CpuRenderReadingsWidth (CpuRenderer.c:326), gpuShown false: 5 slots + (dot 1) + gap 4 + (split) split gap + extras
+      #expect(CpuRenderReadingsWidth(true, 4, 6, false, 0, 0, nil) == 54)   // 5*10 + 0 + 4
+      #expect(CpuRenderReadingsWidth(false, 4, 6, false, 0, 0, nil) == 35)  // 5*6 + 1 + 4
+      #expect(CpuRenderReadingsWidth(true, 4, 6, false, 2, 0, nil) == 58)   // 54 + _split_gap(bar) = 0 + 4
+      #expect(CpuRenderReadingsWidth(false, 4, 6, false, 2, 0, nil) == 40)  // 35 + _split_gap(dot) = 1 + 4
     }
 
     @Test func extraWidthGroupsAndNarrow() {
-      // _extra_width (CpuRenderer.c:223): gap 4 + the slots + a group gap 4 per group start after the first + (dot 1)
+      // _extra_width (CpuRenderer.c:245): gap 4 + the slots + a group gap 4 per group start after the first + (dot 1)
       var extras = [CpuExtraReading](repeating: CpuExtraReading(), count: 2)
       #expect(extras.withUnsafeBufferPointer { CpuRenderExtraWidth(true, 4, 6, 2, $0.baseAddress) } == 24)  // 4 + 10 + 10
       extras[1].groupStart = true
@@ -47,27 +47,27 @@ extension FreeTests {
       extras[1].groupStart = false
       extras[1].narrow = true
       #expect(extras.withUnsafeBufferPointer { CpuRenderExtraWidth(true, 4, 6, 2, $0.baseAddress) } == 20)  // 4 + 10 + 6
-      #expect(CpuRenderExtraWidth(true, 4, 6, 0, nil) == 0)    // n > 0 is false (CpuRenderer.c:226)
-      #expect(CpuRenderExtraWidth(true, 4, 6, -3, nil) == 0)   // _extra_count (CpuRenderer.c:154) turns -3 into 0
+      #expect(CpuRenderExtraWidth(true, 4, 6, 0, nil) == 0)    // n > 0 is false (CpuRenderer.c:248)
+      #expect(CpuRenderExtraWidth(true, 4, 6, -3, nil) == 0)   // _extra_count (CpuRenderer.c:175) turns -3 into 0
     }
 
     @Test func coreSlotThinsPast24() {
-      // CpuRenderCoreSlot (CpuRenderer.c:309): up to 24 bars the full slot; past it max(1 + (6-4), min(6, floor(24*6/count)))
+      // CpuRenderCoreSlot (CpuRenderer.c:334): up to 24 bars the full slot; past it max(1 + (6-4), min(6, floor(24*6/count)))
       #expect(CpuRenderCoreSlot(true, 4, 6, 24) == 6)
       #expect(CpuRenderCoreSlot(true, 4, 6, 30) == 4)    // floor(144/30) = 4
       #expect(CpuRenderCoreSlot(true, 4, 6, 48) == 3)    // floor(144/48) = 3
       #expect(CpuRenderCoreSlot(true, 4, 6, 100) == 3)   // floor(144/100) = 1, raised to the floor 1 + 2
-      #expect(CpuRenderCoreSlot(false, 4, 6, 100) == 6)  // dots keep their slot (CpuRenderer.c:311)
-      // CpuRenderCoreWidth (CpuRenderer.c:319): tickWidth in a full slot, else the slot less the gap (6-4)
+      #expect(CpuRenderCoreSlot(false, 4, 6, 100) == 6)  // dots keep their slot (CpuRenderer.c:336)
+      // CpuRenderCoreWidth (CpuRenderer.c:344): tickWidth in a full slot, else the slot less the gap (6-4)
       #expect(CpuRenderCoreWidth(true, 4, 6, 10) == 4)
       #expect(CpuRenderCoreWidth(true, 4, 6, 30) == 2)   // 4 - 2
     }
 
     @Test func coreXAndBack() {
-      // CpuRenderCoreX (CpuRenderer.c:325): start + index*slot + (index past the split) split gap + readings slot
+      // CpuRenderCoreX (CpuRenderer.c:350): start + index*slot + (index past the split) split gap + readings slot
       #expect(CpuRenderCoreX(true, 4, 6, 54, 0, 8, 3) == 72)   // 54 + 3*6
       #expect(CpuRenderCoreX(true, 4, 6, 44, 2, 8, 2) == 70)   // 44 + 2*6 + (0 + 4) + 10
-      // CpuRenderCoreAtX (CpuRenderer.c:331): the rightmost bar starting at or left of x, if x is inside its slot
+      // CpuRenderCoreAtX (CpuRenderer.c:356): the rightmost bar starting at or left of x, if x is inside its slot
       #expect(CpuRenderCoreAtX(true, 4, 6, 54, 0, 8, 72) == 3)
       #expect(CpuRenderCoreAtX(true, 4, 6, 54, 0, 8, 53.9) == -1)               // left of bar 0 (x = 54)
       #expect(CpuRenderCoreAtX(true, 4, 6, 54, 0, 8, 54 + 48 + 100) == 7)       // the last bar has no right end
@@ -76,31 +76,31 @@ extension FreeTests {
     }
 
     @Test func readingXAndGraphSpan() {
-      // CpuRenderReadingX (CpuRenderer.c:272), the five readings: index * slot
-      #expect(CpuRenderReadingX(true, 4, 6, 100, 0, 8, 0, nil, 2) == 20)
-      // split after 2 bars: the E-cores' reading at _efficiency_x (CpuRenderer.c:239) = 3*10 + 0 + 4
-      #expect(CpuRenderReadingX(true, 4, 6, 100, 2, 8, 0, nil, 3) == 34)
+      // CpuRenderReadingX (CpuRenderer.c:295), gpuShown false, the five readings: index * slot
+      #expect(CpuRenderReadingX(true, 4, 6, false, 100, 0, 8, 0, nil, 2) == 20)
+      // split after 2 bars: the E-cores' reading at _efficiency_x (CpuRenderer.c:262) = 3*10 + 0 + 4
+      #expect(CpuRenderReadingX(true, 4, 6, false, 100, 2, 8, 0, nil, 3) == 34)
       // the P-cores' reading: 34 + slot 10 + 2 bars * 6 + split gap 4
-      #expect(CpuRenderReadingX(true, 4, 6, 100, 2, 8, 0, nil, 4) == 60)
+      #expect(CpuRenderReadingX(true, 4, 6, false, 100, 2, 8, 0, nil, 4) == 60)
       // extra readings: imageWidth - _extra_width + gap 4 + the slots before it; an index past the last gives the last one's
       let extras = [CpuExtraReading](repeating: CpuExtraReading(), count: 2)
       extras.withUnsafeBufferPointer { e in
-        #expect(CpuRenderReadingX(true, 4, 6, 200, 0, 8, 2, e.baseAddress, 5) == 180)  // 200 - 24 + 4
-        #expect(CpuRenderReadingX(true, 4, 6, 200, 0, 8, 2, e.baseAddress, 6) == 190)  // 180 + 10
-        #expect(CpuRenderReadingX(true, 4, 6, 200, 0, 8, 2, e.baseAddress, 9) == 190)  // clamped to the last (CpuRenderer.c:288)
+        #expect(CpuRenderReadingX(true, 4, 6, false, 200, 0, 8, 2, e.baseAddress, 5) == 180)  // 200 - 24 + 4
+        #expect(CpuRenderReadingX(true, 4, 6, false, 200, 0, 8, 2, e.baseAddress, 6) == 190)  // 180 + 10
+        #expect(CpuRenderReadingX(true, 4, 6, false, 200, 0, 8, 2, e.baseAddress, 9) == 190)  // clamped to the last (CpuRenderer.c:313)
       }
-      // CpuRenderGraphSpan (CpuRenderer.c:345)
+      // CpuRenderGraphSpan (CpuRenderer.c:370)
       var start: CGFloat = 0, end: CGFloat = 0
-      CpuRenderGraphSpan(true, 4, 6, 100, true, 0, 0, nil, &start, &end)
+      CpuRenderGraphSpan(true, 4, 6, 100, true, false, 0, 0, nil, &start, &end)
       #expect(start == 54 && end == 100)   // the readings' width, no extras
-      CpuRenderGraphSpan(true, 4, 6, 100, true, 2, 0, nil, &start, &end)
+      CpuRenderGraphSpan(true, 4, 6, 100, true, false, 2, 0, nil, &start, &end)
       #expect(start == 44)                 // _efficiency_x 34 + slot 10
-      CpuRenderGraphSpan(true, 4, 6, 100, false, 0, 0, nil, &start, &end)
+      CpuRenderGraphSpan(true, 4, 6, 100, false, false, 0, 0, nil, &start, &end)
       #expect(start == 0)                  // no readings: the graph starts at x = 0
     }
 
     @Test func efficiencyBars() {
-      // CpuRenderEfficiencyBars (CpuRenderer.c:244); granularity 0 is one bar (CpuSampler.c:130), under 2 gives 0
+      // CpuRenderEfficiencyBars (CpuRenderer.c:267); granularity 0 is one bar (CpuSampler.c:130), under 2 gives 0
       #expect(CpuRenderEfficiencyBars(0, 8, "EEEEPPPP") == 0)
       let n = Int(CpuSamplerGetCount(2))
       #expect(n >= 2)
@@ -109,7 +109,7 @@ extension FreeTests {
       #expect(CpuRenderEfficiencyBars(2, natural_t(n), split) == 1)
       let flipped = "P" + String(repeating: "E", count: n - 1)
       #expect(CpuRenderEfficiencyBars(2, natural_t(n), flipped) == 0)
-      #expect(CpuRenderEfficiencyBars(2, natural_t(n), nil) == 0)   // kinds NULL (CpuRenderer.c:248)
+      #expect(CpuRenderEfficiencyBars(2, natural_t(n), nil) == 0)   // kinds NULL (CpuRenderer.c:271)
     }
   }
 }

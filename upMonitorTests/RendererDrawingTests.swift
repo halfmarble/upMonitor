@@ -24,7 +24,7 @@ import Testing
 import CoreGraphics
 
 // CpuRender into a bitmap, dark menu bar, no colour, tickWidth 4 and tickTotalWidth 6. Granularity 0 is one core bar on
-// any Mac (CpuSampler.c:130), so the readings block starts the image: the disk bar is at x = 0 to 8 (CpuRenderer.c:272,
+// any Mac (CpuSampler.c:130), so the readings block starts the image: the disk bar is at x = 0 to 8 (CpuRenderer.c:295,
 // 2 * tickWidth wide). The bitmap's first memory row is the image's top, so the row at height y is memory row 15 - y.
 private struct Bitmap {
   let width: Int
@@ -68,7 +68,7 @@ extension FreeTests {
   @Suite struct RendererDrawingTests {
     @Test(arguments: [(0.0, 0), (0.25, 4), (0.5, 8), (1.0, 16)])
     func barHeight(load: Double, rows: Int) {
-      // _render_group (CpuRenderer.c:370): a background over the whole 16 pt, then a fill load*16 pt high from the bottom.
+      // _render_group (CpuRenderer.c:395): a background over the whole 16 pt, then a fill load*16 pt high from the bottom.
       // On a dark bar the background has alpha 0.3 (about 76) and the fill over it at least 0.606 (about 154) at load 0.25,
       // so "above 127" counts the filled rows only
       let column = render(bar: true, stripped: false, width: 60, readings: readings(disk: load)).column(1)
@@ -78,15 +78,15 @@ extension FreeTests {
     }
 
     @Test func dashes() {
-      // stripped: the bar starts at DASHED_BOTTOM 2 (CpuRenderer.c:479), so heights 0 and 1 are clear, and heights 4, 7,
-      // 10 and 13 are cleared again (CpuRenderer.c:557), leaving five 2-pt dashes
+      // stripped: the bar starts at DASHED_BOTTOM 2 (CpuRenderer.c:531), so heights 0 and 1 are clear, and heights 4, 7,
+      // 10 and 13 are cleared again (CpuRenderer.c:623), leaving five 2-pt dashes
       let column = render(bar: true, stripped: true, width: 60, readings: readings(disk: 1.0)).column(1)
       for y in [0, 1, 4, 7, 10, 13] { #expect(column[y] == 0, "height \(y)") }
       for y in [2, 3, 5, 6, 8, 9, 11, 12, 14, 15] { #expect(column[y] > 127, "height \(y)") }
     }
 
     @Test func unreadReadingsDrawNothingInDotStyle() {
-      // Dot style, every reading below 0: the branch for a reading not read draws only in bar style (CpuRenderer.c:520),
+      // Dot style, every reading below 0: the branch for a reading not read draws only in bar style (CpuRenderer.c:586),
       // so the disk slot, x = 0 to 6 (the dot slot is tickTotalWidth), stays transparent. The one core dot starts at
       // x = 35 (CpuRenderReadingsWidth, dot), clear of that slot
       let image = render(bar: false, stripped: false, width: 60, readings: readings(disk: -1))
@@ -95,8 +95,8 @@ extension FreeTests {
 
     @Test func extraReadingMarkDrawsOneRow() {
       // one extra reading, value 0.5 and mark 0.5, in a 100-wide image: its x is 100 - _extra_width (4 + 10) + 4 = 90
-      // (CpuRenderer.c:292), its bar 2 * tickWidth = 8 wide. The mark is a 1-pt white line at
-      // floor(bottom + 0.5 * 16) = 8 (CpuRenderer.c:596), drawn last so it is opaque
+      // (CpuRenderer.c:317), its bar 2 * tickWidth = 8 wide. The mark is a 1-pt white line at
+      // floor(bottom + 0.5 * 16) = 8 (CpuRenderer.c:662), drawn last so it is opaque
       var extra = CpuExtraReading()
       extra.value = 0.5
       extra.mark = 0.5
