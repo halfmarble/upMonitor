@@ -30,6 +30,38 @@ A lightweight CPU monitoring tool designed specifically for the macOS menu bar. 
     * **Top Processes:** Show 3, 5, 10 or 15 processes in the menu (5 by default).
 * **System Integration:** One-click access to the macOS native **Activity Monitor**.
 
+## 🔎 Hover Labels
+
+Rest the pointer on a bar for a second and its reading shows below the menu bar.
+
+* **Disk:** the startup volume's use, with its free and used space.
+
+<img src="screenshots/hover-disk.png" width="370" alt="Disk usage label">
+
+* **Memory:** memory in use, with free, used and swapped memory.
+
+<img src="screenshots/hover-memory.png" width="502" alt="Memory usage label">
+
+* **CPU:** overall CPU use, with the efficiency and performance cores' use.
+
+<img src="screenshots/hover-cpu.png" width="436" alt="CPU label">
+
+* **GPU:** the GPU's use.
+
+<img src="screenshots/hover-gpu.png" width="153" alt="GPU label">
+
+* **Neural Engine:** whether the Neural Engine is powered on.
+
+<img src="screenshots/hover-neural-engine.png" width="174" alt="Neural Engine label">
+
+* **Efficiency cores:** their use, then each efficiency core's load; › marks the core under the pointer.
+
+<img src="screenshots/hover-e-cores.png" width="195" alt="Efficiency cores label">
+
+* **Performance cores:** the same for the performance cores.
+
+<img src="screenshots/hover-p-cores.png" width="218" alt="Performance cores label">
+
 ## 🛠 Installation
 
 A Mac App Store release is coming. Until then, build it from source:
