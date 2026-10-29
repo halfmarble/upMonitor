@@ -17,12 +17,15 @@ A lightweight CPU monitoring tool designed specifically for the macOS menu bar. 
 `cpuTopBars` provides real-time insights into your system's CPU usage with a focus on aesthetics and customization.
 
 * **Real-time Menu Bar Visualization:** View your CPU activity at a glance with a live-updating graph right in your macOS menu bar, beside small bars for disk, memory, overall CPU and GPU use, a bar that shows when the Neural Engine is powered on, and bars for the efficiency cores' and the performance cores' use, each of these two heading its own cores' bars when the graph shows each core and the Mac lists its efficiency cores first (switchable in Settings).
-* **Top Process Tracking:** Quickly identify which of your processes are consuming the most CPU with a ranked list of "Your Top Processes by CPU"; processes of other users, among them macOS's system daemons and WindowServer, are counted in one row below it.
+* **Top Process Tracking:** Quickly identify which of your processes are consuming the most CPU with a ranked list of "Your Top Processes by CPU", each with its CPU share and its memory (physical footprint, in GB); processes of other users, among them macOS's system daemons and WindowServer, are counted in one row below it.
 * **System readings:** when the menu opens, a panel beside it shows uptime, then startup-volume, memory and overall CPU usage as percentages with their sizes, the disk and memory with their free and used space, memory with its swap in use and CPU with its efficiency and performance cores' use, GPU use and whether the Neural Engine is powered on, all read on the Mac; nothing is sent over the network.
+* **Hover labels:** rest the pointer on a bar for a second to see its value below the menu bar; on the core bars it lists each core's load.
+* **Process inspector:** click a process in the menu to open a window with its man page, where it has one, and its arguments and environment.
 * **Freeze:** pause the process list to examine it while the CPU graph keeps running; while frozen, rest on a ↳ row to see what it is a helper of.
 * **Launch at login:** turn it on in Settings to open cpuTopBars when you log in.
 * **How to Read the Menu Bar:** a window, opened from the menu, that explains the bars and their colours, with drawn examples.
-* **Customizable:**
+* **Support Team Fox:** a menu row that opens halfmarble's Team Fox fundraising page in your browser.
+* **Customizable:** Settings opens with a Demo group that previews the menu-bar graph live, on a sine wave and on a flat wave.
     * **Refresh Rates:** Choose between 2, 5, or 10 updates per second for ultra-responsive feedback (5 by default).
     * **Top Processes:** Show 3, 5, 10 or 15 processes in the menu (5 by default).
 * **System Integration:** One-click access to the macOS native **Activity Monitor**.
@@ -37,7 +40,7 @@ A Mac App Store release is coming. Until then, build it from source:
 
 cpuTopBars requires macOS 27 or later.
 
-cpuTopBars was called upMonitor; release 1.0 on GitHub is that old app.
+cpuTopBars was called upMonitor; release 1.0 on GitHub is that old app. A copy you built from source under the old name keeps its own settings and its own login item, which still opens that copy at login: turn Launch at login off in the old copy, or delete it, then set your settings and Launch at login again in cpuTopBars, which starts with the default settings.
 
 cpuTopBars runs in the App Sandbox. The sandbox gives an app no CPU figures for other users' processes (WindowServer, kernel_task, system daemons), so the menu lists your own processes and counts the others in one row.
 
