@@ -333,16 +333,13 @@ int TopInit(void)
     mib[0] = CTL_KERN;
     mib[1] = KERN_ARGMAX;
 
+    // without kern.argmax or the buffer TopGetArgs reads no arguments; the tree and the table below are still set up
     size_t size = sizeof(_top_arg_max);
-    if (sysctl(mib, 2, &_top_arg_max, &size, NULL, 0) == -1)
+    if ((sysctl(mib, 2, &_top_arg_max, &size, NULL, 0) == -1) || (_top_arg_max <= 0))
     {
-      return -1;
+      _top_arg_max = 0;
     }
-    _top_arg_buffer = (char *)malloc(_top_arg_max);
-    if (_top_arg_buffer == NULL)
-    {
-      return -2;
-    }
+    _top_arg_buffer = (_top_arg_max > 0) ? (char *)malloc(_top_arg_max) : NULL;
   }
   
   rb_tree_new(&_top_pid_tree, node_new);
@@ -676,7 +673,7 @@ TopProcessInfo_t* TopGetArgs(pid_t pid)
   mib[1] = KERN_PROCARGS2;
   mib[2] = pid;
   size_t size = _top_arg_max;
-  if ((sysctl(mib, 3, _top_arg_buffer, &size, NULL, 0) == 0) && (size >= sizeof(int)))
+  if ((_top_arg_buffer != NULL) && (sysctl(mib, 3, _top_arg_buffer, &size, NULL, 0) == 0) && (size >= sizeof(int)))
   {
 #ifdef DEBUG_ARGS
     fprintf(stderr, "\n");
