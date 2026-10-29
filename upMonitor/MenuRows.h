@@ -125,7 +125,8 @@ NS_ASSUME_NONNULL_BEGIN
 // number or a missing entry: the bar continues the group before it. Read with barReadings, at each tick of the graph
 - (NSArray<NSNumber*>*)barGroupStarts;
 // each bar's width, in the same order as barReadings: an entry whose boolValue is YES draws the bar as wide as a core bar,
-// in a core bar's slot (Dot style does not change); NO, an entry that is not a number or a missing entry: twice as wide,
+// in a core bar's slot, at their full width when core bars are thinner (past CPU_RENDER_THIN_FROM cores; Dot style does
+// not change); NO, an entry that is not a number or a missing entry: twice as wide,
 // as the app's own readings. Read with barReadings, at each tick of the graph
 - (NSArray<NSNumber*>*)barNarrows;
 @end

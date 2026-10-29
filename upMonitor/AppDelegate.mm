@@ -72,6 +72,7 @@
 #define SETTINGS_BUILD_GAP          (10.0)  // pt from the last group to the build number
 #define SETTINGS_DEMO_HEIGHT        (72.0)  // pt: the Demo card
 #define SETTINGS_DEMO_CAPTION_GAP   (6.0)   // pt from a preview to its caption
+#define SETTINGS_DEMO_MIN_GAP       (8.0)   // pt kept before, between and after the Demo previews, as a 24-CPU Mac has them: wider ones are narrowed
 #define MENU_FONT_NAME              @"IBMPlexMono" // IBM Plex Mono Regular, in the app's Resources, registered at launch
 #define MENU_FONT(points)           ([NSFont fontWithName:MENU_FONT_NAME size:(points)] ?: [NSFont monospacedSystemFontOfSize:(points) weight:NSFontWeightRegular])
 #define MENU_TITLE_FONT_NAME        @"Verdana"
@@ -1280,12 +1281,12 @@ typedef struct HelpExampleStyle
   if ((part == MenuRowsExampleReadings) && five)
   {
     int last = CPU_RENDER_READINGS_COUNT - 1;
-    _cropWidth = CpuRenderReadingX(style.bar, style.drawWidth, style.tickTotalWidth, _imageWidth, split, extraCount, _extra, last) +
+    _cropWidth = CpuRenderReadingX(style.bar, style.drawWidth, style.tickTotalWidth, _imageWidth, split, CpuSamplerGetCount(style.granularity), extraCount, _extra, last) +
       CpuRenderReadingSlot(style.bar, style.drawWidth, style.tickTotalWidth, extraCount, _extra, last);
   }
   else if ((part == MenuRowsExampleExtra) && (extraCount > 0))
   {
-    _cropX = CpuRenderReadingX(style.bar, style.drawWidth, style.tickTotalWidth, _imageWidth, split, extraCount, _extra, CPU_RENDER_READINGS_COUNT);
+    _cropX = CpuRenderReadingX(style.bar, style.drawWidth, style.tickTotalWidth, _imageWidth, split, CpuSamplerGetCount(style.granularity), extraCount, _extra, CPU_RENDER_READINGS_COUNT);
     _cropWidth = _imageWidth - _cropX;
   }
   _cropWidth = MAX(_cropWidth, 1.0);
@@ -1354,7 +1355,7 @@ typedef struct HelpExampleStyle
     }
     else
     {
-      readingMid = CpuRenderReadingX(style.bar, style.drawWidth, style.tickTotalWidth, _imageWidth, split, extraCount, _extra, labelReading) +
+      readingMid = CpuRenderReadingX(style.bar, style.drawWidth, style.tickTotalWidth, _imageWidth, split, CpuSamplerGetCount(style.granularity), extraCount, _extra, labelReading) +
         CpuRenderReadingSlot(style.bar, style.drawWidth, style.tickTotalWidth, extraCount, _extra, labelReading) / 2.0;
     }
     CGFloat x = NSMinX(_strip) + HELP_EXAMPLE_PADDING + (readingMid - _cropX)*_zoom - boxSize.width/2.0;
@@ -1823,7 +1824,7 @@ static CGFloat tickSpaceWidth = 1.0;
 static CGFloat tickTotalWidth = 0.0;
 static CGFloat imageWidth = 0.0;
 static CGFloat graphWidth = 0.0;     // the core graph alone, as the sine and flat previews draw it: imageWidth without the bars
-static CGFloat drawWidth = 3.0;      // the width each bar or dot is drawn: the width setting plus BAR_WIDTH_EXTRA, 4 for the one package bar, 3 for dots
+static CGFloat drawWidth = 3.0;      // the width each bar or dot is drawn: the width setting plus BAR_WIDTH_EXTRA, 4 for the one package bar, 3 for dots; core bars past CPU_RENDER_THIN_FROM are thinner (CpuRenderCoreWidth)
 
 static int granularity = 0;
 static int coreSplit = 0;            // the core graph's E-cores' bars, which the E-cores' bar heads, the P-cores' bar after them (CpuRenderEfficiencyBars); 0: the five bars in one block
@@ -1981,7 +1982,7 @@ static NSMutableSet<NSTask*>* runningTasks = nil;
   }
   tickTotalWidth = tickSpace + tickSpaceWidth;
   drawWidth = !bar ? 3.0 : ((count == 1) ? 4.0 : (tickWidth + BAR_WIDTH_EXTRA));
-  imageWidth = count * tickTotalWidth;
+  imageWidth = count * CpuRenderCoreSlot(bar, drawWidth, tickTotalWidth, count);
   if (bar == NO)
   {
     imageWidth += 1.0;
@@ -2463,6 +2464,10 @@ static NSString* OthersRowText(int count)
     [demo addSubview:preview];
     preview.translatesAutoresizingMaskIntoConstraints = YES;
     preview.autoresizingMask = NSViewNotSizable;
+    // a preview placeDemoPreviews narrows keeps its full height: its image is squeezed across, never shrunk whole
+    preview.imageScaling = NSImageScaleAxesIndependently;
+    // no nib placeholder stretched across the preview before its first render
+    preview.image = nil;
     NSTextField* caption = SettingsLabel(captions[n], [NSFont systemFontOfSize:11.0], [NSColor secondaryLabelColor]);
     [demo addSubview:caption];
     CGFloat top = floor((SETTINGS_DEMO_HEIGHT - (tickHeight + SETTINGS_DEMO_CAPTION_GAP + caption.fittingSize.height))/2.0);
@@ -2878,7 +2883,7 @@ static bool BarTipIsCores(NSInteger index)
   // split, the E-cores' and the P-cores' readings head their own bars, and each reading and its bars hover as one
   for (NSInteger index=(barTipThree ? 0 : CPU_RENDER_READINGS_COUNT); index<(CPU_RENDER_READINGS_COUNT + (NSInteger)barTipBars.size()); index++)
   {
-    CGFloat start = CpuRenderReadingX(bar, drawWidth, tickTotalWidth, imageWidth, barTipSplit, (int)barTipBars.size(), barTipBars.data(), (int)index);
+    CGFloat start = CpuRenderReadingX(bar, drawWidth, tickTotalWidth, imageWidth, barTipSplit, CpuSamplerGetCount(granularity), (int)barTipBars.size(), barTipBars.data(), (int)index);
     if ((x >= start) && (x < (start + CpuRenderReadingSlot(bar, drawWidth, tickTotalWidth, (int)barTipBars.size(), barTipBars.data(), (int)index))))
     {
       if ((barTipSplit > 0) && (index == CPU_RENDER_READING_EFFICIENCY))
@@ -2937,16 +2942,17 @@ static bool BarTipIsCores(NSInteger index)
     [self graphTipStart:&graphStart end:&graphEnd];
     if ((index == BAR_TIP_CORES_E) && (barTipSplit > 0))
     {
-      graphEnd = CpuRenderCoreX(bar, drawWidth, tickTotalWidth, graphStart, barTipSplit, barTipSplit - 1) + tickTotalWidth;
-      graphStart = CpuRenderReadingX(bar, drawWidth, tickTotalWidth, imageWidth, barTipSplit, (int)barTipBars.size(), barTipBars.data(), CPU_RENDER_READING_EFFICIENCY);
+      const natural_t cores = CpuSamplerGetCount(granularity);
+      graphEnd = CpuRenderCoreX(bar, drawWidth, tickTotalWidth, graphStart, barTipSplit, (int)cores, barTipSplit - 1) + CpuRenderCoreSlot(bar, drawWidth, tickTotalWidth, cores);
+      graphStart = CpuRenderReadingX(bar, drawWidth, tickTotalWidth, imageWidth, barTipSplit, CpuSamplerGetCount(granularity), (int)barTipBars.size(), barTipBars.data(), CPU_RENDER_READING_EFFICIENCY);
     }
     else if ((index == BAR_TIP_CORES_P) && (barTipSplit > 0))
     {
-      graphStart = CpuRenderReadingX(bar, drawWidth, tickTotalWidth, imageWidth, barTipSplit, (int)barTipBars.size(), barTipBars.data(), CPU_RENDER_READING_PERFORMANCE);
+      graphStart = CpuRenderReadingX(bar, drawWidth, tickTotalWidth, imageWidth, barTipSplit, CpuSamplerGetCount(granularity), (int)barTipBars.size(), barTipBars.data(), CPU_RENDER_READING_PERFORMANCE);
     }
     return NSMakeRect(graphStart, barTipLayout.origin.y, graphEnd - graphStart, barTipLayout.size.height);
   }
-  return NSMakeRect(CpuRenderReadingX(bar, drawWidth, tickTotalWidth, imageWidth, barTipSplit, (int)barTipBars.size(), barTipBars.data(), (int)index), barTipLayout.origin.y, CpuRenderReadingSlot(bar, drawWidth, tickTotalWidth, (int)barTipBars.size(), barTipBars.data(), (int)index), barTipLayout.size.height);
+  return NSMakeRect(CpuRenderReadingX(bar, drawWidth, tickTotalWidth, imageWidth, barTipSplit, CpuSamplerGetCount(granularity), (int)barTipBars.size(), barTipBars.data(), (int)index), barTipLayout.origin.y, CpuRenderReadingSlot(bar, drawWidth, tickTotalWidth, (int)barTipBars.size(), barTipBars.data(), (int)index), barTipLayout.size.height);
 }
 
 // the pointer's x, measured from the image's left; NO off the item, or nothing rendered yet
@@ -3340,25 +3346,29 @@ static NSArray<NSView*>* HelpCoresExamples(const CpuReadings* readings, const do
   [barTip orderOut:nil];
 }
 
-// the Demo card's three previews side by side, with equal room before, between and after them (none when they are
-// wider than the card), each caption centred under its preview; their heights and tops do not change
+// the Demo card's three previews side by side, with equal room before, between and after them, each caption centred
+// under its preview; their heights and tops do not change. Previews too wide to keep SETTINGS_DEMO_MIN_GAP around
+// them (many CPUs, or a build's extra bars) are all made narrower by one factor, and each view squeezes its image
+// across to fit (setupSettings sets their scaling)
 - (void)placeDemoPreviews
 {
   NSArray<NSImageView*>* previews = @[self.realDemoView, self.sineDemoView, self.flatDemoView];
+  // the widths the renders draw at, read here rather than from the frames, which a shrink has made narrower
+  const CGFloat natural[3] = {imageWidth, graphWidth, graphWidth};
   CGFloat cardWidth = NSWidth(self.realDemoView.superview.bounds);
-  CGFloat widths = 0.0;
-  for (NSImageView* preview in previews)
-  {
-    widths += NSWidth(preview.frame);
-  }
-  CGFloat gap = MAX(0.0, (cardWidth - widths)/4.0);
+  CGFloat widths = natural[0] + natural[1] + natural[2];
+  CGFloat room = cardWidth - 4.0*SETTINGS_DEMO_MIN_GAP;
+  CGFloat scale = ((room > 0.0) && (widths > room)) ? room/widths : 1.0;
+  CGFloat gap = MAX(0.0, (cardWidth - scale*widths)/4.0);
   CGFloat x = gap;
   for (int n=0; n<3; n++)
   {
     NSImageView* preview = previews[n];
-    [preview setFrameOrigin:NSMakePoint((int)x, NSMinY(preview.frame))];
-    demoCaptionCentres[n].constant = (int)x + NSWidth(preview.frame)/2.0;
-    x += NSWidth(preview.frame) + gap;
+    NSSize size = NSMakeSize(scale*natural[n], NSHeight(preview.frame));
+    [preview setFrame:NSMakeRect((int)x, NSMinY(preview.frame), size.width, size.height)];
+    [preview setBoundsSize:size];
+    demoCaptionCentres[n].constant = (int)x + size.width/2.0;
+    x += size.width + gap;
   }
 }
 

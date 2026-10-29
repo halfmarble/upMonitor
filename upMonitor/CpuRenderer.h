@@ -57,6 +57,7 @@ enum Theme
 #define CPU_RENDER_READINGS_GAP (4.0)
 #define CPU_RENDER_EXTRA_GAP CPU_RENDER_READINGS_GAP
 #define CPU_RENDER_GROUP_GAP CPU_RENDER_EXTRA_GAP
+#define CPU_RENDER_THIN_FROM (24) // core bars past this many are drawn thinner, so the core graph keeps about this many slots' width
 
 // one extra reading, as the bars of the extra block are drawn from left to right
 struct CpuExtraReading
@@ -127,26 +128,33 @@ CGFloat CpuRenderReadingsWidth(bool bar, CGFloat tickWidth, CGFloat tickTotalWid
 // 0 with none
 CGFloat CpuRenderExtraWidth(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth, int extraCount, const CpuExtraReading* extra);
 // the slot width of reading index in an image with extraCount extra readings: the readings' slot for the five, an extra
-// reading's own for the others, which is a core bar's when it is narrow (extra NULL: none is)
+// reading's own for the others, which is a full core bar's slot when it is narrow (extra NULL: none is)
 CGFloat CpuRenderReadingSlot(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth, int extraCount, const CpuExtraReading* extra, int index);
 // the x step from one of the five readings, or one extra reading that is not narrow, to the next (disk at 0, memory at one step, CPU at two, the E-cores' at three, the P-cores' at four, unless the graph splits,
 // CpuRenderReadingX; the extra readings,
-// right of the core graph, the same step apart; a narrow extra reading's step is a core bar's, a group's gap is added
+// right of the core graph, the same step apart; a narrow extra reading's step is a full core bar's slot, a group's gap is added
 // where a group starts)
 CGFloat CpuRenderReadingsSlot(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth);
 // where reading index starts in an image imageWidth wide with extraCount extra readings and their groups: the five
 // readings index slots from the left (split after efficiencyBars bars: the E-cores' before their bars, the P-cores'
 // before theirs), the extra ones (index CPU_RENDER_READINGS_COUNT on) after the core graph and its gap, each group's gap
 // added where a group starts; an index past the last extra reading gives the last one's x
-CGFloat CpuRenderReadingX(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth, CGFloat imageWidth, int efficiencyBars, int extraCount, const CpuExtraReading* extra, int index);
+CGFloat CpuRenderReadingX(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth, CGFloat imageWidth, int efficiencyBars, natural_t cores, int extraCount, const CpuExtraReading* extra, int index);
 // where the core graph starts and ends in an image imageWidth wide: after the readings block and its gap when the five
 // readings are drawn (readings), else at x = 0; split after efficiencyBars bars, from the first E-core bar, past the
 // P-cores' reading, to the last P-core bar; before the extra readings' block (extraCount and extra, read with or
 // without the five)
 void CpuRenderGraphSpan(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth, CGFloat imageWidth, bool readings, int efficiencyBars, int extraCount, const CpuExtraReading* extra, CGFloat* start, CGFloat* end);
-// where the core graph's bar index is drawn, the graph starting at start (CpuRenderGraphSpan): a core bar's slot per
-// bar, the P-cores' bars (index efficiencyBars on, when above 0) after the split's gap and the P-cores' reading
-CGFloat CpuRenderCoreX(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth, CGFloat start, int efficiencyBars, int index);
+// a core bar's slot with count core bars: tickTotalWidth up to CPU_RENDER_THIN_FROM bars; past it, the largest whole
+// number of points that keeps the graph within CPU_RENDER_THIN_FROM slots, but never less than a 1-pt bar and the full
+// slot's gap (tickTotalWidth - tickWidth), so a graph of many cores grows past that width. Dots keep theirs
+CGFloat CpuRenderCoreSlot(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth, natural_t count);
+// the width a core bar is drawn with count core bars: tickWidth in a full slot, else its slot less the same gap (at
+// least 1 pt). The readings keep tickWidth and tickTotalWidth whatever the count
+CGFloat CpuRenderCoreWidth(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth, natural_t count);
+// where the core graph's bar index of count is drawn, the graph starting at start (CpuRenderGraphSpan): a core bar's
+// slot per bar, the P-cores' bars (index efficiencyBars on, when above 0) after the split's gap and the P-cores' reading
+CGFloat CpuRenderCoreX(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth, CGFloat start, int efficiencyBars, int count, int index);
 // the core graph's bar whose slot (CpuRenderCoreX, a core bar's slot wide) holds x, of count bars; the last bar's
 // reaches on past its slot (Dot style's overhang, the clear space right of the graph); -1 left of the first bar, and
 // between the last E-core bar's slot and the first P-core bar (the split's gap and the P-cores' reading)

@@ -269,14 +269,14 @@ int CpuRenderEfficiencyBars(int granularity, natural_t countLogical, const char*
   return (int)(efficiency / group);
 }
 
-CGFloat CpuRenderReadingX(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth, CGFloat imageWidth, int efficiencyBars, int extraCount, const CpuExtraReading* extra, int index)
+CGFloat CpuRenderReadingX(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth, CGFloat imageWidth, int efficiencyBars, natural_t cores, int extraCount, const CpuExtraReading* extra, int index)
 {
   const CGFloat slot = _readings_slot(bar, tickWidth, tickTotalWidth);
   if ((index < CPU_RENDER_READINGS_COUNT) && (efficiencyBars > 0) && (index >= CPU_RENDER_READING_EFFICIENCY))
   {
     // the E-cores' reading heads their bars, the P-cores' theirs, after the E-cores' bars and the split's gap
     const CGFloat x = _efficiency_x(bar, tickWidth, tickTotalWidth);
-    return (index == CPU_RENDER_READING_EFFICIENCY) ? x : (x + slot + (efficiencyBars*tickTotalWidth) + _split_gap(bar));
+    return (index == CPU_RENDER_READING_EFFICIENCY) ? x : (x + slot + (efficiencyBars*CpuRenderCoreSlot(bar, tickWidth, tickTotalWidth, cores)) + _split_gap(bar));
   }
   if (index < CPU_RENDER_READINGS_COUNT)
   {
@@ -306,10 +306,26 @@ CGFloat CpuRenderReadingsWidth(bool bar, CGFloat tickWidth, CGFloat tickTotalWid
     ((efficiencyBars > 0) ? _split_gap(bar) : 0.0) + _extra_width(bar, tickWidth, tickTotalWidth, extraCount, extra);
 }
 
-CGFloat CpuRenderCoreX(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth, CGFloat start, int efficiencyBars, int index)
+CGFloat CpuRenderCoreSlot(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth, natural_t count)
+{
+  if (!bar || (count <= CPU_RENDER_THIN_FROM))
+  {
+    return tickTotalWidth;
+  }
+  // never below a 1-pt bar and the full slot's gap: each core keeps its own bar, apart from the next
+  return fmax(1.0 + (tickTotalWidth - tickWidth), fmin(tickTotalWidth, floor((CPU_RENDER_THIN_FROM*tickTotalWidth)/count)));
+}
+
+CGFloat CpuRenderCoreWidth(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth, natural_t count)
+{
+  const CGFloat slot = CpuRenderCoreSlot(bar, tickWidth, tickTotalWidth, count);
+  return (slot >= tickTotalWidth) ? tickWidth : (slot - (tickTotalWidth - tickWidth));
+}
+
+CGFloat CpuRenderCoreX(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth, CGFloat start, int efficiencyBars, int count, int index)
 {
   const CGFloat shift = ((efficiencyBars > 0) && (index >= efficiencyBars)) ? (_split_gap(bar) + _readings_slot(bar, tickWidth, tickTotalWidth)) : 0.0;
-  return start + (index*tickTotalWidth) + shift;
+  return start + (index*CpuRenderCoreSlot(bar, tickWidth, tickTotalWidth, (natural_t)count)) + shift;
 }
 
 int CpuRenderCoreAtX(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth, CGFloat start, int efficiencyBars, int count, CGFloat x)
@@ -317,10 +333,10 @@ int CpuRenderCoreAtX(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth, CGFloa
   // the rightmost bar that starts at or left of x holds it, if x is within its slot; the last one's has no right end
   for (int i=count-1; i>=0; i--)
   {
-    const CGFloat left = CpuRenderCoreX(bar, tickWidth, tickTotalWidth, start, efficiencyBars, i);
+    const CGFloat left = CpuRenderCoreX(bar, tickWidth, tickTotalWidth, start, efficiencyBars, count, i);
     if (x >= left)
     {
-      return ((i == count-1) || (x < (left + tickTotalWidth))) ? i : -1;
+      return ((i == count-1) || (x < (left + CpuRenderCoreSlot(bar, tickWidth, tickTotalWidth, (natural_t)count)))) ? i : -1;
     }
   }
   return -1;
@@ -471,6 +487,7 @@ void CpuRender(CpuSummaryInfo* cpu_info, CGContextRef ctx, bool light, int granu
   const CpuExtraReading* extra = (readings != NULL) ? readings->extra : NULL;
   // the split after the E-cores' bars, only with the five readings drawn
   const int split = (block && (readings->efficiencyBars > 0)) ? readings->efficiencyBars : 0;
+  const natural_t cores = CpuSamplerGetCount(granularity); // at least 1
   CpuRenderGraphSpan(bar, tickWidth, tickTotalWidth, imageWidth, block, split, extraCount, extra, &offset, &end);
   if (readings)
   {
@@ -483,7 +500,7 @@ void CpuRender(CpuSummaryInfo* cpu_info, CGContextRef ctx, bool light, int granu
       const double value = (i < CPU_RENDER_READINGS_COUNT) ? block_values[i] : (extra ? extra[i-CPU_RENDER_READINGS_COUNT].value : -1.0);
       const CGFloat width = (i < CPU_RENDER_READINGS_COUNT) ? (bar ? 2.0*tickWidth : tickWidth) :
         _extra_bar_width(bar, tickWidth, extra, i-CPU_RENDER_READINGS_COUNT);
-      CGFloat x = CpuRenderReadingX(bar, tickWidth, tickTotalWidth, imageWidth, split, extraCount, extra, i);
+      CGFloat x = CpuRenderReadingX(bar, tickWidth, tickTotalWidth, imageWidth, split, cores, extraCount, extra, i);
       if (value >= 0.0)
       {
         const CGFloat load = fmin(value, 1.0);
@@ -514,8 +531,9 @@ void CpuRender(CpuSummaryInfo* cpu_info, CGContextRef ctx, bool light, int granu
     }
   }
   
-  natural_t count = CpuSamplerGetCount(granularity); // at least 1
+  natural_t count = cores;
   natural_t group = cpu_info->countLogical / count;  // 0 when no CPU could be read: nothing to average
+  const CGFloat coreWidth = CpuRenderCoreWidth(bar, tickWidth, tickTotalWidth, count);
   for (natural_t i=0; i<count; i++)
   {
     CGFloat load = 0.0;
@@ -529,7 +547,7 @@ void CpuRender(CpuSummaryInfo* cpu_info, CGContextRef ctx, bool light, int granu
       load /= (CGFloat)group;
     }
     // the P-cores' bars after the split's gap and the P-cores' reading
-    _render_group(ctx, CpuRenderCoreX(bar, tickWidth, tickTotalWidth, offset, split, (int)i), load, load, color, range, bar, colored, theme, tickWidth, light, bottom);
+    _render_group(ctx, CpuRenderCoreX(bar, tickWidth, tickTotalWidth, offset, split, (int)count, (int)i), load, load, color, range, bar, colored, theme, coreWidth, light, bottom);
   }
 
   // dashed, the readings' bars as well as the cores': the gaps at 4, 7, 10 and 13 leave five 2-pt dashes above
@@ -548,7 +566,7 @@ void CpuRender(CpuSummaryInfo* cpu_info, CGContextRef ctx, bool light, int granu
         const double value = extra[i].value;
         if (extra[i].alert && value >= 0.0)
         {
-          CGFloat x = CpuRenderReadingX(bar, tickWidth, tickTotalWidth, imageWidth, split, extraCount, extra, CPU_RENDER_READINGS_COUNT+i);
+          CGFloat x = CpuRenderReadingX(bar, tickWidth, tickTotalWidth, imageWidth, split, cores, extraCount, extra, CPU_RENDER_READINGS_COUNT+i);
           const CGFloat width = _extra_bar_width(bar, tickWidth, extra, i);
           CGContextClearRect(ctx, CGRectMake(x, 0, width, 16));
           const CGFloat load = fmin(value, 1.0);
@@ -577,7 +595,7 @@ void CpuRender(CpuSummaryInfo* cpu_info, CGContextRef ctx, bool light, int granu
       {
         const double y = fmin(floor(bottom+(fmin(mark, 1.0)*(16.0-bottom))), 15.0); // on the bar's own scale
         CGContextSetGrayFillColor(ctx, light ? 0.0 : 1.0, 1.0);
-        CGFloat x = CpuRenderReadingX(bar, tickWidth, tickTotalWidth, imageWidth, split, extraCount, extra, CPU_RENDER_READINGS_COUNT+i);
+        CGFloat x = CpuRenderReadingX(bar, tickWidth, tickTotalWidth, imageWidth, split, cores, extraCount, extra, CPU_RENDER_READINGS_COUNT+i);
         CGContextFillRect(ctx, CGRectMake(x, y, _extra_bar_width(bar, tickWidth, extra, i), 1));
       }
     }
