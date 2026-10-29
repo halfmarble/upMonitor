@@ -386,6 +386,27 @@ static NSString* TotalTitle(NSString* wholeText, NSString* name)
   return [NSString stringWithFormat:@"%@ %@", [wholeText stringByReplacingOccurrencesOfString:@" " withString:@""], name];
 }
 
+// the startup volume's row from its size and free space: title ("995GB Disk usage:"), text ("72% (free 279 GB, used 716 GB)")
+// and tipText, the same with its free and used figures padded to one width, for the hover label (readDisk)
+static void DiskTexts(uint64_t wholeBytes, uint64_t freeBytes, NSLocale* locale, NSString* __strong * title, NSString* __strong * text, NSString* __strong * tipText)
+{
+  *title = TotalTitle(GBText(wholeBytes, locale), @"Disk usage:");
+  uint64_t usedBytes = (wholeBytes > freeBytes) ? (wholeBytes - freeBytes) : 0;
+  *text = PercentText(usedBytes, wholeBytes, locale);
+  *tipText = *text;
+  if (wholeBytes > 0)
+  {
+    NSString* freeText = GBText(wholeBytes - usedBytes, locale);
+    NSString* usedText = GBText(usedBytes, locale);
+    // "999 GB" and "9.9 TB" are six characters; a larger volume's figures are no wider than its whole with one
+    // decimal ("16.0 TB")
+    NSString* wholeTB = [NSString stringWithFormat:@"%.1f TB", (double)wholeBytes / 1e12];
+    NSUInteger width = MAX((NSUInteger)6, wholeTB.length);
+    *tipText = [NSString stringWithFormat:@"%@ (free %@, used %@)", *text, FigurePadded(freeText, width), FigurePadded(usedText, width)];
+    *text = [NSString stringWithFormat:@"%@ (free %@, used %@)", *text, freeText, usedText];
+  }
+}
+
 // "3d 4h 27m"; under a day "4h 27m", under an hour "27m"
 static NSString* UptimeText(long seconds)
 {
@@ -1117,6 +1138,596 @@ static ProcessIconDecision* DecideProcessIcon(pid_t pid, NSString* path)
 }
 
 #pragma mark -
+
+#pragma mark - Help window
+
+#define HELP_MAX_HEIGHT             (640.0) // pt: the help window's tallest content; a longer text scrolls
+#define HELP_ROW_PADDING            (8.0)   // pt above and below a paragraph in its card
+
+// the help window, made on its first open and kept
+static NSWindow* helpWindow = nil;
+
+#define HELP_EXAMPLE_ZOOM           (2.0)   // an example is drawn this many times its size, so that a 1-pt line and the dashes show
+#define HELP_EXAMPLE_PADDING        (3.0)   // pt of strip around the drawing
+#define HELP_EXAMPLE_RADIUS         (4.0)   // pt, the strip's corners
+#define HELP_EXAMPLE_GAP            (12.0)  // pt between examples, left to right
+#define HELP_EXAMPLE_LINE_GAP       (8.0)   // pt between lines of examples
+#define HELP_EXAMPLE_TEXT_GAP       (6.0)   // pt between a paragraph and its examples
+#define HELP_EXAMPLE_TEXT_WIDTH     (SETTINGS_GROUP_WIDTH - 2.0*SETTINGS_ROW_INSET) // pt: a paragraph's, and an example row's
+#define HELP_EXAMPLE_BELOW_GAP      (4.0)   // pt between the strip, the label box and the caption
+
+static bool IsLight(NSAppearance* appearance);
+
+// the hover labels' box, as the status item's labels are made (NewTipPanel, SetTipText), and the texts the examples show
+// in it, worded by the code that words the real labels (defined with them)
+static NSPanel* NewTipPanel(NSTextField* __strong * label);
+static void SetTipText(NSPanel* panel, NSTextField* label, NSString* text, CGFloat wrap);
+static void HelpCoreReadings(const double* coreLoads, int coreLoadCount, CpuReadings* readings);
+static NSString* HelpDiskLabel(const CpuReadings* readings);
+static NSArray<NSView*>* HelpCoresExamples(const CpuReadings* readings, const double* coreLoads, int coreLoadCount);
+
+// the menu bar's drawing settings at the moment an example is made, from the statics that updateMenuIcon draws with
+typedef struct HelpExampleStyle
+{
+  int granularity;
+  bool bar, stripped, colored;
+  CGFloat drawWidth, tickTotalWidth, graphWidth, tickHeight;
+  int theme;
+  natural_t countLogical;
+  int coreSplit;
+} HelpExampleStyle;
+
+// the help window's document view: flipped, so its content starts at its top and scrolls from there, and sized by its
+// frame; pinned to the clip view instead, the content drifted from the scroll position at the next layout
+@interface HelpDocumentView : NSView
+@end
+
+@implementation HelpDocumentView
+
+- (BOOL)isFlipped
+{
+  return YES;
+}
+
+@end
+
+// a drawing of the menu bar's image (MenuRowsHelpExample), rendered offscreen: CpuRender starts by clearing its rect,
+// which would punch a hole in the window, so it draws into a bitmap that the view then crops and shows on a strip
+@interface HelpExampleView : NSView
+- (instancetype)initWithStyle:(HelpExampleStyle)style readings:(const CpuReadings*)readings coreLoads:(const double*)coreLoads
+                coreLoadCount:(int)coreLoadCount part:(MenuRowsExamplePart)part label:(NSString*)label
+                 labelReading:(int)labelReading caption:(NSString*)caption;
+@end
+
+@implementation HelpExampleView
+{
+  HelpExampleStyle _style;
+  bool _hasReadings;
+  CpuReadings _readings;      // extra points at _extra, a copy
+  CpuExtraReading* _extra;
+  CpuSummaryInfo _info;       // the real core count, each core's load from coreLoads; now is freed in dealloc
+  CGFloat _imageWidth;        // the whole image's width, in pt
+  CGFloat _cropX, _cropWidth; // the part shown, in pt of the image
+  CGFloat _zoom;
+  NSString* _label;
+  NSString* _caption;
+  NSView* _labelView;         // the real hover label's box (NewTipPanel, SetTipText) in a shadow's container; nil: no label
+  NSFont* _captionFont;
+  NSImage* _image;            // the render, at the view's backing scale
+  NSRect _strip, _labelBox;
+  NSPoint _captionOrigin;
+  NSSize _size;
+}
+
+- (instancetype)initWithStyle:(HelpExampleStyle)style readings:(const CpuReadings*)readings coreLoads:(const double*)coreLoads
+                coreLoadCount:(int)coreLoadCount part:(MenuRowsExamplePart)part label:(NSString*)label
+                 labelReading:(int)labelReading caption:(NSString*)caption
+{
+  self = [super initWithFrame:NSZeroRect];
+  if (self == nil)
+  {
+    return nil;
+  }
+  _style = style;
+  _label = [label copy];
+  _caption = [caption copy];
+  _hasReadings = (readings != NULL);
+  if (_hasReadings)
+  {
+    _readings = *readings;
+    HelpCoreReadings(coreLoads, coreLoadCount, &_readings);
+    int count = MAX(_readings.extraCount, 0);
+    _readings.extraCount = count;
+    _extra = NULL;
+    if ((count > 0) && (_readings.extra != NULL))
+    {
+      _extra = (CpuExtraReading*)malloc(count * sizeof(CpuExtraReading));
+      memcpy(_extra, _readings.extra, count * sizeof(CpuExtraReading));
+    }
+    else
+    {
+      _readings.extraCount = 0;
+    }
+    _readings.extra = _extra;
+  }
+  _info.countLogical = style.countLogical;
+  _info.now = (Ticks*)calloc(MAX(style.countLogical, 1), sizeof(Ticks));
+  for (natural_t i=0; i<style.countLogical; i++)
+  {
+    _info.now[i].load = ((coreLoads != NULL) && (coreLoadCount > 0)) ? coreLoads[i % coreLoadCount] : 0.0;
+  }
+
+  // the five readings are drawn, the E-cores' and the P-cores' heading their own bars, as in the menu bar, except in a
+  // Readings example, which shows the five together
+  bool five = _hasReadings && !_readings.extraOnly;
+  if (_hasReadings)
+  {
+    _readings.efficiencyBars = (five && (part != MenuRowsExampleReadings)) ? style.coreSplit : 0;
+  }
+  int extraCount = _hasReadings ? _readings.extraCount : 0;
+  _imageWidth = style.graphWidth;
+  if (five)
+  {
+    _imageWidth += CpuRenderReadingsWidth(style.bar, style.drawWidth, style.tickTotalWidth, _readings.efficiencyBars, extraCount, _extra);
+  }
+  else if (_hasReadings)
+  {
+    _imageWidth += CpuRenderExtraWidth(style.bar, style.drawWidth, style.tickTotalWidth, extraCount, _extra);
+  }
+  int split = _hasReadings ? _readings.efficiencyBars : 0;
+  _cropX = 0.0;
+  _cropWidth = _imageWidth;
+  if ((part == MenuRowsExampleReadings) && five)
+  {
+    int last = CPU_RENDER_READINGS_COUNT - 1;
+    _cropWidth = CpuRenderReadingX(style.bar, style.drawWidth, style.tickTotalWidth, _imageWidth, split, extraCount, _extra, last) +
+      CpuRenderReadingSlot(style.bar, style.drawWidth, style.tickTotalWidth, extraCount, _extra, last);
+  }
+  else if ((part == MenuRowsExampleExtra) && (extraCount > 0))
+  {
+    _cropX = CpuRenderReadingX(style.bar, style.drawWidth, style.tickTotalWidth, _imageWidth, split, extraCount, _extra, CPU_RENDER_READINGS_COUNT);
+    _cropWidth = _imageWidth - _cropX;
+  }
+  _cropWidth = MAX(_cropWidth, 1.0);
+  // zoom 2, less when the strip would pass the text's width
+  _zoom = HELP_EXAMPLE_ZOOM;
+  if (_cropWidth*_zoom > HELP_EXAMPLE_TEXT_WIDTH - 2.0*HELP_EXAMPLE_PADDING)
+  {
+    _zoom = (HELP_EXAMPLE_TEXT_WIDTH - 2.0*HELP_EXAMPLE_PADDING) / _cropWidth;
+  }
+
+  // the layout, top down: the strip, the hover label's box, the caption
+  NSSize stripSize = NSMakeSize(ceil(_cropWidth*_zoom + 2.0*HELP_EXAMPLE_PADDING), ceil(style.tickHeight*_zoom + 2.0*HELP_EXAMPLE_PADDING));
+  CGFloat width = stripSize.width;
+  CGFloat bottom = stripSize.height;
+  NSSize boxSize = NSZeroSize;
+  if (_label.length > 0)
+  {
+    // the box the status item's labels are: made and sized by NewTipPanel and SetTipText, unwrapped as a reading's and a
+    // label with line breaks are, its view then taken out of the panel; the panel's window shadow is a layer shadow
+    // on a container, since the effect view masks to its bounds
+    NSTextField* tipText = nil;
+    NSPanel* panel = NewTipPanel(&tipText);
+    SetTipText(panel, tipText, _label, CGFLOAT_MAX);
+    boxSize = panel.frame.size;
+    NSView* effect = panel.contentView;
+    panel.contentView = [[NSView alloc] init];
+    effect.frame = NSMakeRect(0.0, 0.0, boxSize.width, boxSize.height);
+    if ([effect isKindOfClass:[NSVisualEffectView class]])
+    {
+      ((NSVisualEffectView*)effect).blendingMode = NSVisualEffectBlendingModeWithinWindow;
+    }
+    _labelView = [[NSView alloc] initWithFrame:NSMakeRect(0.0, 0.0, boxSize.width, boxSize.height)];
+    _labelView.wantsLayer = YES;
+    _labelView.layer.shadowColor = [NSColor blackColor].CGColor;
+    _labelView.layer.shadowOpacity = 0.3;
+    _labelView.layer.shadowRadius = 5.0;
+    _labelView.layer.shadowOffset = CGSizeMake(0.0, -2.0);
+    CGPathRef shadowPath = CGPathCreateWithRoundedRect(CGRectMake(0.0, 0.0, boxSize.width, boxSize.height), 5.0, 5.0, NULL);
+    _labelView.layer.shadowPath = shadowPath;
+    CGPathRelease(shadowPath);
+    [_labelView addSubview:effect];
+    [_labelView setAccessibilityElement:NO];
+    [self addSubview:_labelView];
+    width = MAX(width, boxSize.width);
+  }
+  NSSize captionSize = NSZeroSize;
+  if (_caption.length > 0)
+  {
+    _captionFont = [NSFont systemFontOfSize:11.0];
+    captionSize = [_caption sizeWithAttributes:@{NSFontAttributeName: _captionFont}];
+    captionSize = NSMakeSize(ceil(captionSize.width), ceil(captionSize.height));
+    width = MAX(width, captionSize.width);
+  }
+  // with a label the strip stays at the left, under which the box is centred on its reading, kept inside the view
+  _strip = NSMakeRect((_label.length > 0) ? 0.0 : floor((width - stripSize.width) / 2.0), 0.0, stripSize.width, stripSize.height);
+  CGFloat centreX = NSMidX(_strip);
+  if (_label.length > 0)
+  {
+    CGFloat readingMid;
+    if (labelReading < 0)
+    {
+      CGFloat start = 0.0;
+      CGFloat end = 0.0;
+      CpuRenderGraphSpan(style.bar, style.drawWidth, style.tickTotalWidth, _imageWidth, five, split, extraCount, _extra, &start, &end);
+      readingMid = (start + end) / 2.0;
+    }
+    else
+    {
+      readingMid = CpuRenderReadingX(style.bar, style.drawWidth, style.tickTotalWidth, _imageWidth, split, extraCount, _extra, labelReading) +
+        CpuRenderReadingSlot(style.bar, style.drawWidth, style.tickTotalWidth, extraCount, _extra, labelReading) / 2.0;
+    }
+    CGFloat x = NSMinX(_strip) + HELP_EXAMPLE_PADDING + (readingMid - _cropX)*_zoom - boxSize.width/2.0;
+    x = MIN(MAX(x, 0.0), width - boxSize.width);
+    _labelBox = NSMakeRect(floor(x), bottom + HELP_EXAMPLE_BELOW_GAP, boxSize.width, boxSize.height);
+    _labelView.frame = _labelBox;
+    bottom = NSMaxY(_labelBox);
+    centreX = NSMidX(_labelBox);
+  }
+  if (_caption.length > 0)
+  {
+    CGFloat x = MIN(MAX(centreX - captionSize.width/2.0, 0.0), width - captionSize.width);
+    _captionOrigin = NSMakePoint(floor(x), bottom + HELP_EXAMPLE_BELOW_GAP);
+    bottom = _captionOrigin.y + captionSize.height;
+  }
+  _size = NSMakeSize(width, bottom);
+  self.frame = NSMakeRect(0.0, 0.0, _size.width, _size.height);
+  return self;
+}
+
+- (void)dealloc
+{
+  free(_extra);
+  free(_info.now);
+}
+
+- (BOOL)isFlipped
+{
+  return YES;
+}
+
+- (NSSize)intrinsicContentSize
+{
+  return _size;
+}
+
+// renders the whole image into a bitmap, in the menu bar's colour for this view's appearance, at its backing scale
+- (void)render
+{
+  CGFloat scale = self.window.backingScaleFactor;
+  if (scale <= 0.0)
+  {
+    scale = NSScreen.mainScreen.backingScaleFactor;
+  }
+  if (scale <= 0.0)
+  {
+    scale = 2.0;
+  }
+  NSInteger pixelsWide = MAX((NSInteger)ceil(_imageWidth*_zoom*scale), 1);
+  NSInteger pixelsHigh = MAX((NSInteger)ceil(_style.tickHeight*_zoom*scale), 1);
+  NSBitmapImageRep* rep = [[NSBitmapImageRep alloc] initWithBitmapDataPlanes:NULL
+                                                                  pixelsWide:pixelsWide
+                                                                  pixelsHigh:pixelsHigh
+                                                               bitsPerSample:8
+                                                             samplesPerPixel:4
+                                                                    hasAlpha:YES
+                                                                    isPlanar:NO
+                                                              colorSpaceName:NSCalibratedRGBColorSpace
+                                                                 bytesPerRow:0
+                                                                bitsPerPixel:32];
+  if (rep == nil)
+  {
+    return;
+  }
+  NSGraphicsContext* context = [NSGraphicsContext graphicsContextWithBitmapImageRep:rep];
+  [NSGraphicsContext saveGraphicsState];
+  [NSGraphicsContext setCurrentContext:context];
+  CGContextRef ctx = context.CGContext;
+  CGContextScaleCTM(ctx, (CGFloat)pixelsWide / _imageWidth, (CGFloat)pixelsHigh / _style.tickHeight);
+  CpuRender(&_info, ctx, IsLight(self.effectiveAppearance), _style.granularity, _style.bar, _style.stripped, _style.colored,
+            _style.drawWidth, _style.tickTotalWidth, _imageWidth, _style.theme, _hasReadings ? &_readings : NULL);
+  [NSGraphicsContext restoreGraphicsState];
+  rep.size = NSMakeSize(_imageWidth*_zoom, _style.tickHeight*_zoom);
+  _image = [[NSImage alloc] initWithSize:rep.size];
+  [_image addRepresentation:rep];
+  [self setNeedsDisplay:YES];
+}
+
+- (void)viewDidChangeEffectiveAppearance
+{
+  [super viewDidChangeEffectiveAppearance];
+  [self render];
+}
+
+- (void)viewDidChangeBackingProperties
+{
+  [super viewDidChangeBackingProperties];
+  [self render];
+}
+
+- (void)drawRect:(NSRect)dirtyRect
+{
+  if (_image == nil)
+  {
+    [self render];
+  }
+  bool light = IsLight(self.effectiveAppearance);
+  [[NSColor colorWithWhite:light ? 0.92 : 0.16 alpha:1.0] setFill];
+  [[NSBezierPath bezierPathWithRoundedRect:_strip xRadius:HELP_EXAMPLE_RADIUS yRadius:HELP_EXAMPLE_RADIUS] fill];
+  NSGraphicsContext* context = [NSGraphicsContext currentContext];
+  context.imageInterpolation = NSImageInterpolationNone;
+  NSRect target = NSMakeRect(NSMinX(_strip) + HELP_EXAMPLE_PADDING, NSMinY(_strip) + HELP_EXAMPLE_PADDING, _cropWidth*_zoom, _style.tickHeight*_zoom);
+  NSRect source = NSMakeRect(_cropX*_zoom, 0.0, _cropWidth*_zoom, _style.tickHeight*_zoom);
+  [_image drawInRect:target fromRect:source operation:NSCompositingOperationSourceOver fraction:1.0 respectFlipped:YES hints:@{NSImageHintInterpolation: @(NSImageInterpolationNone)}];
+
+  if (_caption.length > 0)
+  {
+    [_caption drawAtPoint:_captionOrigin withAttributes:@{NSFontAttributeName: _captionFont, NSForegroundColorAttributeName: [NSColor secondaryLabelColor]}];
+  }
+}
+
+- (BOOL)isAccessibilityElement
+{
+  return YES;
+}
+
+- (NSAccessibilityRole)accessibilityRole
+{
+  return NSAccessibilityImageRole;
+}
+
+- (NSString*)accessibilityLabel
+{
+  NSString* label = (_caption.length > 0) ? _caption : @"Example";
+  if (_label.length > 0)
+  {
+    label = [NSString stringWithFormat:@"%@: %@", label, [_label stringByReplacingOccurrencesOfString:@"\n" withString:@", "]];
+  }
+  return label;
+}
+
+@end
+
+// one paragraph of a card of the help window: a wrapping, selectable label, SETTINGS_ROW_INSET in from the card's edges,
+// then its examples (HelpExampleView or any NSView) under it, left to right with HELP_EXAMPLE_GAP between them, wrapping
+// to a new line when the next would pass the text's width. Laid out once, from each example's size: the geometry of the
+// menu bar does not change while the app runs
+static NSView* HelpRow(NSString* text, NSArray<NSView*>* examples)
+{
+  NSView* row = [[NSView alloc] init];
+  NSTextField* label = [NSTextField wrappingLabelWithString:text];
+  label.font = [NSFont systemFontOfSize:13.0];
+  label.textColor = [NSColor labelColor];
+  label.selectable = YES;
+  label.preferredMaxLayoutWidth = SETTINGS_GROUP_WIDTH - 2.0*SETTINGS_ROW_INSET;
+  label.translatesAutoresizingMaskIntoConstraints = NO;
+  [row addSubview:label];
+  [NSLayoutConstraint activateConstraints:@[
+    [label.topAnchor constraintEqualToAnchor:row.topAnchor constant:HELP_ROW_PADDING],
+    [label.leadingAnchor constraintEqualToAnchor:row.leadingAnchor constant:SETTINGS_ROW_INSET],
+    [label.trailingAnchor constraintEqualToAnchor:row.trailingAnchor constant:-SETTINGS_ROW_INSET],
+  ]];
+  if (examples.count == 0)
+  {
+    [label.bottomAnchor constraintEqualToAnchor:row.bottomAnchor constant:-HELP_ROW_PADDING].active = YES;
+    return row;
+  }
+
+  // the examples' flow, in a view of its own: frames from the top left, each line as tall as its tallest example
+  NSView* flow = [[NSView alloc] init];
+  flow.translatesAutoresizingMaskIntoConstraints = NO;
+  std::vector<NSRect> frames;
+  CGFloat x = 0.0;
+  CGFloat y = 0.0;
+  CGFloat line = 0.0;
+  for (NSView* example in examples)
+  {
+    NSSize size = example.fittingSize;
+    if ((size.width <= 0.0) || (size.height <= 0.0))
+    {
+      size = example.frame.size;
+    }
+    if ((x > 0.0) && (x + size.width > HELP_EXAMPLE_TEXT_WIDTH))
+    {
+      x = 0.0;
+      y += line + HELP_EXAMPLE_LINE_GAP;
+      line = 0.0;
+    }
+    frames.push_back(NSMakeRect(x, y, size.width, size.height));
+    x += size.width + HELP_EXAMPLE_GAP;
+    line = MAX(line, size.height);
+  }
+  CGFloat height = y + line;
+  for (NSUInteger i=0; i<examples.count; i++)
+  {
+    // the flow is not flipped: a frame's y counts from its bottom
+    NSRect frame = frames[i];
+    examples[i].frame = NSMakeRect(frame.origin.x, height - frame.origin.y - frame.size.height, frame.size.width, frame.size.height);
+    [flow addSubview:examples[i]];
+  }
+  [row addSubview:flow];
+  [NSLayoutConstraint activateConstraints:@[
+    [flow.topAnchor constraintEqualToAnchor:label.bottomAnchor constant:HELP_EXAMPLE_TEXT_GAP],
+    [flow.leadingAnchor constraintEqualToAnchor:label.leadingAnchor],
+    [flow.widthAnchor constraintEqualToConstant:HELP_EXAMPLE_TEXT_WIDTH],
+    [flow.heightAnchor constraintEqualToConstant:height],
+    [flow.bottomAnchor constraintEqualToAnchor:row.bottomAnchor constant:-HELP_ROW_PADDING],
+  ]];
+  return row;
+}
+
+// the entries of rows that are a non-empty NSString, or a pair of one and an NSArray (its NSViews kept, the rest
+// skipped), as pairs of the text and its examples, in their order
+static NSArray<NSArray*>* HelpValidRows(id rows)
+{
+  NSMutableArray<NSArray*>* valid = [[NSMutableArray alloc] init];
+  if (![rows isKindOfClass:[NSArray class]])
+  {
+    return valid;
+  }
+  for (id row in (NSArray*)rows)
+  {
+    id text = row;
+    NSMutableArray<NSView*>* examples = [[NSMutableArray alloc] init];
+    if ([row isKindOfClass:[NSArray class]])
+    {
+      NSArray* pair = (NSArray*)row;
+      if ((pair.count != 2) || ![pair[1] isKindOfClass:[NSArray class]])
+      {
+        continue;
+      }
+      text = pair[0];
+      for (id example in (NSArray*)pair[1])
+      {
+        if ([example isKindOfClass:[NSView class]])
+        {
+          [examples addObject:example];
+        }
+      }
+    }
+    if ([text isKindOfClass:[NSString class]] && ([(NSString*)text length] > 0))
+    {
+      [valid addObject:@[text, examples]];
+    }
+  }
+  return valid;
+}
+
+// an example of extra readings alone, wide bars of these values and nothing else set
+static NSView* HelpExtraExample(const double* values, int count, NSString* caption)
+{
+  std::vector<CpuExtraReading> extra(count);
+  for (int i=0; i<count; i++)
+  {
+    extra[i] = CpuExtraReading();
+    extra[i].value = values[i];
+  }
+  CpuReadings readings = {};
+  readings.extraCount = count;
+  readings.extra = extra.data();
+  readings.extraOnly = true;
+  return MenuRowsHelpExample(&readings, NULL, 0, MenuRowsExampleExtra, nil, -1, caption);
+}
+
+// the help window: the "Menu bar" section, then each MenuRows class's section in registration order, under its
+// heading (none for a class with no title or no valid row), each a card of paragraphs, in a scroll view as tall as the
+// content up to HELP_MAX_HEIGHT. Asked of the classes once, here
+static NSWindow* MakeHelpWindow(void)
+{
+  NSView* help = [[NSView alloc] init];
+  help.translatesAutoresizingMaskIntoConstraints = NO;
+  NSMutableArray<NSLayoutConstraint*>* constraints = [[NSMutableArray alloc] init];
+  [constraints addObject:[help.widthAnchor constraintEqualToConstant:SETTINGS_WIDTH]];
+  __block NSLayoutYAxisAnchor* below = help.topAnchor;
+  __block CGFloat gap = SETTINGS_INSET_Y;
+  void (^section)(NSString*, NSArray<NSArray*>*) = ^(NSString* title, NSArray<NSArray*>* paragraphs) {
+    NSMutableArray<NSView*>* rows = [[NSMutableArray alloc] init];
+    for (NSArray* paragraph in paragraphs)
+    {
+      [rows addObject:HelpRow(paragraph[0], paragraph[1])];
+    }
+    NSTextField* heading = MenuRowsSettingsHeading(title);
+    NSView* card = MenuRowsSettingsCard(rows);
+    for (NSView* view in @[heading, card])
+    {
+      [help addSubview:view];
+      [constraints addObject:[view.topAnchor constraintEqualToAnchor:below constant:gap]];
+      [constraints addObject:[view.leadingAnchor constraintEqualToAnchor:help.leadingAnchor
+                                                                constant:SETTINGS_INSET_X + ((view == heading) ? SETTINGS_HEADING_INSET : 0.0)]];
+      below = view.bottomAnchor;
+      gap = (view == heading) ? SETTINGS_HEADING_GAP : SETTINGS_SECTION_GAP;
+    }
+    [constraints addObject:[card.widthAnchor constraintEqualToConstant:SETTINGS_GROUP_WIDTH]];
+  };
+
+  // the examples' values: this Mac's cores take the loads in turn (on EEEEPPPP, the E cores low and the P cores higher),
+  // and the CPU, E and P readings are read from them (HelpCoreReadings)
+  static const double loads[] = {0.15, 0.30, 0.10, 0.25, 0.65, 0.40, 0.85, 0.50};
+  const int loadCount = sizeof(loads) / sizeof(loads[0]);
+  CpuReadings shared = {};
+  shared.memory = 0.48;
+  shared.disk = 0.62;
+  CpuReadings barsOff = shared;
+  barsOff.extraOnly = true;
+  const double fills[] = {0.0, 0.20, 0.50, 0.70, 1.00};
+  const double colours[] = {0.10, 0.30, 0.50, 0.75, 1.00};
+
+  // the hover labels, worded as the real ones are (HelpDiskLabel, HelpCoresExamples)
+  NSMutableArray<NSView*>* hoverExamples = [NSMutableArray arrayWithObject:
+    MenuRowsHelpExample(&shared, loads, loadCount, MenuRowsExampleWhole, HelpDiskLabel(&shared), 0, @"a bar")];
+  [hoverExamples addObjectsFromArray:HelpCoresExamples(&shared, loads, loadCount)];
+
+  section(@"Menu bar", @[
+    @[
+      @"Five wide bars show the startup volume's used space (disk), the memory in use, and the CPU's load, overall and for the efficiency cores (E) and the performance cores (P). Disk, memory and CPU come first, on the left.",
+      @[MenuRowsHelpExample(&shared, loads, loadCount, MenuRowsExampleReadings, nil, -1, @"disk, memory, CPU, E, P")],
+    ],
+    @[
+      @"Each narrow bar is one CPU core. When the Mac lists its efficiency cores first, the E bar stands at the head of the efficiency cores' bars and the P bar at the head of the performance cores' bars, each group after a small gap; otherwise the E and P bars follow the CPU bar.",
+      @[MenuRowsHelpExample(&shared, loads, loadCount, MenuRowsExampleWhole, nil, -1, @"this Mac's cores")],
+    ],
+    @[
+      @"A bar fills from the bottom: empty is 0%, full is 100%. The faint column behind it is its full height, and each of its five dashes is a fifth; the top dash can be partly filled.",
+      @[HelpExtraExample(fills, 5, @"0%, 20%, 50%, 70%, 100%")],
+    ],
+    @[
+      @"The colour shows the same value: blue when idle, then green and yellow, to red at full load, and the more is in use, the more solid the colour.",
+      @[HelpExtraExample(colours, 5, @"idle to full load")],
+    ],
+    @[
+      @"Rest the pointer on a bar for a second to see its value below the menu bar. On the core bars it lists each core's load; when the cores are grouped, each group's label starts with its kind's reading.",
+      hoverExamples,
+    ],
+    @[
+      @"In Settings, \"Show Disk, RAM, CPU, E-core, P-core bars\" turns the five wide bars off and leaves the core bars, and \"Refresh\" sets how often the bars move.",
+      @[
+        MenuRowsHelpExample(&shared, loads, loadCount, MenuRowsExampleWhole, nil, -1, @"bars on"),
+        MenuRowsHelpExample(&barsOff, loads, loadCount, MenuRowsExampleWhole, nil, -1, @"bars off"),
+      ],
+    ],
+  ]);
+
+  // each class's section, with a title and at least one valid row
+  for (id<MenuRows> rows in menuRows)
+  {
+    if (![rows respondsToSelector:@selector(helpTitle)] || ![rows respondsToSelector:@selector(helpRows)])
+    {
+      continue;
+    }
+    id title = [rows helpTitle];
+    NSArray<NSArray*>* valid = HelpValidRows([rows helpRows]);
+    if ([title isKindOfClass:[NSString class]] && ([(NSString*)title length] > 0) && (valid.count > 0))
+    {
+      section(title, valid);
+    }
+  }
+  [constraints addObject:[below constraintEqualToAnchor:help.bottomAnchor constant:-SETTINGS_INSET_Y]];
+  [NSLayoutConstraint activateConstraints:constraints];
+
+  NSSize size = help.fittingSize;
+  NSScrollView* scroll = [[NSScrollView alloc] initWithFrame:NSMakeRect(0.0, 0.0, SETTINGS_WIDTH, MIN(size.height, HELP_MAX_HEIGHT))];
+  scroll.drawsBackground = NO;
+  scroll.hasVerticalScroller = YES;
+  scroll.hasHorizontalScroller = NO;
+  scroll.autohidesScrollers = YES;
+  // the content hangs from the document view's top left
+  HelpDocumentView* document = [[HelpDocumentView alloc] initWithFrame:NSMakeRect(0.0, 0.0, size.width, size.height)];
+  [document addSubview:help];
+  [NSLayoutConstraint activateConstraints:@[
+    [help.leadingAnchor constraintEqualToAnchor:document.leadingAnchor],
+    [help.topAnchor constraintEqualToAnchor:document.topAnchor],
+  ]];
+  scroll.documentView = document;
+
+  NSWindow* window = [[NSWindow alloc] initWithContentRect:scroll.frame
+                                                 styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable
+                                                   backing:NSBackingStoreBuffered
+                                                     defer:NO];
+  window.title = @"How to Read the Menu Bar";
+  window.releasedWhenClosed = NO;
+  window.contentView = scroll;
+  return window;
+}
 
 @implementation AppDelegate
 
@@ -2079,6 +2690,15 @@ static NSString* OthersRowText(int count)
   }
 
   {
+    NSMenuItem* item = [menu addItemWithTitle:@"How to Read the Menu Bar..." action:@selector(openHelp:) keyEquivalent:@""];
+    [item setAttributedTitle:[[NSAttributedString alloc] initWithString:[item title] attributes:attributesStandard]];
+    NSImage* helpIcon = [NSImage imageWithSystemSymbolName:@"questionmark.circle" accessibilityDescription:nil];
+    [helpIcon setSize:NSMakeSize(MENU_ICON_SIZE+2.0, MENU_ICON_SIZE+2.0)];
+    [item setImage:helpIcon];
+    ShowMenuItemImage(item);
+  }
+
+  {
     NSMenuItem* item = [menu addItemWithTitle:@"About upMonitor" action:@selector(openAbout:) keyEquivalent:@""];
     [item setAttributedTitle:[[NSAttributedString alloc] initWithString:[item title] attributes:attributesStandard]];
     // a copy, so the shared application icon keeps its own size for the About panel
@@ -2124,6 +2744,16 @@ static bool IsLight(NSAppearance* appearance)
   return ![name isEqualToString:NSAppearanceNameDarkAqua];
 }
 
+// a drawing of the menu bar's image for the help window (MenuRows.h), with the settings the status item draws with now
+NSView* MenuRowsHelpExample(const CpuReadings* readings, const double* coreLoads, int coreLoadCount, MenuRowsExamplePart part,
+                            NSString* label, int labelReading, NSString* caption)
+{
+  HelpExampleStyle style = {granularity, bar, stripped, colored, drawWidth, tickTotalWidth, graphWidth, tickHeight, theme,
+                            cpu_info.countLogical, coreSplit};
+  return [[HelpExampleView alloc] initWithStyle:style readings:readings coreLoads:coreLoads coreLoadCount:coreLoadCount
+                                           part:part label:label labelReading:labelReading caption:caption];
+}
+
 - (void)renderMenubarWithLight:(BOOL)light readings:(const CpuReadings*)readings
 {
   CpuSamplerUpdate(&cpu_info);
@@ -2163,8 +2793,6 @@ static bool IsLight(NSAppearance* appearance)
 // for its text), but the pointer reaches the button, so the label is the app's own panel. updateBarTips: records where
 // the readings are after each render; the pointer's entry and moves start a watch timer that follows the pointer while
 // it is on the item, since no exit was delivered either, and a reading under it arms the label (BAR_TIP_DELAY)
-static NSPanel* NewTipPanel(NSTextField* __strong * label);
-static void SetTipText(NSPanel* panel, NSTextField* label, NSString* text, CGFloat wrap);
 static NSRect barTipLayout = {{-1.0, -1.0}, {-1.0, -1.0}}; // x: the image's left in the button, width: the readings' slot; none: -1
 static bool barTipThree = false;            // the five readings (disk, memory, CPU, E-cores, P-cores) are drawn
 static int barTipSplit = 0;                 // with them, the core graph's split as drawn (CpuReadings efficiencyBars); 0: none
@@ -2470,6 +3098,94 @@ static NSString* TipPercents(NSString* text)
   return padded;
 }
 
+// the reading line of a kind of core, "Efficiency cores: 22%" or "Performance cores: 13%" ("—" when busy is below 0,
+// not read): a reading's label, and the title of a split core graph's label (barTipTextUnpaddedAt:)
+static NSString* CoreKindReadingText(bool efficiency, double busy, NSLocale* locale)
+{
+  NSString* value = (busy < 0.0) ? @"—" : [[NSString alloc] initWithFormat:@"%ld%%" locale:locale, lround(busy * 100.0)];
+  return [NSString stringWithFormat:@"%@ %@", efficiency ? @"Efficiency cores:" : @"Performance cores:", value];
+}
+
+// a help example's CPU, E and P readings from its core loads, coreLoads[i % coreLoadCount] for logical CPU i, as the app
+// reads them from the CPUs (SystemInfo): CPU the mean over all of them, E and P the mean over that kind's (cpuKinds),
+// -1 (not read) for a kind with no CPU or with the kinds not read. With no loads (count 0) the readings are left as given
+static void HelpCoreReadings(const double* coreLoads, int coreLoadCount, CpuReadings* readings)
+{
+  if ((coreLoads == NULL) || (coreLoadCount <= 0) || (cpu_info.countLogical == 0))
+  {
+    return;
+  }
+  double sum = 0.0;
+  double kindSum[2] = {0.0, 0.0};
+  int kindCount[2] = {0, 0};
+  for (natural_t i=0; i<cpu_info.countLogical; i++)
+  {
+    double load = fmin(fmax(coreLoads[i % coreLoadCount], 0.0), 1.0);
+    sum += load;
+    if ((cpuKinds != NULL) && ((cpuKinds[i] == 'E') || (cpuKinds[i] == 'P')))
+    {
+      int kind = (cpuKinds[i] == 'E') ? 0 : 1;
+      kindSum[kind] += load;
+      kindCount[kind]++;
+    }
+  }
+  readings->cpu = sum / (double)cpu_info.countLogical;
+  readings->efficiency = (kindCount[0] > 0) ? (kindSum[0] / kindCount[0]) : -1.0;
+  readings->performance = (kindCount[1] > 0) ? (kindSum[1] / kindCount[1]) : -1.0;
+}
+
+// the disk hover label of the help window's example, as the real one reads: 1 TB, readings->disk of it used, its
+// title and padded text (DiskTexts), the percentages padded (TipPercents)
+static NSString* HelpDiskLabel(const CpuReadings* readings)
+{
+  uint64_t whole = 1000000000000ULL;
+  uint64_t used = (uint64_t)llround(fmin(fmax(readings->disk, 0.0), 1.0) * (double)whole);
+  NSString* title = nil;
+  NSString* text = nil;
+  NSString* tipText = nil;
+  DiskTexts(whole, whole - used, [NSLocale currentLocale], &title, &text, &tipText);
+  return TipPercents([NSString stringWithFormat:@"%@ %@", title, tipText]);
+}
+
+// the help window's core graph hover labels, from the example's loads cycled over this Mac's CPUs, as barTipTextAt:
+// words them: when the graph splits (coreSplit), two images, one with the E-cores' label under the E reading and one
+// with the P-cores', each starting with its reading's line in place of its section's title; else one, the whole
+// label, under the core graph
+static NSArray<NSView*>* HelpCoresExamples(const CpuReadings* readings, const double* coreLoads, int coreLoadCount)
+{
+  std::vector<double> loads;
+  for (natural_t i=0; i<cpu_info.countLogical; i++)
+  {
+    double load = ((coreLoads != NULL) && (coreLoadCount > 0)) ? coreLoads[i % coreLoadCount] : 0.0;
+    loads.push_back(fmin(fmax(load, 0.0), 1.0));
+  }
+  natural_t perBar = cpu_info.countLogical / CpuSamplerGetCount(granularity);
+  NSLocale* locale = [NSLocale currentLocale];
+  // the kinds' readings as the example draws them (HelpCoreReadings)
+  CpuReadings read = *readings;
+  HelpCoreReadings(coreLoads, coreLoadCount, &read);
+  if (coreSplit <= 0)
+  {
+    NSString* text = TipPercents(CoresTipText(loads, cpuKinds, perBar, -1, 0, locale));
+    return @[MenuRowsHelpExample(readings, coreLoads, coreLoadCount, MenuRowsExampleWhole, text, -1, @"the cores")];
+  }
+  NSMutableArray<NSView*>* examples = [NSMutableArray array];
+  for (int kind=0; kind<2; kind++)
+  {
+    bool efficiency = (kind == 0);
+    NSString* cores = CoresTipText(loads, cpuKinds, perBar, -1, efficiency ? 'E' : 'P', locale);
+    NSRange title = [cores rangeOfString:@"\n"];
+    if (title.location != NSNotFound)
+    {
+      cores = [CoreKindReadingText(efficiency, efficiency ? read.efficiency : read.performance, locale) stringByAppendingString:[cores substringFromIndex:title.location]];
+    }
+    [examples addObject:MenuRowsHelpExample(readings, coreLoads, coreLoadCount, MenuRowsExampleWhole, TipPercents(cores),
+                                            efficiency ? CPU_RENDER_READING_EFFICIENCY : CPU_RENDER_READING_PERFORMANCE,
+                                            efficiency ? @"efficiency cores" : @"performance cores")];
+  }
+  return examples;
+}
+
 // a label's text, its percentages three characters wide ("995GB Disk usage:  72%")
 - (NSString*)barTipTextAt:(NSInteger)index
 {
@@ -2510,9 +3226,7 @@ static NSString* TipPercents(NSString* text)
   if ((index == CPU_RENDER_READING_EFFICIENCY) || (index == CPU_RENDER_READING_PERFORMANCE))
   {
     bool efficiency = (index == CPU_RENDER_READING_EFFICIENCY);
-    double busy = efficiency ? readingsCpuEfficiency : readingsCpuPerformance;
-    NSString* value = (busy < 0.0) ? @"—" : [[NSString alloc] initWithFormat:@"%ld%%" locale:[NSLocale currentLocale], lround(busy * 100.0)];
-    return [NSString stringWithFormat:@"%@ %@", efficiency ? @"Efficiency cores:" : @"Performance cores:", value];
+    return CoreKindReadingText(efficiency, efficiency ? readingsCpuEfficiency : readingsCpuPerformance, [NSLocale currentLocale]);
   }
   NSArray<NSArray<NSString*>*>* rows = [self readingRowsPadded:true];
   if ((index < 0) || (index >= (NSInteger)rows.count))
@@ -3239,6 +3953,18 @@ static NSTimeInterval TopDelay(void)
   [self.window center];
   [self.window orderFrontRegardless];
   [self.window makeKeyWindow];
+}
+
+- (IBAction)openHelp:(id)sender
+{
+  [NSApp activateIgnoringOtherApps:YES];
+
+  if (helpWindow == nil)
+  {
+    helpWindow = MakeHelpWindow();
+    [helpWindow center];
+  }
+  [helpWindow makeKeyAndOrderFront:sender];
 }
 
 - (IBAction)openAbout:(id)sender
@@ -4341,21 +5067,8 @@ static void SetTipText(NSPanel* panel, NSTextField* label, NSString* text, CGFlo
       NSLocale* locale = [NSLocale currentLocale];
       uint64_t wholeBytes = total.unsignedLongLongValue;
       uint64_t freeBytes = available.unsignedLongLongValue;
-      diskTitle = TotalTitle(GBText(wholeBytes, locale), @"Disk usage:");
       uint64_t usedBytes = (wholeBytes > freeBytes) ? (wholeBytes - freeBytes) : 0;
-      diskText = PercentText(usedBytes, wholeBytes, locale);
-      diskTipText = diskText;
-      if (wholeBytes > 0)
-      {
-        NSString* freeText = GBText(wholeBytes - usedBytes, locale);
-        NSString* usedText = GBText(usedBytes, locale);
-        // "999 GB" and "9.9 TB" are six characters; a larger volume's figures are no wider than its whole with one
-        // decimal ("16.0 TB")
-        NSString* wholeTB = [NSString stringWithFormat:@"%.1f TB", (double)wholeBytes / 1e12];
-        NSUInteger width = MAX((NSUInteger)6, wholeTB.length);
-        diskTipText = [NSString stringWithFormat:@"%@ (free %@, used %@)", diskText, FigurePadded(freeText, width), FigurePadded(usedText, width)];
-        diskText = [NSString stringWithFormat:@"%@ (free %@, used %@)", diskText, freeText, usedText];
-      }
+      DiskTexts(wholeBytes, freeBytes, locale, &diskTitle, &diskText, &diskTipText);
       diskFraction = (wholeBytes > 0) ? ((double)usedBytes / (double)wholeBytes) : -1.0;
       if (generation == infoGeneration)
       {

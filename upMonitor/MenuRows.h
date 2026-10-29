@@ -22,6 +22,8 @@
 
 #import <AppKit/AppKit.h>
 
+#include "CpuRenderer.h"
+
 NS_ASSUME_NONNULL_BEGIN
 
 // Rows that a build adds to the status menu, above Quit, and to the readings panel beside it, after the readings. A
@@ -29,7 +31,7 @@ NS_ASSUME_NONNULL_BEGIN
 // each when it builds the menu and adds its rows, then a separator, and its panel rows, any of them a heading, as a
 // section of their own. It may also add views to the process inspector's header, bars to the menu bar, at the right of
 // the core graph, with a mark, a tint, an alert, a group and a width per bar, and a group of rows to the Settings
-// window.
+// window and a section to the help window.
 // Everything here runs on the main thread, +load aside.
 @protocol MenuRows <NSObject>
 // the rows, their titles set in attributes, the menu's own text attributes
@@ -80,6 +82,15 @@ NS_ASSUME_NONNULL_BEGIN
 - (NSString*)settingsTitle;
 - (NSArray<NSArray*>*)settingsRows;
 - (NSArray<NSButton*>*)settingsButtons;
+// the class's section in the help window, asked once, when the window is first made: its heading and its paragraphs.
+// The section follows the app's "Menu bar" section, in the order the classes registered, under its heading. Each entry
+// of helpRows is one paragraph, a row of a card, wrapped to the window's width: a non-empty NSString, or a pair, an
+// NSArray of the text and an NSArray of NSViews, drawings that the window lays out under the text, in order, left to
+// right and wrapping (make one with MenuRowsHelpExample; an entry of the array that is not an NSView is skipped, and an
+// empty array is text only). An entry that is neither is skipped; with no title (missing or empty) or no such entry,
+// there is no section
+- (NSString*)helpTitle;
+- (NSArray*)helpRows;
 // each bar's mark, in the same order as barReadings: a share of the bar's height, 0..1 (above 1 at the top row; near 0
 // on its lowest row), shown by a 1-pt line across the bar at that height, drawn over the dashes, white on a dark menu
 // bar and black on a light one; 0 or below, an entry that is not a number, a missing entry or a bar not read: none.
@@ -146,6 +157,21 @@ NSTextField* MenuRowsSettingsHeading(NSString* title);
 // content by MENU_ROWS_SETTINGS_INSET. A hidden row takes no room and gets no line, and the lines follow the rows as
 // their heights change. The caller gives the card its width and its place; its height is the rows'
 NSView* MenuRowsSettingsCard(NSArray<NSView*>* rows);
+
+typedef NS_ENUM(NSInteger, MenuRowsExamplePart) {
+  MenuRowsExampleWhole,     // the menu bar's image: the five readings (unless readings->extraOnly), cores, extras
+  MenuRowsExampleReadings,  // only the five wide readings
+  MenuRowsExampleExtra,     // only the extra readings, from the first to the last
+};
+// a drawing of the menu bar's image, as the app draws it now, for the help window: readings (NULL: none, the cores
+// only) and the core bars' loads, coreLoads[i % coreLoadCount] for core bar i (count 0: all 0), from which the CPU, E
+// and P readings are then read, as the app reads them from the cores (count 0: as given), drawn on a strip in
+// the menu bar's colour for the view's appearance, redrawn when its appearance or backing scale changes; part crops
+// it; label (nil: none) is drawn as a hover label in a box under reading labelReading (CpuRenderReadingX's index; -1:
+// the core graph's middle); caption (nil: none) in small secondary text under it. The extras are copied
+NSView* MenuRowsHelpExample(const CpuReadings* _Nullable readings, const double* _Nullable coreLoads,
+                            int coreLoadCount, MenuRowsExamplePart part, NSString* _Nullable label,
+                            int labelReading, NSString* _Nullable caption);
 
 __END_DECLS
 
