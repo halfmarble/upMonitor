@@ -27,7 +27,7 @@
 NS_ASSUME_NONNULL_BEGIN
 
 // Rows that a build adds to the status menu, above Quit, and to the readings panel beside it, after the readings. A
-// class that adopts MenuRows registers itself with MenuRowsRegister from its +load; upMonitor makes one instance of
+// class that adopts MenuRows registers itself with MenuRowsRegister from its +load; the app makes one instance of
 // each when it builds the menu and adds its rows, then a separator, and its panel rows, any of them a heading, as a
 // section of their own. It may also add views to the process inspector's header, bars to the menu bar, at the right of
 // the core graph, with a mark, a tint, an alert, a group and a width per bar, and a group of rows to the Settings

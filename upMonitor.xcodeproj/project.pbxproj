@@ -23,7 +23,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		D540B2A623FA2F5400752C7F /* upMonitor.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = upMonitor.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		D540B2A623FA2F5400752C7F /* cpuTopBars.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = cpuTopBars.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		D540B2A923FA2F5400752C7F /* AppDelegate.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = AppDelegate.h; sourceTree = "<group>"; };
 		D540B2AA23FA2F5400752C7F /* AppDelegate.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = AppDelegate.mm; sourceTree = "<group>"; };
 		D540B2AC23FA2F5800752C7F /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -73,7 +73,7 @@
 		D540B2A723FA2F5400752C7F /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				D540B2A623FA2F5400752C7F /* upMonitor.app */,
+				D540B2A623FA2F5400752C7F /* cpuTopBars.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -132,7 +132,7 @@
 			);
 			name = upMonitor;
 			productName = upMonitor;
-			productReference = D540B2A623FA2F5400752C7F /* upMonitor.app */;
+			productReference = D540B2A623FA2F5400752C7F /* cpuTopBars.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -366,8 +366,8 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.example.upmonitor;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.cputopbars;
+				PRODUCT_NAME = cpuTopBars;
 				PROVISIONING_PROFILE_SPECIFIER = "";
 			};
 			name = Debug;
@@ -392,8 +392,8 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.example.upmonitor;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.cputopbars;
+				PRODUCT_NAME = cpuTopBars;
 				PROVISIONING_PROFILE_SPECIFIER = "";
 			};
 			name = Release;
