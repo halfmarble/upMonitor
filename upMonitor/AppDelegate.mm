@@ -2977,23 +2977,19 @@ static double TopInterval(void)
   [self removeUserDefaults];
 #endif
   
-  [[NSUserDefaults standardUserDefaults] registerDefaults:@{GranularityKey:@2}];
   [[NSUserDefaults standardUserDefaults] registerDefaults:@{RefreshKey:@0.2}];
-  [[NSUserDefaults standardUserDefaults] registerDefaults:@{StyleKey:@1}];
-  [[NSUserDefaults standardUserDefaults] registerDefaults:@{TickLineKey:@1}];
-  [[NSUserDefaults standardUserDefaults] registerDefaults:@{TickWidthKey:@3.0}];
-  [[NSUserDefaults standardUserDefaults] registerDefaults:@{AppearanceKey:@1}];
-  [[NSUserDefaults standardUserDefaults] registerDefaults:@{ThemeKey:@2}];
   [[NSUserDefaults standardUserDefaults] registerDefaults:@{ShowBarsKey:@YES}];
   [[NSUserDefaults standardUserDefaults] registerDefaults:@{TopRowsKey:@5}];
 
-  granularity = (int)[[NSUserDefaults standardUserDefaults] integerForKey:GranularityKey];
+  // Settings no longer offers granularity, style, line, width, appearance or theme: each takes its old default,
+  // whatever an earlier version (1.0 included) stored under its key, which is left in place
+  granularity = 2;
   speed = 10.0 * RefreshInterval();
-  bar = [[NSUserDefaults standardUserDefaults] boolForKey:StyleKey];
-  stripped = [[NSUserDefaults standardUserDefaults] boolForKey:TickLineKey];
-  tickWidth = [[NSUserDefaults standardUserDefaults] doubleForKey:TickWidthKey];
-  colored = [[NSUserDefaults standardUserDefaults] boolForKey:AppearanceKey];
-  theme = (int)[[NSUserDefaults standardUserDefaults] integerForKey:ThemeKey];
+  bar = true;
+  stripped = true;
+  tickWidth = 3.0;
+  colored = true;
+  theme = THEME_BLUE;
   showBars = [[NSUserDefaults standardUserDefaults] boolForKey:ShowBarsKey];
   topShown = TopRows();
 
