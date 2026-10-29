@@ -1175,6 +1175,7 @@ static void HelpCoreReadings(const double* coreLoads, int coreLoadCount, CpuRead
 static NSString* HelpDiskLabel(const CpuReadings* readings);
 static NSString* HelpGpuLabel(const CpuReadings* readings);
 static NSArray<NSView*>* HelpCoresExamples(const CpuReadings* readings, const double* coreLoads, int coreLoadCount);
+static NSString* HelpReadingsCaption(const CpuReadings* readings);
 
 // the menu bar's drawing settings at the moment an example is made, from the statics that updateMenuIcon draws with
 typedef struct HelpExampleStyle
@@ -1267,14 +1268,13 @@ typedef struct HelpExampleStyle
     _info.now[i].load = ((coreLoads != NULL) && (coreLoadCount > 0)) ? coreLoads[i % coreLoadCount] : 0.0;
   }
 
-  // the five readings are drawn, the E-cores' and the P-cores' heading their own bars, as in the menu bar, except in a
-  // Readings example, which shows the five together
+  // the five readings are drawn, the E-cores' and the P-cores' heading their own bars, as in the menu bar
   bool five = _hasReadings && !_readings.extraOnly;
   if (_hasReadings)
   {
-    _readings.efficiencyBars = (five && (part != MenuRowsExampleReadings)) ? style.coreSplit : 0;
+    _readings.efficiencyBars = five ? style.coreSplit : 0;
   }
-  // the GPU's bar and the Neural Engine's dot go with the five readings
+  // the GPU's bar and the Neural Engine's go with the five readings
   bool gpuShown = five && _readings.gpuShown;
   int extraCount = _hasReadings ? _readings.extraCount : 0;
   _imageWidth = style.graphWidth;
@@ -1291,7 +1291,9 @@ typedef struct HelpExampleStyle
   _cropWidth = _imageWidth;
   if ((part == MenuRowsExampleReadings) && five)
   {
-    int last = CpuRenderReadingsCount(gpuShown) - 1;
+    // up to the last reading before the core graph: when the graph splits, the one before the E-cores', which heads
+    // their bars
+    int last = ((split > 0) ? CpuRenderReadingEfficiency(gpuShown) : CpuRenderReadingsCount(gpuShown)) - 1;
     _cropWidth = CpuRenderReadingX(style.bar, style.drawWidth, style.tickTotalWidth, gpuShown, _imageWidth, split, CpuSamplerGetCount(style.granularity), extraCount, _extra, last) +
       CpuRenderReadingSlot(style.bar, style.drawWidth, style.tickTotalWidth, gpuShown, extraCount, _extra, last);
   }
@@ -1661,29 +1663,32 @@ static NSWindow* MakeHelpWindow(void)
   shared.disk = 0.62;
   CpuReadings barsOff = shared;
   barsOff.extraOnly = true;
-  // the same with the GPU's bar and the Neural Engine's dot, as the menu bar draws them by default: every whole menu bar
-  // shown below but "bars off"
+  // the same with the GPU's bar and the Neural Engine's, as the menu bar draws them by default, the Neural Engine on:
+  // the readings example, which shows it
   CpuReadings withGpu = shared;
   withGpu.gpuShown = true;
   withGpu.gpu = 0.35;
   withGpu.neuralEngine = 1;
+  // and with the Neural Engine off: every other whole menu bar shown below but "bars off"
+  CpuReadings engineOff = withGpu;
+  engineOff.neuralEngine = 0;
   const double fills[] = {0.0, 0.20, 0.50, 0.70, 1.00};
   const double colours[] = {0.10, 0.30, 0.50, 0.75, 1.00};
 
   // the hover labels, worded as the real ones are (HelpDiskLabel, HelpCoresExamples)
   NSMutableArray<NSView*>* hoverExamples = [NSMutableArray arrayWithObject:
-    MenuRowsHelpExample(&withGpu, loads, loadCount, MenuRowsExampleWhole, HelpDiskLabel(&withGpu), 0, @"a bar")];
-  [hoverExamples addObject:MenuRowsHelpExample(&withGpu, loads, loadCount, MenuRowsExampleWhole, HelpGpuLabel(&withGpu), CPU_RENDER_READING_GPU, @"the GPU bar")];
-  [hoverExamples addObjectsFromArray:HelpCoresExamples(&withGpu, loads, loadCount)];
+    MenuRowsHelpExample(&engineOff, loads, loadCount, MenuRowsExampleWhole, HelpDiskLabel(&engineOff), 0, @"a bar")];
+  [hoverExamples addObject:MenuRowsHelpExample(&engineOff, loads, loadCount, MenuRowsExampleWhole, HelpGpuLabel(&engineOff), CPU_RENDER_READING_GPU, @"the GPU bar")];
+  [hoverExamples addObjectsFromArray:HelpCoresExamples(&engineOff, loads, loadCount)];
 
   section(@"Menu bar", @[
     @[
-      @"Six wide bars show the startup volume's used space (disk), the memory in use, the CPU's load, overall and for the efficiency cores (E) and the performance cores (P), and the GPU's. Disk, memory, CPU and GPU come first, on the left. The dot after the GPU bar is filled while the Neural Engine is powered on and is a ring while it is off. It turns on when an app gives it work and goes off a few seconds after the work ends, and may come on again for a few seconds about ten seconds later while that app stays open, so it shows that the Neural Engine was powered recently, not how hard it works.",
-      @[MenuRowsHelpExample(&withGpu, loads, loadCount, MenuRowsExampleReadings, nil, -1, @"disk, memory, CPU, GPU, Neural Engine, E, P")],
+      @"Wide bars show the startup volume's used space (disk), the memory in use, the CPU's load, overall and for the efficiency cores (E) and the performance cores (P), and the GPU's. Disk, memory, CPU and GPU come first, on the left; the E and P bars are shown with the cores, below. The bar right after the GPU bar is the Neural Engine's: solid while it is powered on, empty while it is off. It turns on when an app gives it work and goes off a few seconds after the work ends, and may come on again for a few seconds about ten seconds later while that app stays open, so it shows that the Neural Engine was powered recently, not how hard it works.",
+      @[MenuRowsHelpExample(&withGpu, loads, loadCount, MenuRowsExampleReadings, nil, -1, HelpReadingsCaption(&withGpu))],
     ],
     @[
-      @"Each narrow bar is one CPU core. When the Mac lists its efficiency cores first, the E bar stands at the head of the efficiency cores' bars and the P bar at the head of the performance cores' bars, each group after a small gap; otherwise the E and P bars follow the Neural Engine dot, or the CPU bar while the GPU bar and the dot are switched off.",
-      @[MenuRowsHelpExample(&withGpu, loads, loadCount, MenuRowsExampleWhole, nil, -1, @"this Mac's cores")],
+      @"Each narrow bar is one CPU core. When the Mac lists its efficiency cores first, the E bar stands at the head of the efficiency cores' bars and the P bar at the head of the performance cores' bars, each group after a small gap; otherwise the E and P bars follow the Neural Engine bar, or the CPU bar while the GPU and Neural Engine bars are switched off.",
+      @[MenuRowsHelpExample(&engineOff, loads, loadCount, MenuRowsExampleWhole, nil, -1, @"this Mac's cores")],
     ],
     @[
       @"A bar fills from the bottom: empty is 0%, full is 100%. The faint column behind it is its full height, and each of its five dashes is a fifth; the top dash can be partly filled.",
@@ -1698,9 +1703,9 @@ static NSWindow* MakeHelpWindow(void)
       hoverExamples,
     ],
     @[
-      @"In Settings, \"Show Disk, RAM, CPU, E-core, P-core bars\" turns the wide bars and the Neural Engine dot off and leaves the core bars, \"Show GPU bar and Neural Engine dot\" turns those two off, and \"Refresh\" sets how often the bars move.",
+      @"In Settings, \"Show Disk, RAM, CPU, E-core, P-core bars\" turns the wide bars and the Neural Engine bar off and leaves the core bars, \"Show GPU and Neural Engine bars\" turns those two off, and \"Refresh\" sets how often the bars move.",
       @[
-        MenuRowsHelpExample(&withGpu, loads, loadCount, MenuRowsExampleWhole, nil, -1, @"bars on"),
+        MenuRowsHelpExample(&engineOff, loads, loadCount, MenuRowsExampleWhole, nil, -1, @"bars on"),
         MenuRowsHelpExample(&barsOff, loads, loadCount, MenuRowsExampleWhole, nil, -1, @"bars off"),
       ],
     ],
@@ -1857,8 +1862,8 @@ static bool colored = false;
 static int theme = THEME_YELLOW;
 
 static bool showBars = true;         // the disk, memory, CPU, E-cores' and P-cores' bars left of the graph
-static bool showGpuNeuralEngine = true; // with them, the GPU's bar and the Neural Engine's dot
-// whether the GPU's bar and the Neural Engine's dot are drawn, read and listed: only with the bars they belong to
+static bool showGpuNeuralEngine = true; // with them, the GPU's bar and the Neural Engine's
+// whether the GPU's bar and the Neural Engine's are drawn, read and listed: only with the bars they belong to
 static bool GpuShown(void)
 {
   return showBars && showGpuNeuralEngine;
@@ -1875,7 +1880,7 @@ static float speed = 1.0f;
 static NSSegmentedControl* refreshChoice = nil;  // Refresh: 10, 5 or 2 times a second
 static NSSegmentedControl* topRowsChoice = nil;  // Top processes: its segments' counts are topRowsChoices
 static NSSwitch* showBarsSwitch = nil;           // Show Disk, RAM, CPU, E-core, P-core bars
-static NSSwitch* showGpuSwitch = nil;            // Show GPU bar and Neural Engine dot
+static NSSwitch* showGpuSwitch = nil;            // Show GPU and Neural Engine bars
 static NSSwitch* loginSwitch = nil;              // Launch at login
 static const int topRowsChoices[] = {3, 5, 10, TOP_COUNT};
 #define TOP_ROWS_CHOICES (sizeof(topRowsChoices)/sizeof(topRowsChoices[0]))
@@ -2523,7 +2528,7 @@ static NSString* OthersRowText(int count)
   place(SettingsGroup(@[@[@"Refresh", refreshChoice],
                         @[@"Top processes", topRowsChoice],
                         @[@"Show Disk, RAM, CPU, E-core, P-core bars", showBarsSwitch],
-                        @[@"Show GPU bar and Neural Engine dot", showGpuSwitch]]), 0.0, SETTINGS_SECTION_GAP);
+                        @[@"Show GPU and Neural Engine bars", showGpuSwitch]]), 0.0, SETTINGS_SECTION_GAP);
 
   // each class's group, with at least one valid row
   for (id<MenuRows> rows in menuRows)
@@ -2845,7 +2850,7 @@ NSView* MenuRowsHelpExample(const CpuReadings* readings, const double* coreLoads
 // it is on the item, since no exit was delivered either, and a reading under it arms the label (BAR_TIP_DELAY)
 static NSRect barTipLayout = {{-1.0, -1.0}, {-1.0, -1.0}}; // x: the image's left in the button, width: the readings' slot; none: -1
 static bool barTipThree = false;            // the five readings (disk, memory, CPU, E-cores, P-cores) are drawn
-static bool barTipGpu = false;              // with them, the GPU's bar and the Neural Engine's dot too (CpuReadings gpuShown)
+static bool barTipGpu = false;              // with them, the GPU's bar and the Neural Engine's too (CpuReadings gpuShown)
 static int barTipSplit = 0;                 // with them, the core graph's split as drawn (CpuReadings efficiencyBars); 0: none
 static std::vector<CpuExtraReading> barTipBars; // the extra bars drawn right of the core graph, as drawn (a copy: extraBars is refilled each tick)
 static NSInteger barTipIndex = -1;          // the reading under the pointer, armed or shown: 0 disk, 1 memory, 2 CPU, 3 E-cores,
@@ -3227,6 +3232,14 @@ static NSString* HelpDiskLabel(const CpuReadings* readings)
   NSString* tipText = nil;
   DiskTexts(whole, whole - used, [NSLocale currentLocale], &title, &text, &tipText);
   return TipPercents([NSString stringWithFormat:@"%@ %@", title, tipText]);
+}
+
+// the readings example's caption, naming what it shows: the readings before the core graph, without the E-cores' and
+// the P-cores' when the graph splits (coreSplit), as they head their own bars
+static NSString* HelpReadingsCaption(const CpuReadings* readings)
+{
+  NSString* caption = readings->gpuShown ? @"disk, memory, CPU, GPU, Neural Engine" : @"disk, memory, CPU";
+  return (coreSplit > 0) ? caption : [caption stringByAppendingString:@", E, P"];
 }
 
 // the help window's core graph hover labels, from the example's loads cycled over this Mac's CPUs, as barTipTextAt:
@@ -3626,7 +3639,7 @@ static NSArray<NSView*>* HelpCoresExamples(const CpuReadings* readings, const do
         swapLogged = true;
         NSLog(@"swap could not be read: the memory row leaves it out");
       }
-      // the GPU's busy share and whether the Neural Engine is powered, only while their bar and dot are shown; with
+      // the GPU's busy share and whether the Neural Engine is powered, only while their bars are shown; with
       // either switch off nothing is read, and the old values are dropped
       if (GpuShown())
       {
@@ -3642,7 +3655,7 @@ static NSArray<NSView*>* HelpCoresExamples(const CpuReadings* readings, const do
         if ((readingsNeuralEngine < 0) && !neuralEngineLogged)
         {
           neuralEngineLogged = true;
-          NSLog(@"Neural Engine power could not be read: its dot and row leave it out");
+          NSLog(@"Neural Engine power could not be read: its bar and row leave it out");
         }
       }
       else

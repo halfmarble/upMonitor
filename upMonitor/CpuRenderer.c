@@ -257,7 +257,7 @@ static CGFloat _split_gap(bool bar)
 }
 
 // where the E-cores' reading starts when the graph splits: after disk, memory and CPU (and with gpuShown the GPU's bar
-// and the Neural Engine's dot), the 1-pt overhang of the last dot in Dot style, and the readings' gap; their bars start
+// and the Neural Engine's), the 1-pt overhang of the last dot in Dot style, and the readings' gap; their bars start
 // a slot later
 static CGFloat _efficiency_x(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth, bool gpuShown)
 {
@@ -490,19 +490,33 @@ static void _render_colored(CGContextRef ctx, CGFloat x, CGFloat width, CGFloat 
   }
 }
 
-// the Neural Engine's dot in its readings slot at x: on (state above 0), a dot filled in the menu bar's text colour;
-// off (0), a 1-pt ring at the bars' background opacity; not read (below 0), nothing. In bar style the dot is as wide as
-// the wide bars (at most 6 pt), centred on where a wide bar is drawn and on the image's 8-pt middle; in Dot style it is
-// the readings' dot, where theirs is drawn
-static void _render_neural_engine(CGContextRef ctx, CGFloat x, int state, CGFloat color, bool bar, CGFloat tickWidth, bool light)
+// the Neural Engine's reading in its readings slot at x; not read (state below 0), nothing. In bar style a wide bar, as
+// the readings' are, drawn whole from bottom, without the dashes: on (above 0), filled solid in the menu bar's text
+// colour at 0.9 opacity, the brightness of the system's Wi-Fi icon and clock over the dark menu bar (232-233 of 255
+// over its 32, measured on screen; the battery's body reads 243); off (0), only the bars' background. In Dot style the readings' dot, where theirs is drawn: on,
+// filled in that colour; off, a 1-pt ring at the bars' background opacity
+static void _render_neural_engine(CGContextRef ctx, CGFloat x, int state, CGFloat color, bool bar, CGFloat tickWidth, bool light, CGFloat bottom)
 {
   if (state < 0)
   {
     return;
   }
-  const CGFloat d = bar ? fmin(2.0*tickWidth, 6.0) : (tickWidth + 5.0);
-  const CGFloat cx = bar ? (x + tickWidth) : (x + ((d + 1.0)/2.0));
-  const CGFloat cy = bar ? 8.0 : (((14.0 - d)/2.0) + ((d + 1.0)/2.0));
+  if (bar)
+  {
+    if (state > 0)
+    {
+      CGContextSetGrayFillColor(ctx, light ? 0.0 : 1.0, 0.9);
+      CGContextFillRect(ctx, CGRectMake(x, bottom, 2.0*tickWidth, 16-bottom));
+    }
+    else
+    {
+      _render_background(ctx, x, 2.0*tickWidth, color, light, bottom);
+    }
+    return;
+  }
+  const CGFloat d = tickWidth + 5.0;
+  const CGFloat cx = x + ((d + 1.0)/2.0);
+  const CGFloat cy = ((14.0 - d)/2.0) + ((d + 1.0)/2.0);
   const CGRect r = CGRectMake(cx - (d/2.0), cy - (d/2.0), d, d);
   if (state > 0)
   {
@@ -539,7 +553,7 @@ void CpuRender(CpuSummaryInfo* cpu_info, CGContextRef ctx, bool light, int granu
   const CpuExtraReading* extra = (readings != NULL) ? readings->extra : NULL;
   // the split after the E-cores' bars, only with the five readings drawn
   const int split = (block && (readings->efficiencyBars > 0)) ? readings->efficiencyBars : 0;
-  // the GPU's bar and the Neural Engine's dot, only with the five readings drawn
+  // the GPU's bar and the Neural Engine's, only with the five readings drawn
   const bool gpu = block && readings->gpuShown;
   const int base = _readings_count(gpu);
   const natural_t cores = CpuSamplerGetCount(granularity); // at least 1
@@ -547,13 +561,13 @@ void CpuRender(CpuSummaryInfo* cpu_info, CGContextRef ctx, bool light, int granu
   if (readings)
   {
     const int count = base + extraCount;
-    // disk, memory, CPU, (the GPU's, the Neural Engine's dot,) the E-cores', the P-cores' from the left, then the extra
+    // disk, memory, CPU, (the GPU's, the Neural Engine's,) the E-cores', the P-cores' from the left, then the extra
     // readings; a value below 0 or NaN is not read and draws only the bar's background, one above 1 draws as 1
     double block_values[CPU_RENDER_READINGS_COUNT_GPU] = {readings->disk, readings->memory, readings->cpu, readings->efficiency, readings->performance, -1.0, -1.0};
     if (gpu)
     {
       block_values[CPU_RENDER_READING_GPU] = readings->gpu;
-      block_values[CPU_RENDER_READING_NEURAL_ENGINE] = -1.0; // the dot is drawn last, apart
+      block_values[CPU_RENDER_READING_NEURAL_ENGINE] = -1.0; // drawn last, apart
       block_values[CpuRenderReadingEfficiency(true)] = readings->efficiency;
       block_values[CpuRenderReadingPerformance(true)] = readings->performance;
     }
@@ -667,11 +681,11 @@ void CpuRender(CpuSummaryInfo* cpu_info, CGContextRef ctx, bool light, int granu
     }
   }
 
-  // the Neural Engine's dot, drawn last so that the dashes do not cut it
+  // the Neural Engine's, drawn last so that the dashes do not cut it
   if (gpu)
   {
     _render_neural_engine(ctx, CpuRenderReadingX(bar, tickWidth, tickTotalWidth, gpu, imageWidth, split, cores, extraCount, extra, CPU_RENDER_READING_NEURAL_ENGINE),
-                          readings->neuralEngine, color, bar, tickWidth, light);
+                          readings->neuralEngine, color, bar, tickWidth, light, bottom);
   }
 }
 

@@ -51,15 +51,15 @@ enum Theme
 // without the dashes, a pace, how much of the bar's period has passed, and a tint, which paints its bar as a bar at
 // another load would be, its fill opaque with colour, its height unchanged; with colour, the part of a bar above its
 // pace, and all of an alert bar with no pace, is painted in its ramp's hottest colour. With the GPU's readings
-// (gpuShown), the block holds seven: disk, memory, CPU, the GPU's bar, the Neural Engine's dot, then the E-cores' and the
+// (gpuShown), the block holds seven: disk, memory, CPU, the GPU's bar, the Neural Engine's, then the E-cores' and the
 // P-cores' readings, each index one slot, so the image is two readings' slots wider and every reading after CPU, the
 // core graph and the extra readings two slots further right
 #define CPU_RENDER_READINGS_COUNT (5) // the readings without the GPU's, and the first extra reading's index then
-#define CPU_RENDER_READINGS_COUNT_GPU (7) // with the GPU's bar and the Neural Engine's dot
+#define CPU_RENDER_READINGS_COUNT_GPU (7) // with the GPU's bar and the Neural Engine's
 #define CPU_RENDER_READING_EFFICIENCY (3) // the E-cores' CPU's index among the readings, without the GPU's
 #define CPU_RENDER_READING_PERFORMANCE (4) // the P-cores' CPU's, without the GPU's
 #define CPU_RENDER_READING_GPU (3) // with them, the GPU's bar's index
-#define CPU_RENDER_READING_NEURAL_ENGINE (4) // and the Neural Engine's dot's
+#define CPU_RENDER_READING_NEURAL_ENGINE (4) // and the Neural Engine's
 #define CPU_RENDER_READINGS_GAP (4.0)
 #define CPU_RENDER_EXTRA_GAP CPU_RENDER_READINGS_GAP
 #define CPU_RENDER_GROUP_GAP CPU_RENDER_EXTRA_GAP
@@ -121,11 +121,12 @@ struct CpuReadings
   int efficiencyBars;
   // the GPU's busy share, 0..1; below 0, not read, as the five. Drawn only with gpuShown
   double gpu;
-  // the Neural Engine's power: 1 on, a dot filled in the menu bar's text colour (white on a dark menu bar, black on a
-  // light one); 0 off, a 1-pt ring at the bars' background opacity; below 0, not read: nothing in its slot. Drawn only
-  // with gpuShown, in Bar and Dot style alike, never in the ramp's colours
+  // the Neural Engine's power: 1 on, filled in the menu bar's text colour (white on a dark menu bar, black on a light
+  // one) at 0.9 opacity; 0 off; below 0, not read: nothing in its slot. In bar style a wide bar drawn whole, without the
+  // dashes: on, solid; off, only the bars' background. In Dot style a dot: on, filled; off, a 1-pt ring at the bars'
+  // background opacity. Drawn only with gpuShown, never in the ramp's colours
   int neuralEngine;
-  // true: the GPU's bar and the Neural Engine's dot are drawn after CPU, CPU_RENDER_READINGS_COUNT_GPU readings in all;
+  // true: the GPU's bar and the Neural Engine's are drawn after CPU, CPU_RENDER_READINGS_COUNT_GPU readings in all;
   // false is the default, so a zeroed struct draws the five as before. Ignored when the five are not drawn
   bool gpuShown;
 } typedef CpuReadings;

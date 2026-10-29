@@ -99,6 +99,31 @@ extension FreeTests {
       #expect(start == 0)                  // no readings: the graph starts at x = 0
     }
 
+    @Test func neuralEngineWideSlot() {
+      // gpuShown true: the GPU's and the Neural Engine's slots are both a reading's, 10 in bar style (CpuRenderReadingSlot,
+      // CpuRenderer.c:233), 6 in Dot style
+      #expect(CpuRenderReadingSlot(true, 4, 6, true, 0, nil, 3) == 10)
+      #expect(CpuRenderReadingSlot(true, 4, 6, true, 0, nil, 4) == 10)
+      #expect(CpuRenderReadingSlot(false, 4, 6, true, 0, nil, 4) == 6)
+      // CpuRenderReadingX (CpuRenderer.c:295): index * slot, the GPU at 30, the Neural Engine at 40, E at 50, P at 60
+      #expect(CpuRenderReadingX(true, 4, 6, true, 200, 0, 8, 0, nil, 3) == 30)
+      #expect(CpuRenderReadingX(true, 4, 6, true, 200, 0, 8, 0, nil, 4) == 40)
+      #expect(CpuRenderReadingX(true, 4, 6, true, 200, 0, 8, 0, nil, 5) == 50)
+      #expect(CpuRenderReadingX(true, 4, 6, true, 200, 0, 8, 0, nil, 6) == 60)
+      // CpuRenderReadingsWidth (CpuRenderer.c:326): 7*10 + 0 + gap 4; dots 7*6 + 1 + 4
+      #expect(CpuRenderReadingsWidth(true, 4, 6, true, 0, 0, nil) == 74)
+      #expect(CpuRenderReadingsWidth(false, 4, 6, true, 0, 0, nil) == 47)
+      // split after 2 bars: _efficiency_x (CpuRenderer.c:262) = 5*10 + 0 + 4 = 54; the P-cores' reading
+      // 54 + 10 + 2 bars * 6 + split gap 4 = 80; the graph from 54 + 10 = 64 (CpuRenderGraphSpan, CpuRenderer.c:370)
+      #expect(CpuRenderReadingX(true, 4, 6, true, 200, 2, 8, 0, nil, 5) == 54)
+      #expect(CpuRenderReadingX(true, 4, 6, true, 200, 2, 8, 0, nil, 6) == 80)
+      var start: CGFloat = 0, end: CGFloat = 0
+      CpuRenderGraphSpan(true, 4, 6, 200, true, true, 2, 0, nil, &start, &end)
+      #expect(start == 64)
+      CpuRenderGraphSpan(true, 4, 6, 200, true, true, 0, 0, nil, &start, &end)
+      #expect(start == 74)
+    }
+
     @Test func efficiencyBars() {
       // CpuRenderEfficiencyBars (CpuRenderer.c:267); granularity 0 is one bar (CpuSampler.c:130), under 2 gives 0
       #expect(CpuRenderEfficiencyBars(0, 8, "EEEEPPPP") == 0)

@@ -162,7 +162,8 @@ NSView* MenuRowsSettingsCard(NSArray<NSView*>* rows);
 
 typedef NS_ENUM(NSInteger, MenuRowsExamplePart) {
   MenuRowsExampleWhole,     // the menu bar's image: the five readings, or with readings->gpuShown the seven (unless readings->extraOnly), cores, extras
-  MenuRowsExampleReadings,  // only the five wide readings (the seven with readings->gpuShown)
+  MenuRowsExampleReadings,  // only the readings before the core graph: the five (the seven with readings->gpuShown), less
+                            // the E-cores' and the P-cores' when the graph splits, as they head their own bars
   MenuRowsExampleExtra,     // only the extra readings, from the first to the last
 };
 // a drawing of the menu bar's image, as the app draws it now, for the help window: readings (NULL: none, the cores
