@@ -24,7 +24,7 @@
 
 # Run by the "Raise Build Number" build phase. Every build takes the next
 # build number and writes it into the built app's Info.plist as
-# CFBundleVersion, which About upMonitor and Preferences show.
+# CFBundleVersion, which About and Preferences show.
 #
 # The last number is kept in this clone's git directory, which its worktrees
 # share and git never commits, so each clone counts on its own, from 2048.
@@ -41,7 +41,7 @@ if [ -z "${counter}" ]; then
   # repository that holds a copy of it.
   prefix=$(git -C "${SRCROOT}" rev-parse --show-prefix 2>/dev/null)
   if [ $? -ne 0 ] || [ -n "${prefix}" ]; then
-    echo "note: not a git clone of upMonitor, so the build number stays as Info.plist sets it"
+    echo "note: not a git clone, so the build number stays as Info.plist sets it"
     exit 0
   fi
   gitdir=$(git -C "${SRCROOT}" rev-parse --path-format=absolute --git-common-dir)

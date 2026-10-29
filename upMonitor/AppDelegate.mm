@@ -153,6 +153,13 @@ static NSGlassEffectView* FindGlassEffectView(NSWindow* window)
   return nil;
 }
 
+// the app's name as its bundle gives it, so a build with another product name reads right in its own menus and windows
+static NSString* AppName(void)
+{
+  NSString* name = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleName"];
+  return (name.length > 0) ? name : [[NSProcessInfo processInfo] processName];
+}
+
 // Reduce Transparency on and Increase Contrast off: a menu in Dark Mode is then painted MENU_DARK_GREY
 static bool PaintsMenusGrey(void)
 {
@@ -2425,6 +2432,7 @@ static NSString* OthersRowText(int count)
 // key); the app only places them and is never told of a click. The window then takes the content's fitting size
 - (void)setupSettings
 {
+  self.window.title = [NSString stringWithFormat:@"%@ Settings", AppName()];
   NSView* content = self.window.contentView;
   NSView* settings = [[NSView alloc] init];
   settings.translatesAutoresizingMaskIntoConstraints = NO;
@@ -2685,7 +2693,7 @@ static NSString* OthersRowText(int count)
   }
 
   {
-    NSMenuItem* item = [menu addItemWithTitle:@"Open upMonitor Settings..." action:@selector(openPreferences:) keyEquivalent:@""];
+    NSMenuItem* item = [menu addItemWithTitle:[NSString stringWithFormat:@"Open %@ Settings...", AppName()] action:@selector(openPreferences:) keyEquivalent:@""];
     [item setAttributedTitle:[[NSAttributedString alloc] initWithString:[item title] attributes:attributesStandard]];
     //NSImage* appIcon = [NSImage imageNamed:@"AppIcon"];
     NSImage* appIcon = [NSImage imageNamed:@"NSPreferencesGeneral"];
@@ -2716,7 +2724,7 @@ static NSString* OthersRowText(int count)
 #endif
 
   {
-    NSMenuItem* item = [menu addItemWithTitle:@"About upMonitor" action:@selector(openAbout:) keyEquivalent:@""];
+    NSMenuItem* item = [menu addItemWithTitle:[NSString stringWithFormat:@"About %@", AppName()] action:@selector(openAbout:) keyEquivalent:@""];
     [item setAttributedTitle:[[NSAttributedString alloc] initWithString:[item title] attributes:attributesStandard]];
     // a copy, so the shared application icon keeps its own size for the About panel
     NSImage* appIcon = [[NSImage imageNamed:NSImageNameApplicationIcon] copy];
@@ -3939,6 +3947,25 @@ static NSTimeInterval TopDelay(void)
     [self setupStatusItem];
     [self setupMenus];
     [self setupSettings];
+
+    // the app menu's four items name the app: found by action in the main menu only, as the status menu's Quit sends terminate: too
+    NSDictionary<NSString*, NSString*>* appMenuTitles = @{
+      NSStringFromSelector(@selector(orderFrontStandardAboutPanel:)): @"About %@",
+      NSStringFromSelector(@selector(hide:)): @"Hide %@",
+      NSStringFromSelector(@selector(terminate:)): @"Quit %@",
+      NSStringFromSelector(@selector(showHelp:)): @"%@ Help",
+    };
+    for (NSMenuItem* top in [NSApp mainMenu].itemArray)
+    {
+      for (NSMenuItem* entry in top.submenu.itemArray)
+      {
+        NSString* format = appMenuTitles[NSStringFromSelector(entry.action)];
+        if (format != nil)
+        {
+          entry.title = [NSString stringWithFormat:format, AppName()];
+        }
+      }
+    }
 
     // pause while nothing can be seen (updatePause)
     NSNotificationCenter* workspaceCenter = [[NSWorkspace sharedWorkspace] notificationCenter];

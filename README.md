@@ -1,26 +1,26 @@
 [![License](https://img.shields.io/badge/Open%20Source-MIT-brightgreen.svg)](https://opensource.org/licenses/MIT)
 
-# upMonitor
+# cpuTopBars
 
 A lightweight CPU monitoring tool designed specifically for the macOS menu bar. Keep a pulse on your system performance without cluttering your workspace.
 
 * **hiding in the menu bar:**
 
-![upMonitor Screenshot](Screenshot-menu.png)
+![cpuTopBars Screenshot](Screenshot-menu.png)
 
 * **showing settings, readings and processes:**
 
-![upMonitor Screenshot](Screenshot-menu-preferences.png)
+![cpuTopBars Screenshot](Screenshot-menu-preferences.png)
 
 ## 🚀 Features
 
-`upMonitor` provides real-time insights into your system's CPU usage with a focus on aesthetics and customization.
+`cpuTopBars` provides real-time insights into your system's CPU usage with a focus on aesthetics and customization.
 
 * **Real-time Menu Bar Visualization:** View your CPU activity at a glance with a live-updating graph right in your macOS menu bar, beside small bars for disk, memory and overall CPU use, and for the efficiency cores' and the performance cores' use, each of these two heading its own cores' bars when the graph shows each core and the Mac lists its efficiency cores first (switchable in Settings).
 * **Top Process Tracking:** Quickly identify which of your processes are consuming the most CPU with a ranked list of "Your Top Processes by CPU"; processes of other users, among them macOS's system daemons and WindowServer, are counted in one row below it.
 * **System readings:** when the menu opens, a panel beside it shows uptime, then startup-volume, memory and overall CPU usage as percentages with their sizes, the disk and memory with their free and used space, memory with its swap in use and CPU with its efficiency and performance cores' use, all read on the Mac; nothing is sent over the network.
 * **Freeze:** pause the process list to examine it while the CPU graph keeps running; while frozen, rest on a ↳ row to see what it is a helper of.
-* **Launch at login:** turn it on in Settings to open upMonitor when you log in.
+* **Launch at login:** turn it on in Settings to open cpuTopBars when you log in.
 * **How to Read the Menu Bar:** a window, opened from the menu, that explains the bars and their colours, with drawn examples.
 * **Customizable:**
     * **Refresh Rates:** Choose between 2, 5, or 10 updates per second for ultra-responsive feedback (5 by default).
@@ -29,19 +29,23 @@ A lightweight CPU monitoring tool designed specifically for the macOS menu bar. 
 
 ## 🛠 Installation
 
-1.  Download the latest release from the [Releases](https://github.com/halfmarble/upMonitor/releases) page.
-2.  Drag `upMonitor.app` to your `/Applications` folder.
-3.  Launch the app and look for the activity graph in your menu bar!
+A Mac App Store release is coming. Until then, build it from source:
 
-upMonitor requires macOS 27 or later.
+1.  Clone this repository and open `upMonitor.xcodeproj` in Xcode.
+2.  Choose **Product > Run**.
+3.  Look for the activity graph in your menu bar!
 
-upMonitor runs in the App Sandbox. The sandbox gives an app no CPU figures for other users' processes (WindowServer, kernel_task, system daemons), so the menu lists your own processes and counts the others in one row.
+cpuTopBars requires macOS 27 or later.
+
+cpuTopBars was called upMonitor; release 1.0 on GitHub is that old app.
+
+cpuTopBars runs in the App Sandbox. The sandbox gives an app no CPU figures for other users' processes (WindowServer, kernel_task, system daemons), so the menu lists your own processes and counts the others in one row.
 
 ## ⚙️ Configuration
 
 To customize your experience:
-1.  Click on the `upMonitor` icon in the menu bar.
-2.  Select **Open upMonitor Settings...**
+1.  Click on the `cpuTopBars` icon in the menu bar.
+2.  Select **Open cpuTopBars Settings...**
 3.  Adjust the settings to fit your workflow.
 
 ## 🤝 Contributing

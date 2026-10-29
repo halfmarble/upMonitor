@@ -7,6 +7,17 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A07E57000000000000000010 /* CpuRenderer.c in Sources */ = {isa = PBXBuildFile; fileRef = D540B2BB23FB0C4400752C7F /* CpuRenderer.c */; };
+		A07E57000000000000000011 /* CpuSampler.c in Sources */ = {isa = PBXBuildFile; fileRef = D540B2BE23FB0C7100752C7F /* CpuSampler.c */; };
+		A07E57000000000000000012 /* SystemInfo.c in Sources */ = {isa = PBXBuildFile; fileRef = B942C7661FE2A67926626466 /* SystemInfo.c */; };
+		A07E57000000000000000013 /* Top.c in Sources */ = {isa = PBXBuildFile; fileRef = D5E340DE2415258A00BD045D /* Top.c */; };
+		A07E57000000000000000014 /* FreeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A07E57000000000000000020 /* FreeTests.swift */; };
+		A07E57000000000000000015 /* RendererGeometryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A07E57000000000000000021 /* RendererGeometryTests.swift */; };
+		A07E57000000000000000016 /* RendererDrawingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A07E57000000000000000022 /* RendererDrawingTests.swift */; };
+		A07E57000000000000000017 /* SamplerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A07E57000000000000000023 /* SamplerTests.swift */; };
+		A07E57000000000000000018 /* SystemInfoTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A07E57000000000000000024 /* SystemInfoTests.swift */; };
+		A07E57000000000000000019 /* TopTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A07E57000000000000000025 /* TopTests.swift */; };
+		A07E5700000000000000001A /* IOKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A07E57000000000000000027 /* IOKit.framework */; };
 		D540B2AB23FA2F5400752C7F /* AppDelegate.mm in Sources */ = {isa = PBXBuildFile; fileRef = D540B2AA23FA2F5400752C7F /* AppDelegate.mm */; };
 		D540B2AD23FA2F5800752C7F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = D540B2AC23FA2F5800752C7F /* Assets.xcassets */; };
 		D540B2B023FA2F5800752C7F /* MainMenu.xib in Resources */ = {isa = PBXBuildFile; fileRef = D540B2AE23FA2F5800752C7F /* MainMenu.xib */; };
@@ -23,7 +34,16 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		D540B2A623FA2F5400752C7F /* upMonitor.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = upMonitor.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A07E57000000000000000002 /* upMonitorTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = upMonitorTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		A07E57000000000000000020 /* FreeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FreeTests.swift; sourceTree = "<group>"; };
+		A07E57000000000000000021 /* RendererGeometryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RendererGeometryTests.swift; sourceTree = "<group>"; };
+		A07E57000000000000000022 /* RendererDrawingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RendererDrawingTests.swift; sourceTree = "<group>"; };
+		A07E57000000000000000023 /* SamplerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SamplerTests.swift; sourceTree = "<group>"; };
+		A07E57000000000000000024 /* SystemInfoTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemInfoTests.swift; sourceTree = "<group>"; };
+		A07E57000000000000000025 /* TopTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TopTests.swift; sourceTree = "<group>"; };
+		A07E57000000000000000026 /* upMonitorTests-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "upMonitorTests-Bridging-Header.h"; sourceTree = "<group>"; };
+		A07E57000000000000000027 /* IOKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = IOKit.framework; path = System/Library/Frameworks/IOKit.framework; sourceTree = SDKROOT; };
+		D540B2A623FA2F5400752C7F /* cpuTopBars.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = cpuTopBars.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		D540B2A923FA2F5400752C7F /* AppDelegate.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = AppDelegate.h; sourceTree = "<group>"; };
 		D540B2AA23FA2F5400752C7F /* AppDelegate.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = AppDelegate.mm; sourceTree = "<group>"; };
 		D540B2AC23FA2F5800752C7F /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -49,6 +69,14 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		A07E57000000000000000004 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A07E5700000000000000001A /* IOKit.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		D540B2A323FA2F5400752C7F /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -65,15 +93,31 @@
 			isa = PBXGroup;
 			children = (
 				D540B2A823FA2F5400752C7F /* upMonitor */,
+				A07E57000000000000000005 /* upMonitorTests */,
 				D540B2A723FA2F5400752C7F /* Products */,
 				D5BBD70B242A3E3700D0D53A /* Frameworks */,
 			);
 			sourceTree = "<group>";
 		};
+		A07E57000000000000000005 /* upMonitorTests */ = {
+			isa = PBXGroup;
+			children = (
+				A07E57000000000000000020 /* FreeTests.swift */,
+				A07E57000000000000000021 /* RendererGeometryTests.swift */,
+				A07E57000000000000000022 /* RendererDrawingTests.swift */,
+				A07E57000000000000000023 /* SamplerTests.swift */,
+				A07E57000000000000000024 /* SystemInfoTests.swift */,
+				A07E57000000000000000025 /* TopTests.swift */,
+				A07E57000000000000000026 /* upMonitorTests-Bridging-Header.h */,
+			);
+			path = upMonitorTests;
+			sourceTree = "<group>";
+		};
 		D540B2A723FA2F5400752C7F /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				D540B2A623FA2F5400752C7F /* upMonitor.app */,
+				A07E57000000000000000002 /* upMonitorTests.xctest */,
+				D540B2A623FA2F5400752C7F /* cpuTopBars.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -109,6 +153,7 @@
 			isa = PBXGroup;
 			children = (
 				D5BBD70C242A3E3700D0D53A /* ServiceManagement.framework */,
+				A07E57000000000000000027 /* IOKit.framework */,
 				EE1958CC2E405B265729211C /* UniformTypeIdentifiers.framework */,
 			);
 			name = Frameworks;
@@ -117,6 +162,22 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		A07E57000000000000000001 /* upMonitorTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A07E57000000000000000006 /* Build configuration list for PBXNativeTarget "upMonitorTests" */;
+			buildPhases = (
+				A07E57000000000000000003 /* Sources */,
+				A07E57000000000000000004 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = upMonitorTests;
+			productName = upMonitorTests;
+			productReference = A07E57000000000000000002 /* upMonitorTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 		D540B2A523FA2F5400752C7F /* upMonitor */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = D540B2B723FA2F5800752C7F /* Build configuration list for PBXNativeTarget "upMonitor" */;
@@ -132,7 +193,7 @@
 			);
 			name = upMonitor;
 			productName = upMonitor;
-			productReference = D540B2A623FA2F5400752C7F /* upMonitor.app */;
+			productReference = D540B2A623FA2F5400752C7F /* cpuTopBars.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -163,6 +224,7 @@
 			projectRoot = "";
 			targets = (
 				D540B2A523FA2F5400752C7F /* upMonitor */,
+				A07E57000000000000000001 /* upMonitorTests */,
 			);
 		};
 /* End PBXProject section */
@@ -206,6 +268,23 @@
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		A07E57000000000000000003 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A07E57000000000000000010 /* CpuRenderer.c in Sources */,
+				A07E57000000000000000011 /* CpuSampler.c in Sources */,
+				A07E57000000000000000012 /* SystemInfo.c in Sources */,
+				A07E57000000000000000013 /* Top.c in Sources */,
+				A07E57000000000000000014 /* FreeTests.swift in Sources */,
+				A07E57000000000000000015 /* RendererGeometryTests.swift in Sources */,
+				A07E57000000000000000016 /* RendererDrawingTests.swift in Sources */,
+				A07E57000000000000000017 /* SamplerTests.swift in Sources */,
+				A07E57000000000000000018 /* SystemInfoTests.swift in Sources */,
+				A07E57000000000000000019 /* TopTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		D540B2A223FA2F5400752C7F /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -233,6 +312,60 @@
 /* End PBXVariantGroup section */
 
 /* Begin XCBuildConfiguration section */
+		A07E57000000000000000007 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "";
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				ENABLE_APP_SANDBOX = NO;
+				GCC_TREAT_WARNINGS_AS_ERRORS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/upMonitor",
+				);
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.cputopbars.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_OBJC_BRIDGING_HEADER = "upMonitorTests/upMonitorTests-Bridging-Header.h";
+				SWIFT_TREAT_WARNINGS_AS_ERRORS = YES;
+				SWIFT_VERSION = 6.0;
+				TEST_HOST = "";
+			};
+			name = Debug;
+		};
+		A07E57000000000000000008 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "";
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				ENABLE_APP_SANDBOX = NO;
+				GCC_TREAT_WARNINGS_AS_ERRORS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/upMonitor",
+				);
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.cputopbars.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_OBJC_BRIDGING_HEADER = "upMonitorTests/upMonitorTests-Bridging-Header.h";
+				SWIFT_TREAT_WARNINGS_AS_ERRORS = YES;
+				SWIFT_VERSION = 6.0;
+				TEST_HOST = "";
+			};
+			name = Release;
+		};
 		D540B2B523FA2F5800752C7F /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -366,8 +499,8 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.example.upmonitor;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.cputopbars;
+				PRODUCT_NAME = cpuTopBars;
 				PROVISIONING_PROFILE_SPECIFIER = "";
 			};
 			name = Debug;
@@ -392,8 +525,8 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.example.upmonitor;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.cputopbars;
+				PRODUCT_NAME = cpuTopBars;
 				PROVISIONING_PROFILE_SPECIFIER = "";
 			};
 			name = Release;
@@ -401,6 +534,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		A07E57000000000000000006 /* Build configuration list for PBXNativeTarget "upMonitorTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A07E57000000000000000007 /* Debug */,
+				A07E57000000000000000008 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		D540B2A123FA2F5400752C7F /* Build configuration list for PBXProject "upMonitor" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
