@@ -2703,6 +2703,18 @@ static NSString* OthersRowText(int count)
     ShowMenuItemImage(item);
   }
 
+#ifndef UPMONITOR_NO_FUNDRAISER
+  {
+    // a build that defines UPMONITOR_NO_FUNDRAISER leaves this row out
+    NSMenuItem* item = [menu addItemWithTitle:@"Support Team Fox..." action:@selector(openFundraiser:) keyEquivalent:@""];
+    [item setAttributedTitle:[[NSAttributedString alloc] initWithString:[item title] attributes:attributesStandard]];
+    NSImage* heartIcon = [NSImage imageWithSystemSymbolName:@"heart" accessibilityDescription:nil];
+    [heartIcon setSize:NSMakeSize(MENU_ICON_SIZE+2.0, MENU_ICON_SIZE+2.0)];
+    [item setImage:heartIcon];
+    ShowMenuItemImage(item);
+  }
+#endif
+
   {
     NSMenuItem* item = [menu addItemWithTitle:@"About upMonitor" action:@selector(openAbout:) keyEquivalent:@""];
     [item setAttributedTitle:[[NSAttributedString alloc] initWithString:[item title] attributes:attributesStandard]];
@@ -3982,6 +3994,13 @@ static NSTimeInterval TopDelay(void)
 
   [NSApp orderFrontStandardAboutPanel:sender];
 }
+
+#ifndef UPMONITOR_NO_FUNDRAISER
+- (IBAction)openFundraiser:(id)sender
+{
+  [[NSWorkspace sharedWorkspace] openURL:[NSURL URLWithString:@"https://give.michaeljfox.org/halfmarble"]];
+}
+#endif
 
 - (void)processExplorer:(id)sender
 {
