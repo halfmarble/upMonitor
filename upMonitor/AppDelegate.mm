@@ -3840,9 +3840,8 @@ static NSTimeInterval TopDelay(void)
   [self runTool:@"/usr/bin/man" arguments:@[@"-P", @"col -bx", @"--", name] withStderr:NO done:^(NSString* output) {
     if ([output length] > 0)
     {
+      // the tab stays where selectPid put it: removing the selected tab would select the args tab
       [self.procDescTextView setString:[NSString stringWithFormat:@"\n%@", output]];
-      [self.procAppView removeTabViewItem:descriptionTab];
-      [self.procAppView insertTabViewItem:descriptionTab atIndex:0];
     }
     else
     {
@@ -4145,7 +4144,13 @@ static NSTimeInterval TopDelay(void)
     [self.top makeKeyWindow];
   }
   
-  [self.procAppView selectFirstTabViewItem:self];
+  // open on the man page: put its tab back first if the last process had none, and fillDescForProcess removes it
+  // again if this one has none
+  if ([self.procAppView indexOfTabViewItem:descriptionTab] == NSNotFound)
+  {
+    [self.procAppView insertTabViewItem:descriptionTab atIndex:0];
+  }
+  [self.procAppView selectTabViewItem:descriptionTab];
 
   if (!exited)
   {
