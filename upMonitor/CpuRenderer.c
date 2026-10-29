@@ -191,6 +191,13 @@ static CGFloat _extra_paint(bool bar, const CpuExtraReading* extra, int index, C
   return (bar && extra && (extra[index].tint > 0.0)) ? fmin(extra[index].tint, 1.0) : load;
 }
 
+// the opacity range extra reading index's fill spans: none when it has a tint and the bars are bars with colour, so
+// that its fill is opaque, else range
+static CGFloat _extra_range(bool bar, bool colored, const CpuExtraReading* extra, int index, CGFloat range)
+{
+  return (bar && colored && extra && (extra[index].tint > 0.0)) ? 0.0 : range;
+}
+
 // the slots of extra readings first..last-1
 static CGFloat _extra_slots(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth, const CpuExtraReading* extra, int first, int last)
 {
@@ -486,7 +493,8 @@ void CpuRender(CpuSummaryInfo* cpu_info, CGContextRef ctx, bool light, int granu
           _render_colored(ctx, x, width, load, true, &extra[i-CPU_RENDER_READINGS_COUNT], color, range, bar, light, bottom);
           continue;
         }
-        _render_group(ctx, x, load, paint, color, range, bar, colored, theme, width, light, bottom);
+        const CGFloat spread = (i < CPU_RENDER_READINGS_COUNT) ? range : _extra_range(bar, colored, extra, i-CPU_RENDER_READINGS_COUNT, range);
+        _render_group(ctx, x, load, paint, color, spread, bar, colored, theme, width, light, bottom);
         if ((i >= CPU_RENDER_READINGS_COUNT) && extra)
         {
           _render_pace(ctx, x, width, load, paint, extra[i-CPU_RENDER_READINGS_COUNT].pace, extra[i-CPU_RENDER_READINGS_COUNT].alert, color, bar, colored, theme, light, bottom);
@@ -550,7 +558,7 @@ void CpuRender(CpuSummaryInfo* cpu_info, CGContextRef ctx, bool light, int granu
             _render_colored(ctx, x, width, load, true, &extra[i], color, range, bar, light, bottom);
             continue;
           }
-          _render_group(ctx, x, load, paint, color, range, bar, colored, theme, width, light, bottom);
+          _render_group(ctx, x, load, paint, color, _extra_range(bar, colored, extra, i, range), bar, colored, theme, width, light, bottom);
           _render_pace(ctx, x, width, load, paint, extra[i].pace, extra[i].alert, color, bar, colored, theme, light, bottom);
         }
       }

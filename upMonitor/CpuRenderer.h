@@ -49,8 +49,8 @@ enum Theme
 // after a further clear gap, CPU_RENDER_GROUP_GAP wide, and the first reading is always the first of its group. An
 // extra reading may also carry a mark, a 1-pt line across its bar at that height, an alert, which draws its bar whole,
 // without the dashes, a pace, how much of the bar's period has passed, and a tint, which paints its bar as a bar at
-// another load would be, its height unchanged; with colour, the part of a bar above its pace, and all of an alert bar
-// with no pace, is painted in its ramp's hottest colour
+// another load would be, its fill opaque with colour, its height unchanged; with colour, the part of a bar above its
+// pace, and all of an alert bar with no pace, is painted in its ramp's hottest colour
 #define CPU_RENDER_READINGS_COUNT (5)
 #define CPU_RENDER_READING_EFFICIENCY (3) // the E-cores' CPU's index among the readings
 #define CPU_RENDER_READING_PERFORMANCE (4) // the P-cores' CPU's
@@ -72,9 +72,9 @@ struct CpuExtraReading
   // ramp's hottest colour; a bar below it has the stretch from its top up to pace painted dim in its own colour.
   // Nothing in Dot style or without colour, and 0 or below (NaN too) is the default, so a zeroed struct has none
   double pace;
-  // above 0: in bar style the bar is painted as a bar at that load (0..1, above 1 as 1) would be, in its ramp colour and
-  // opacity, its height still value's; 0 or below (NaN too) is the default: painted by its value. Nothing changes in Dot
-  // style or for a bar not read, so a zeroed struct has none
+  // above 0: in bar style the bar is painted as a bar at that load (0..1, above 1 as 1) would be, in its ramp colour, its
+  // fill opaque with colour and at that load's opacity without, its height still value's; 0 or below (NaN too) is the
+  // default: painted by its value. Nothing changes in Dot style or for a bar not read, so a zeroed struct has none
   double tint;
   // true: this reading is painted in colorRed, colorGreen and colorBlue (sRGB, each 0..1) in place of its ramp colour,
   // tint and pace, and of an alert's hottest colour: in bar style its fill opaque and its background, drawn also while

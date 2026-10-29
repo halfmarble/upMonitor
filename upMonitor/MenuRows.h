@@ -91,9 +91,10 @@ NS_ASSUME_NONNULL_BEGIN
 // colour instead, dashed or solid; NO, an entry that is not a number, a missing entry or a bar not read: none. Read with
 // barReadings, at each tick of the graph
 - (NSArray<NSNumber*>*)barAlerts;
-// each bar's tint, in the same order as barReadings: above 0, the load 0..1 (above 1 as 1) whose colour and opacity the
-// bar is painted in, its height still its reading; 0 or below, an entry that is not a number, a missing entry or a bar
-// not read: painted by its reading. Nothing in Dot style. Read with barReadings, at each tick of the graph
+// each bar's tint, in the same order as barReadings: above 0, the load 0..1 (above 1 as 1) whose colour the bar is
+// painted in, its fill opaque with colour and at that load's opacity without, its height still its reading; 0 or
+// below, an entry that is not a number, a missing entry or a bar not read: painted by its reading. Nothing in Dot
+// style. Read with barReadings, at each tick of the graph
 - (NSArray<NSNumber*>*)barTints;
 // each bar's colour, in the same order as barReadings: an NSColor paints the bar in that colour in place of its ramp
 // colour, tint and pace, and of an alert's hottest colour: its fill opaque, its background, drawn also while the bar is not read,
