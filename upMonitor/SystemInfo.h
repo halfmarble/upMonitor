@@ -57,6 +57,16 @@ bool SystemInfoSwap(uint64_t* used);
 // does; -1 when the kernel cannot be read
 long SystemInfoUptimeSeconds(void);
 
+// the GPU's busy share, 0..1: IOAccelerator's "Device Utilization %" over 100, the highest among the services that carry
+// it (one per GPU); -1 when it cannot be read. The services are looked up on the first call and kept; after a lookup
+// that finds none, the next is tried at most once a minute
+double SystemInfoGpuBusy(void);
+
+// the Neural Engine's power: 1 when the H11ANEIn service's IOPowerManagement CurrentPowerState is above 0, 0 when it is
+// 0, -1 when there is no such service or the state cannot be read. Its power, not its work: it turns on with work and
+// off seconds after it. Looked up as SystemInfoGpuBusy's services are
+int SystemInfoNeuralEngine(void);
+
 __END_DECLS
 
 #endif /* SystemInfo_h */

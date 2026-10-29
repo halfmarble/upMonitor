@@ -161,15 +161,16 @@ NSTextField* MenuRowsSettingsHeading(NSString* title);
 NSView* MenuRowsSettingsCard(NSArray<NSView*>* rows);
 
 typedef NS_ENUM(NSInteger, MenuRowsExamplePart) {
-  MenuRowsExampleWhole,     // the menu bar's image: the five readings (unless readings->extraOnly), cores, extras
-  MenuRowsExampleReadings,  // only the five wide readings
+  MenuRowsExampleWhole,     // the menu bar's image: the five readings, or with readings->gpuShown the seven (unless readings->extraOnly), cores, extras
+  MenuRowsExampleReadings,  // only the five wide readings (the seven with readings->gpuShown)
   MenuRowsExampleExtra,     // only the extra readings, from the first to the last
 };
 // a drawing of the menu bar's image, as the app draws it now, for the help window: readings (NULL: none, the cores
 // only) and the core bars' loads, coreLoads[i % coreLoadCount] for core bar i (count 0: all 0), from which the CPU, E
 // and P readings are then read, as the app reads them from the cores (count 0: as given), drawn on a strip in
 // the menu bar's colour for the view's appearance, redrawn when its appearance or backing scale changes; part crops
-// it; label (nil: none) is drawn as a hover label in a box under reading labelReading (CpuRenderReadingX's index; -1:
+// it; label (nil: none) is drawn as a hover label in a box under reading labelReading (CpuRenderReadingX's index, with
+// readings->gpuShown the visual order disk, memory, CPU, GPU, Neural Engine, E, P; -1:
 // the core graph's middle); caption (nil: none) in small secondary text under it. The extras are copied
 NSView* MenuRowsHelpExample(const CpuReadings* _Nullable readings, const double* _Nullable coreLoads,
                             int coreLoadCount, MenuRowsExamplePart part, NSString* _Nullable label,

@@ -22,7 +22,10 @@
 
 #include "SystemInfo.h"
 
+#include <CoreFoundation/CoreFoundation.h>
+#include <IOKit/IOKitLib.h>
 #include <mach/mach.h>
+#include <mach/mach_time.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/sysctl.h>
@@ -273,4 +276,125 @@ long SystemInfoUptimeSeconds(void)
     seconds += 30;
   }
   return seconds;
+}
+
+#pragma mark - GPU and Neural Engine
+
+#define IOKIT_RETRY     (60.0)  // s between lookups after one that found nothing
+#define GPU_MAX         (8)     // IOAccelerator services kept; one per GPU
+
+// seconds on mach_absolute_time's clock, for the lookups' retry
+static double IOKitNow(void)
+{
+  static mach_timebase_info_data_t base = {0, 0};
+  if (base.denom == 0)
+  {
+    mach_timebase_info(&base);
+  }
+  return ((double)mach_absolute_time() * base.numer / base.denom) / 1e9;
+}
+
+// whether a lookup may run now: the first time, and then at most once every IOKIT_RETRY s; *last is when the last ran
+static bool IOKitMayLookUp(double* last)
+{
+  const double now = IOKitNow();
+  if ((*last >= 0.0) && ((now - *last) < IOKIT_RETRY))
+  {
+    return false;
+  }
+  *last = now;
+  return true;
+}
+
+// "Device Utilization %" of service, or -1 when it does not carry it
+static long long GpuDevicePercent(io_service_t service)
+{
+  CFTypeRef stats = IORegistryEntryCreateCFProperty(service, CFSTR("PerformanceStatistics"), kCFAllocatorDefault, 0);
+  if (stats == NULL)
+  {
+    return -1;
+  }
+  long long percent = -1;
+  if (CFGetTypeID(stats) == CFDictionaryGetTypeID())
+  {
+    CFTypeRef value = CFDictionaryGetValue((CFDictionaryRef)stats, CFSTR("Device Utilization %"));
+    if ((value == NULL) || (CFGetTypeID(value) != CFNumberGetTypeID()) || !CFNumberGetValue((CFNumberRef)value, kCFNumberLongLongType, &percent))
+    {
+      percent = -1;
+    }
+  }
+  CFRelease(stats);
+  return percent;
+}
+
+static io_service_t gpuServices[GPU_MAX];
+static int gpuCount = 0;
+static double gpuLookedUp = -1.0;
+
+double SystemInfoGpuBusy(void)
+{
+  if ((gpuCount == 0) && IOKitMayLookUp(&gpuLookedUp))
+  {
+    io_iterator_t it = IO_OBJECT_NULL;
+    if (IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("IOAccelerator"), &it) == KERN_SUCCESS)
+    {
+      for (io_service_t service; (service = IOIteratorNext(it)) != IO_OBJECT_NULL;)
+      {
+        if ((gpuCount < GPU_MAX) && (GpuDevicePercent(service) >= 0))
+        {
+          gpuServices[gpuCount++] = service;
+        }
+        else
+        {
+          IOObjectRelease(service);
+        }
+      }
+      IOObjectRelease(it);
+    }
+  }
+  long long best = -1;
+  for (int i=0; i<gpuCount; i++)
+  {
+    const long long percent = GpuDevicePercent(gpuServices[i]);
+    if (percent > best)
+    {
+      best = percent;
+    }
+  }
+  if (best < 0)
+  {
+    return -1.0;
+  }
+  return (best > 100) ? 1.0 : ((double)best / 100.0);
+}
+
+static io_service_t neuralEngine = IO_OBJECT_NULL;
+static double neuralEngineLookedUp = -1.0;
+
+int SystemInfoNeuralEngine(void)
+{
+  if ((neuralEngine == IO_OBJECT_NULL) && IOKitMayLookUp(&neuralEngineLookedUp))
+  {
+    neuralEngine = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("H11ANEIn"));
+  }
+  if (neuralEngine == IO_OBJECT_NULL)
+  {
+    return -1;
+  }
+  CFTypeRef power = IORegistryEntryCreateCFProperty(neuralEngine, CFSTR("IOPowerManagement"), kCFAllocatorDefault, 0);
+  if (power == NULL)
+  {
+    return -1;
+  }
+  int state = -1;
+  if (CFGetTypeID(power) == CFDictionaryGetTypeID())
+  {
+    CFTypeRef value = CFDictionaryGetValue((CFDictionaryRef)power, CFSTR("CurrentPowerState"));
+    if ((value == NULL) || (CFGetTypeID(value) != CFNumberGetTypeID()) || !CFNumberGetValue((CFNumberRef)value, kCFNumberIntType, &state))
+    {
+      state = -1;
+    }
+  }
+  CFRelease(power);
+  return (state < 0) ? -1 : ((state > 0) ? 1 : 0);
 }

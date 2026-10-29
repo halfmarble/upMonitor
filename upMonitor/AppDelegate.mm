@@ -94,6 +94,7 @@ static NSString* TickWidthKey = @"TickWidthKey";
 static NSString* AppearanceKey = @"AppearanceKey";
 static NSString* ThemeKey = @"ThemeKey";
 static NSString* ShowBarsKey = @"ShowBarsKey";
+static NSString* ShowGpuNeuralEngineKey = @"ShowGpuNeuralEngine";
 static NSString* TopRowsKey = @"TopRowsKey";
 
 #pragma mark - C APIs
@@ -1172,6 +1173,7 @@ static NSPanel* NewTipPanel(NSTextField* __strong * label);
 static void SetTipText(NSPanel* panel, NSTextField* label, NSString* text, CGFloat wrap);
 static void HelpCoreReadings(const double* coreLoads, int coreLoadCount, CpuReadings* readings);
 static NSString* HelpDiskLabel(const CpuReadings* readings);
+static NSString* HelpGpuLabel(const CpuReadings* readings);
 static NSArray<NSView*>* HelpCoresExamples(const CpuReadings* readings, const double* coreLoads, int coreLoadCount);
 
 // the menu bar's drawing settings at the moment an example is made, from the statics that updateMenuIcon draws with
@@ -1272,11 +1274,13 @@ typedef struct HelpExampleStyle
   {
     _readings.efficiencyBars = (five && (part != MenuRowsExampleReadings)) ? style.coreSplit : 0;
   }
+  // the GPU's bar and the Neural Engine's dot go with the five readings
+  bool gpuShown = five && _readings.gpuShown;
   int extraCount = _hasReadings ? _readings.extraCount : 0;
   _imageWidth = style.graphWidth;
   if (five)
   {
-    _imageWidth += CpuRenderReadingsWidth(style.bar, style.drawWidth, style.tickTotalWidth, _readings.efficiencyBars, extraCount, _extra);
+    _imageWidth += CpuRenderReadingsWidth(style.bar, style.drawWidth, style.tickTotalWidth, gpuShown, _readings.efficiencyBars, extraCount, _extra);
   }
   else if (_hasReadings)
   {
@@ -1287,13 +1291,13 @@ typedef struct HelpExampleStyle
   _cropWidth = _imageWidth;
   if ((part == MenuRowsExampleReadings) && five)
   {
-    int last = CPU_RENDER_READINGS_COUNT - 1;
-    _cropWidth = CpuRenderReadingX(style.bar, style.drawWidth, style.tickTotalWidth, _imageWidth, split, CpuSamplerGetCount(style.granularity), extraCount, _extra, last) +
-      CpuRenderReadingSlot(style.bar, style.drawWidth, style.tickTotalWidth, extraCount, _extra, last);
+    int last = CpuRenderReadingsCount(gpuShown) - 1;
+    _cropWidth = CpuRenderReadingX(style.bar, style.drawWidth, style.tickTotalWidth, gpuShown, _imageWidth, split, CpuSamplerGetCount(style.granularity), extraCount, _extra, last) +
+      CpuRenderReadingSlot(style.bar, style.drawWidth, style.tickTotalWidth, gpuShown, extraCount, _extra, last);
   }
   else if ((part == MenuRowsExampleExtra) && (extraCount > 0))
   {
-    _cropX = CpuRenderReadingX(style.bar, style.drawWidth, style.tickTotalWidth, _imageWidth, split, CpuSamplerGetCount(style.granularity), extraCount, _extra, CPU_RENDER_READINGS_COUNT);
+    _cropX = CpuRenderReadingX(style.bar, style.drawWidth, style.tickTotalWidth, gpuShown, _imageWidth, split, CpuSamplerGetCount(style.granularity), extraCount, _extra, CpuRenderReadingsCount(gpuShown));
     _cropWidth = _imageWidth - _cropX;
   }
   _cropWidth = MAX(_cropWidth, 1.0);
@@ -1357,13 +1361,13 @@ typedef struct HelpExampleStyle
     {
       CGFloat start = 0.0;
       CGFloat end = 0.0;
-      CpuRenderGraphSpan(style.bar, style.drawWidth, style.tickTotalWidth, _imageWidth, five, split, extraCount, _extra, &start, &end);
+      CpuRenderGraphSpan(style.bar, style.drawWidth, style.tickTotalWidth, _imageWidth, five, gpuShown, split, extraCount, _extra, &start, &end);
       readingMid = (start + end) / 2.0;
     }
     else
     {
-      readingMid = CpuRenderReadingX(style.bar, style.drawWidth, style.tickTotalWidth, _imageWidth, split, CpuSamplerGetCount(style.granularity), extraCount, _extra, labelReading) +
-        CpuRenderReadingSlot(style.bar, style.drawWidth, style.tickTotalWidth, extraCount, _extra, labelReading) / 2.0;
+      readingMid = CpuRenderReadingX(style.bar, style.drawWidth, style.tickTotalWidth, gpuShown, _imageWidth, split, CpuSamplerGetCount(style.granularity), extraCount, _extra, labelReading) +
+        CpuRenderReadingSlot(style.bar, style.drawWidth, style.tickTotalWidth, gpuShown, extraCount, _extra, labelReading) / 2.0;
     }
     CGFloat x = NSMinX(_strip) + HELP_EXAMPLE_PADDING + (readingMid - _cropX)*_zoom - boxSize.width/2.0;
     x = MIN(MAX(x, 0.0), width - boxSize.width);
@@ -1657,22 +1661,29 @@ static NSWindow* MakeHelpWindow(void)
   shared.disk = 0.62;
   CpuReadings barsOff = shared;
   barsOff.extraOnly = true;
+  // the same with the GPU's bar and the Neural Engine's dot, as the menu bar draws them by default: every whole menu bar
+  // shown below but "bars off"
+  CpuReadings withGpu = shared;
+  withGpu.gpuShown = true;
+  withGpu.gpu = 0.35;
+  withGpu.neuralEngine = 1;
   const double fills[] = {0.0, 0.20, 0.50, 0.70, 1.00};
   const double colours[] = {0.10, 0.30, 0.50, 0.75, 1.00};
 
   // the hover labels, worded as the real ones are (HelpDiskLabel, HelpCoresExamples)
   NSMutableArray<NSView*>* hoverExamples = [NSMutableArray arrayWithObject:
-    MenuRowsHelpExample(&shared, loads, loadCount, MenuRowsExampleWhole, HelpDiskLabel(&shared), 0, @"a bar")];
-  [hoverExamples addObjectsFromArray:HelpCoresExamples(&shared, loads, loadCount)];
+    MenuRowsHelpExample(&withGpu, loads, loadCount, MenuRowsExampleWhole, HelpDiskLabel(&withGpu), 0, @"a bar")];
+  [hoverExamples addObject:MenuRowsHelpExample(&withGpu, loads, loadCount, MenuRowsExampleWhole, HelpGpuLabel(&withGpu), CPU_RENDER_READING_GPU, @"the GPU bar")];
+  [hoverExamples addObjectsFromArray:HelpCoresExamples(&withGpu, loads, loadCount)];
 
   section(@"Menu bar", @[
     @[
-      @"Five wide bars show the startup volume's used space (disk), the memory in use, and the CPU's load, overall and for the efficiency cores (E) and the performance cores (P). Disk, memory and CPU come first, on the left.",
-      @[MenuRowsHelpExample(&shared, loads, loadCount, MenuRowsExampleReadings, nil, -1, @"disk, memory, CPU, E, P")],
+      @"Six wide bars show the startup volume's used space (disk), the memory in use, the CPU's load, overall and for the efficiency cores (E) and the performance cores (P), and the GPU's. Disk, memory, CPU and GPU come first, on the left. The dot after the GPU bar is filled while the Neural Engine is powered on and is a ring while it is off. It turns on when an app gives it work and goes off a few seconds after the work ends, and may come on again for a few seconds about ten seconds later while that app stays open, so it shows that the Neural Engine was powered recently, not how hard it works.",
+      @[MenuRowsHelpExample(&withGpu, loads, loadCount, MenuRowsExampleReadings, nil, -1, @"disk, memory, CPU, GPU, Neural Engine, E, P")],
     ],
     @[
-      @"Each narrow bar is one CPU core. When the Mac lists its efficiency cores first, the E bar stands at the head of the efficiency cores' bars and the P bar at the head of the performance cores' bars, each group after a small gap; otherwise the E and P bars follow the CPU bar.",
-      @[MenuRowsHelpExample(&shared, loads, loadCount, MenuRowsExampleWhole, nil, -1, @"this Mac's cores")],
+      @"Each narrow bar is one CPU core. When the Mac lists its efficiency cores first, the E bar stands at the head of the efficiency cores' bars and the P bar at the head of the performance cores' bars, each group after a small gap; otherwise the E and P bars follow the Neural Engine dot, or the CPU bar while the GPU bar and the dot are switched off.",
+      @[MenuRowsHelpExample(&withGpu, loads, loadCount, MenuRowsExampleWhole, nil, -1, @"this Mac's cores")],
     ],
     @[
       @"A bar fills from the bottom: empty is 0%, full is 100%. The faint column behind it is its full height, and each of its five dashes is a fifth; the top dash can be partly filled.",
@@ -1687,9 +1698,9 @@ static NSWindow* MakeHelpWindow(void)
       hoverExamples,
     ],
     @[
-      @"In Settings, \"Show Disk, RAM, CPU, E-core, P-core bars\" turns the five wide bars off and leaves the core bars, and \"Refresh\" sets how often the bars move.",
+      @"In Settings, \"Show Disk, RAM, CPU, E-core, P-core bars\" turns the wide bars and the Neural Engine dot off and leaves the core bars, \"Show GPU bar and Neural Engine dot\" turns those two off, and \"Refresh\" sets how often the bars move.",
       @[
-        MenuRowsHelpExample(&shared, loads, loadCount, MenuRowsExampleWhole, nil, -1, @"bars on"),
+        MenuRowsHelpExample(&withGpu, loads, loadCount, MenuRowsExampleWhole, nil, -1, @"bars on"),
         MenuRowsHelpExample(&barsOff, loads, loadCount, MenuRowsExampleWhole, nil, -1, @"bars off"),
       ],
     ],
@@ -1817,6 +1828,8 @@ static NSTimeInterval lastReadings = 0.0;   // when overall CPU and memory were 
 static double readingsCpu = -1.0;           // overall CPU over the 1 s before it (after a reset, one tick), 0..1, -1 before the first
 static double readingsCpuEfficiency = -1.0; // the E-cores' and the P-cores' over the same window, read with it; -1: not read
 static double readingsCpuPerformance = -1.0;
+static double readingsGpu = -1.0;           // the GPU's busy share, 0..1, read with them while the GPU's bar is shown; -1: not read
+static int readingsNeuralEngine = -1;       // the Neural Engine's power: 1 on, 0 off, -1 not read
 static bool readingsMemory = false;         // memory could be read, as these two bytes
 static uint64_t readingsMemoryUsed = 0;
 static uint64_t readingsMemoryTotal = 0;
@@ -1844,6 +1857,12 @@ static bool colored = false;
 static int theme = THEME_YELLOW;
 
 static bool showBars = true;         // the disk, memory, CPU, E-cores' and P-cores' bars left of the graph
+static bool showGpuNeuralEngine = true; // with them, the GPU's bar and the Neural Engine's dot
+// whether the GPU's bar and the Neural Engine's dot are drawn, read and listed: only with the bars they belong to
+static bool GpuShown(void)
+{
+  return showBars && showGpuNeuralEngine;
+}
 // the bars MenuRows classes add right of the graph, read each tick (collectExtraBars): cleared and filled again at each
 // one, so a pointer into extraBars is good only until the next; each one's value, mark, tint, alert and group
 static std::vector<CpuExtraReading> extraBars;
@@ -1856,6 +1875,7 @@ static float speed = 1.0f;
 static NSSegmentedControl* refreshChoice = nil;  // Refresh: 10, 5 or 2 times a second
 static NSSegmentedControl* topRowsChoice = nil;  // Top processes: its segments' counts are topRowsChoices
 static NSSwitch* showBarsSwitch = nil;           // Show Disk, RAM, CPU, E-core, P-core bars
+static NSSwitch* showGpuSwitch = nil;            // Show GPU bar and Neural Engine dot
 static NSSwitch* loginSwitch = nil;              // Launch at login
 static const int topRowsChoices[] = {3, 5, 10, TOP_COUNT};
 #define TOP_ROWS_CHOICES (sizeof(topRowsChoices)/sizeof(topRowsChoices[0]))
@@ -1998,7 +2018,7 @@ static NSMutableSet<NSTask*>* runningTasks = nil;
   coreSplit = CpuRenderEfficiencyBars(granularity, cpu_info.countLogical, cpuKinds);
   if (showBars)
   {
-    imageWidth += CpuRenderReadingsWidth(bar, drawWidth, tickTotalWidth, coreSplit, (int)extraBars.size(), extraBars.data());
+    imageWidth += CpuRenderReadingsWidth(bar, drawWidth, tickTotalWidth, GpuShown(), coreSplit, (int)extraBars.size(), extraBars.data());
   }
   else
   {
@@ -2031,6 +2051,8 @@ static NSMutableSet<NSTask*>* runningTasks = nil;
   [self.blueButton setState:NSControlStateValueOff];
 
   showBarsSwitch.state = showBars ? NSControlStateValueOn : NSControlStateValueOff;
+  showGpuSwitch.state = showGpuNeuralEngine ? NSControlStateValueOn : NSControlStateValueOff;
+  showGpuSwitch.enabled = showBars;
   topRowsChoice.selectedSegment = TopRowsChoiceIndex();
     
   if (granularity == 0)
@@ -2496,9 +2518,12 @@ static NSString* OthersRowText(int count)
   }
   topRowsChoice = MenuRowsSettingsChoice(topLabels, 44.0, TopRowsChoiceIndex(), @selector(topRowsChoiceChanged:), self);
   showBarsSwitch = MenuRowsSettingsSwitch(showBars, @selector(showBarsButtonClicked:), self);
+  showGpuSwitch = MenuRowsSettingsSwitch(showGpuNeuralEngine, @selector(showGpuButtonClicked:), self);
+  showGpuSwitch.enabled = showBars;
   place(SettingsGroup(@[@[@"Refresh", refreshChoice],
                         @[@"Top processes", topRowsChoice],
-                        @[@"Show Disk, RAM, CPU, E-core, P-core bars", showBarsSwitch]]), 0.0, SETTINGS_SECTION_GAP);
+                        @[@"Show Disk, RAM, CPU, E-core, P-core bars", showBarsSwitch],
+                        @[@"Show GPU bar and Neural Engine dot", showGpuSwitch]]), 0.0, SETTINGS_SECTION_GAP);
 
   // each class's group, with at least one valid row
   for (id<MenuRows> rows in menuRows)
@@ -2820,10 +2845,12 @@ NSView* MenuRowsHelpExample(const CpuReadings* readings, const double* coreLoads
 // it is on the item, since no exit was delivered either, and a reading under it arms the label (BAR_TIP_DELAY)
 static NSRect barTipLayout = {{-1.0, -1.0}, {-1.0, -1.0}}; // x: the image's left in the button, width: the readings' slot; none: -1
 static bool barTipThree = false;            // the five readings (disk, memory, CPU, E-cores, P-cores) are drawn
+static bool barTipGpu = false;              // with them, the GPU's bar and the Neural Engine's dot too (CpuReadings gpuShown)
 static int barTipSplit = 0;                 // with them, the core graph's split as drawn (CpuReadings efficiencyBars); 0: none
 static std::vector<CpuExtraReading> barTipBars; // the extra bars drawn right of the core graph, as drawn (a copy: extraBars is refilled each tick)
 static NSInteger barTipIndex = -1;          // the reading under the pointer, armed or shown: 0 disk, 1 memory, 2 CPU, 3 E-cores,
-                                            // 4 P-cores, 5 on the extra bars, BAR_TIP_CORES the core graph (split:
+                                            // 4 P-cores, 5 on the extra bars (with barTipGpu: 3 GPU, 4 Neural Engine, 5 E-cores,
+                                            // 6 P-cores, 7 on the extra bars), BAR_TIP_CORES the core graph (split:
                                             // BAR_TIP_CORES_E or BAR_TIP_CORES_P, the bars of one kind), -1 none
 static NSPanel* barTip = nil;
 static NSTextField* barTipText = nil;
@@ -2847,6 +2874,7 @@ static bool BarTipIsCores(NSInteger index)
     [button addTrackingArea:tracking];
   }
   bool three = (readings != NULL) && !readings->extraOnly;
+  bool gpu = three && readings->gpuShown;
   int split = (three && (readings->efficiencyBars > 0)) ? readings->efficiencyBars : 0;
   std::vector<CpuExtraReading> bars;
   if ((readings != NULL) && (readings->extra != NULL) && (readings->extraCount > 0))
@@ -2861,10 +2889,11 @@ static bool BarTipIsCores(NSInteger index)
   }
   NSRect bounds = button.bounds;
   NSRect layout = NSMakeRect(round(NSMidX(bounds) - imageWidth/2.0), NSMinY(bounds), CpuRenderReadingsSlot(bar, drawWidth, tickTotalWidth), NSHeight(bounds));
-  if (!NSEqualRects(layout, barTipLayout) || (three != barTipThree) || (split != barTipSplit) || !sameBars)
+  if (!NSEqualRects(layout, barTipLayout) || (three != barTipThree) || (gpu != barTipGpu) || (split != barTipSplit) || !sameBars)
   {
     barTipLayout = layout;
     barTipThree = three;
+    barTipGpu = gpu;
     barTipSplit = split;
     barTipBars = bars;
     [self hideBarTip];
@@ -2875,14 +2904,15 @@ static bool BarTipIsCores(NSInteger index)
 // besides the graph)
 - (void)graphTipStart:(CGFloat*)start end:(CGFloat*)end
 {
-  CpuRenderGraphSpan(bar, drawWidth, tickTotalWidth, imageWidth, barTipThree, barTipSplit, (int)barTipBars.size(), barTipBars.data(), start, end);
+  CpuRenderGraphSpan(bar, drawWidth, tickTotalWidth, imageWidth, barTipThree, barTipGpu, barTipSplit, (int)barTipBars.size(), barTipBars.data(), start, end);
 }
 
 // the reading at x, measured from the image's left: 0 disk, 1 memory, 2 CPU, 3 E-cores, 4 P-cores (when drawn), 5 on
-// the extra bars, BAR_TIP_CORES on the core graph (split: BAR_TIP_CORES_E on the E-cores' reading and bars,
-// BAR_TIP_CORES_P on the P-cores', in place of 3 and 4); in bar style, in the first BAR_TIP_GAP_REACH pt of clear space right
-// of a block, the image's right edge included, the reading or graph left of it; -1 on none of them (the rest of a gap,
-// or past that)
+// the extra bars (with the GPU's readings, barTipGpu: 3 GPU, 4 Neural Engine, 5 E-cores, 6 P-cores, 7 on the extra
+// bars), BAR_TIP_CORES on the core graph (split: BAR_TIP_CORES_E on the E-cores' reading and bars, BAR_TIP_CORES_P on
+// the P-cores', in place of 3 and 4, with barTipGpu 5 and 6); in bar style, in the first BAR_TIP_GAP_REACH pt of clear
+// space right of a block, the image's right edge included, the reading or graph left of it; -1 on none of them (the
+// rest of a gap, or past that)
 - (NSInteger)barTipIndexAtX:(CGFloat)x
 {
   NSInteger index = [self barTipSlotIndexAtX:x];
@@ -2901,16 +2931,17 @@ static bool BarTipIsCores(NSInteger index)
   // a reading's slot starts where the renderer draws it, the extra bars' after the core graph; a gap is on none of them,
   // the split's gap inside the graph included (the P-cores' reading beside it is found first, by its slot)
   // split, the E-cores' and the P-cores' readings head their own bars, and each reading and its bars hover as one
-  for (NSInteger index=(barTipThree ? 0 : CPU_RENDER_READINGS_COUNT); index<(CPU_RENDER_READINGS_COUNT + (NSInteger)barTipBars.size()); index++)
+  const NSInteger readingsCount = CpuRenderReadingsCount(barTipGpu);
+  for (NSInteger index=(barTipThree ? 0 : readingsCount); index<(readingsCount + (NSInteger)barTipBars.size()); index++)
   {
-    CGFloat start = CpuRenderReadingX(bar, drawWidth, tickTotalWidth, imageWidth, barTipSplit, CpuSamplerGetCount(granularity), (int)barTipBars.size(), barTipBars.data(), (int)index);
-    if ((x >= start) && (x < (start + CpuRenderReadingSlot(bar, drawWidth, tickTotalWidth, (int)barTipBars.size(), barTipBars.data(), (int)index))))
+    CGFloat start = CpuRenderReadingX(bar, drawWidth, tickTotalWidth, barTipGpu, imageWidth, barTipSplit, CpuSamplerGetCount(granularity), (int)barTipBars.size(), barTipBars.data(), (int)index);
+    if ((x >= start) && (x < (start + CpuRenderReadingSlot(bar, drawWidth, tickTotalWidth, barTipGpu, (int)barTipBars.size(), barTipBars.data(), (int)index))))
     {
-      if ((barTipSplit > 0) && (index == CPU_RENDER_READING_EFFICIENCY))
+      if ((barTipSplit > 0) && (index == CpuRenderReadingEfficiency(barTipGpu)))
       {
         return BAR_TIP_CORES_E;
       }
-      if ((barTipSplit > 0) && (index == CPU_RENDER_READING_PERFORMANCE))
+      if ((barTipSplit > 0) && (index == CpuRenderReadingPerformance(barTipGpu)))
       {
         return BAR_TIP_CORES_P;
       }
@@ -2935,8 +2966,8 @@ static bool BarTipIsCores(NSInteger index)
 // whether readings a and b are both extra bars of one group (no group starts after the lower one, up to the higher one)
 - (BOOL)barTipSameGroup:(NSInteger)a and:(NSInteger)b
 {
-  NSInteger low = MIN(a, b) - CPU_RENDER_READINGS_COUNT;
-  NSInteger high = MAX(a, b) - CPU_RENDER_READINGS_COUNT;
+  NSInteger low = MIN(a, b) - CpuRenderReadingsCount(barTipGpu);
+  NSInteger high = MAX(a, b) - CpuRenderReadingsCount(barTipGpu);
   if ((low < 0) || (high >= (NSInteger)barTipBars.size()))
   {
     return NO;
@@ -2964,15 +2995,15 @@ static bool BarTipIsCores(NSInteger index)
     {
       const natural_t cores = CpuSamplerGetCount(granularity);
       graphEnd = CpuRenderCoreX(bar, drawWidth, tickTotalWidth, graphStart, barTipSplit, (int)cores, barTipSplit - 1) + CpuRenderCoreSlot(bar, drawWidth, tickTotalWidth, cores);
-      graphStart = CpuRenderReadingX(bar, drawWidth, tickTotalWidth, imageWidth, barTipSplit, CpuSamplerGetCount(granularity), (int)barTipBars.size(), barTipBars.data(), CPU_RENDER_READING_EFFICIENCY);
+      graphStart = CpuRenderReadingX(bar, drawWidth, tickTotalWidth, barTipGpu, imageWidth, barTipSplit, CpuSamplerGetCount(granularity), (int)barTipBars.size(), barTipBars.data(), CpuRenderReadingEfficiency(barTipGpu));
     }
     else if ((index == BAR_TIP_CORES_P) && (barTipSplit > 0))
     {
-      graphStart = CpuRenderReadingX(bar, drawWidth, tickTotalWidth, imageWidth, barTipSplit, CpuSamplerGetCount(granularity), (int)barTipBars.size(), barTipBars.data(), CPU_RENDER_READING_PERFORMANCE);
+      graphStart = CpuRenderReadingX(bar, drawWidth, tickTotalWidth, barTipGpu, imageWidth, barTipSplit, CpuSamplerGetCount(granularity), (int)barTipBars.size(), barTipBars.data(), CpuRenderReadingPerformance(barTipGpu));
     }
     return NSMakeRect(graphStart, barTipLayout.origin.y, graphEnd - graphStart, barTipLayout.size.height);
   }
-  return NSMakeRect(CpuRenderReadingX(bar, drawWidth, tickTotalWidth, imageWidth, barTipSplit, CpuSamplerGetCount(granularity), (int)barTipBars.size(), barTipBars.data(), (int)index), barTipLayout.origin.y, CpuRenderReadingSlot(bar, drawWidth, tickTotalWidth, (int)barTipBars.size(), barTipBars.data(), (int)index), barTipLayout.size.height);
+  return NSMakeRect(CpuRenderReadingX(bar, drawWidth, tickTotalWidth, barTipGpu, imageWidth, barTipSplit, CpuSamplerGetCount(granularity), (int)barTipBars.size(), barTipBars.data(), (int)index), barTipLayout.origin.y, CpuRenderReadingSlot(bar, drawWidth, tickTotalWidth, barTipGpu, (int)barTipBars.size(), barTipBars.data(), (int)index), barTipLayout.size.height);
 }
 
 // the pointer's x, measured from the image's left; NO off the item, or nothing rendered yet
@@ -3160,6 +3191,31 @@ static void HelpCoreReadings(const double* coreLoads, int coreLoadCount, CpuRead
   readings->performance = (kindCount[1] > 0) ? (kindSum[1] / kindCount[1]) : -1.0;
 }
 
+// the GPU's hover label, "GPU: 12%", and the Neural Engine's, "Neural Engine: on"; unpadded, as barTipTextAt: pads them
+static NSString* GpuTipText(double gpu)
+{
+  if (gpu < 0.0)
+  {
+    return @"GPU: cannot be read on this Mac";
+  }
+  return [[NSString alloc] initWithFormat:@"GPU: %ld%%" locale:[NSLocale currentLocale], lround(fmin(gpu, 1.0) * 100.0)];
+}
+
+static NSString* NeuralEngineTipText(int state)
+{
+  if (state < 0)
+  {
+    return @"Neural Engine: cannot be read on this Mac";
+  }
+  return (state > 0) ? @"Neural Engine: on" : @"Neural Engine: off";
+}
+
+// the GPU hover label of the help window's example, as the real one reads, the percentage padded (TipPercents)
+static NSString* HelpGpuLabel(const CpuReadings* readings)
+{
+  return TipPercents(GpuTipText(readings->gpu));
+}
+
 // the disk hover label of the help window's example, as the real one reads: 1 TB, readings->disk of it used, its
 // title and padded text (DiskTexts), the percentages padded (TipPercents)
 static NSString* HelpDiskLabel(const CpuReadings* readings)
@@ -3206,7 +3262,7 @@ static NSArray<NSView*>* HelpCoresExamples(const CpuReadings* readings, const do
       cores = [CoreKindReadingText(efficiency, efficiency ? read.efficiency : read.performance, locale) stringByAppendingString:[cores substringFromIndex:title.location]];
     }
     [examples addObject:MenuRowsHelpExample(readings, coreLoads, coreLoadCount, MenuRowsExampleWhole, TipPercents(cores),
-                                            efficiency ? CPU_RENDER_READING_EFFICIENCY : CPU_RENDER_READING_PERFORMANCE,
+                                            efficiency ? CpuRenderReadingEfficiency(readings->gpuShown) : CpuRenderReadingPerformance(readings->gpuShown),
                                             efficiency ? @"efficiency cores" : @"performance cores")];
   }
   return examples;
@@ -3229,7 +3285,7 @@ static NSArray<NSView*>* HelpCoresExamples(const CpuReadings* readings, const do
     if ((index == BAR_TIP_CORES_E) || (index == BAR_TIP_CORES_P))
     {
       NSRange title = [cores rangeOfString:@"\n"];
-      NSInteger reading = (index == BAR_TIP_CORES_E) ? CPU_RENDER_READING_EFFICIENCY : CPU_RENDER_READING_PERFORMANCE;
+      NSInteger reading = (index == BAR_TIP_CORES_E) ? CpuRenderReadingEfficiency(barTipGpu) : CpuRenderReadingPerformance(barTipGpu);
       if (title.location != NSNotFound)
       {
         cores = [[self barTipTextUnpaddedAt:reading] stringByAppendingString:[cores substringFromIndex:title.location]];
@@ -3237,9 +3293,10 @@ static NSArray<NSView*>* HelpCoresExamples(const CpuReadings* readings, const do
     }
     return cores;
   }
-  if (index >= CPU_RENDER_READINGS_COUNT)
+  const NSInteger readingsCount = CpuRenderReadingsCount(barTipGpu);
+  if (index >= readingsCount)
   {
-    NSInteger extra = index - CPU_RENDER_READINGS_COUNT;
+    NSInteger extra = index - readingsCount;
     if ((extra < 0) || (extra >= (NSInteger)extraBarOwner.size()) || (extra >= (NSInteger)extraBarItem.size()) || (extraBarOwner[extra] >= menuRows.count))
     {
       return @"";
@@ -3249,9 +3306,17 @@ static NSArray<NSView*>* HelpCoresExamples(const CpuReadings* readings, const do
     NSString* label = (extraBarItem[extra] < labels.count) ? labels[extraBarItem[extra]] : nil;
     return [label isKindOfClass:[NSString class]] ? label : @"";
   }
-  if ((index == CPU_RENDER_READING_EFFICIENCY) || (index == CPU_RENDER_READING_PERFORMANCE))
+  if (barTipGpu && (index == CPU_RENDER_READING_GPU))
   {
-    bool efficiency = (index == CPU_RENDER_READING_EFFICIENCY);
+    return GpuTipText(readingsGpu);
+  }
+  if (barTipGpu && (index == CPU_RENDER_READING_NEURAL_ENGINE))
+  {
+    return NeuralEngineTipText(readingsNeuralEngine);
+  }
+  if ((index == CpuRenderReadingEfficiency(barTipGpu)) || (index == CpuRenderReadingPerformance(barTipGpu)))
+  {
+    bool efficiency = (index == CpuRenderReadingEfficiency(barTipGpu));
     return CoreKindReadingText(efficiency, efficiency ? readingsCpuEfficiency : readingsCpuPerformance, [NSLocale currentLocale]);
   }
   NSArray<NSArray<NSString*>*>* rows = [self readingRowsPadded:true];
@@ -3278,7 +3343,7 @@ static NSArray<NSView*>* HelpCoresExamples(const CpuReadings* readings, const do
     barTipWatch = [NSTimer timerWithTimeInterval:BAR_TIP_WATCH target:self selector:@selector(watchBarTip:) userInfo:nil repeats:YES];
     [[NSRunLoop currentRunLoop] addTimer:barTipWatch forMode:NSRunLoopCommonModes];
   }
-  if ((index != barTipIndex) && (index >= CPU_RENDER_READINGS_COUNT) && (barTipIndex >= CPU_RENDER_READINGS_COUNT) && barTip.isVisible && [self barTipSameGroup:barTipIndex and:index])
+  if ((index != barTipIndex) && (index >= CpuRenderReadingsCount(barTipGpu)) && (barTipIndex >= CpuRenderReadingsCount(barTipGpu)) && barTip.isVisible && [self barTipSameGroup:barTipIndex and:index])
   {
     [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(showBarTip) object:nil];
     barTipIndex = index;
@@ -3341,7 +3406,7 @@ static NSArray<NSView*>* HelpCoresExamples(const CpuReadings* readings, const do
   }
   // a label with line breaks is laid out by whoever wrote it, so its lines are not wrapped; nor is a reading's, one
   // line as its panel row
-  bool unwrapped = (barTipIndex < CPU_RENDER_READINGS_COUNT) || ([text rangeOfString:@"\n"].location != NSNotFound);
+  bool unwrapped = (barTipIndex < CpuRenderReadingsCount(barTipGpu)) || ([text rangeOfString:@"\n"].location != NSNotFound);
   SetTipText(barTip, barTipText, text, unwrapped ? CGFLOAT_MAX : ROW_TIP_MAX_WIDTH);
   barTipShown = text;
   NSRect slot = [self barTipSlotFor:barTipIndex];
@@ -3561,6 +3626,30 @@ static NSArray<NSView*>* HelpCoresExamples(const CpuReadings* readings, const do
         swapLogged = true;
         NSLog(@"swap could not be read: the memory row leaves it out");
       }
+      // the GPU's busy share and whether the Neural Engine is powered, only while their bar and dot are shown; with
+      // either switch off nothing is read, and the old values are dropped
+      if (GpuShown())
+      {
+        readingsGpu = SystemInfoGpuBusy();
+        readingsNeuralEngine = SystemInfoNeuralEngine();
+        static bool gpuLogged = false;
+        static bool neuralEngineLogged = false;
+        if ((readingsGpu < 0.0) && !gpuLogged)
+        {
+          gpuLogged = true;
+          NSLog(@"GPU busy share could not be read: the GPU bar and row leave it out");
+        }
+        if ((readingsNeuralEngine < 0) && !neuralEngineLogged)
+        {
+          neuralEngineLogged = true;
+          NSLog(@"Neural Engine power could not be read: its dot and row leave it out");
+        }
+      }
+      else
+      {
+        readingsGpu = -1.0;
+        readingsNeuralEngine = -1;
+      }
       lastReadings = [[NSProcessInfo processInfo] systemUptime];
     }
   }
@@ -3576,8 +3665,11 @@ static NSArray<NSView*>* HelpCoresExamples(const CpuReadings* readings, const do
   readings.extra = extraBars.data();
   readings.extraOnly = !showBars;
   readings.efficiencyBars = coreSplit;
+  readings.gpuShown = GpuShown();
   if (showBars)
   {
+    readings.gpu = readingsGpu;
+    readings.neuralEngine = readingsNeuralEngine;
     readings.cpu = readingsCpu;
     readings.efficiency = readingsCpuEfficiency;
     readings.performance = readingsCpuPerformance;
@@ -3723,6 +3815,7 @@ static double TopInterval(void)
   
   [[NSUserDefaults standardUserDefaults] registerDefaults:@{RefreshKey:@0.2}];
   [[NSUserDefaults standardUserDefaults] registerDefaults:@{ShowBarsKey:@YES}];
+  [[NSUserDefaults standardUserDefaults] registerDefaults:@{ShowGpuNeuralEngineKey:@YES}];
   [[NSUserDefaults standardUserDefaults] registerDefaults:@{TopRowsKey:@5}];
 
   // Settings no longer offers granularity, style, line, width, appearance or theme: each takes its old default,
@@ -3735,6 +3828,7 @@ static double TopInterval(void)
   colored = true;
   theme = THEME_BLUE;
   showBars = [[NSUserDefaults standardUserDefaults] boolForKey:ShowBarsKey];
+  showGpuNeuralEngine = [[NSUserDefaults standardUserDefaults] boolForKey:ShowGpuNeuralEngineKey];
   topShown = TopRows();
 
   [self updateRendererParameters];
@@ -4438,6 +4532,14 @@ static NSTimeInterval TopDelay(void)
   [self updateUI];
 }
 
+- (IBAction)showGpuButtonClicked:(id)sender
+{
+  showGpuNeuralEngine = (showGpuSwitch.state == NSControlStateValueOn);
+  [[NSUserDefaults standardUserDefaults] setBool:showGpuNeuralEngine forKey:ShowGpuNeuralEngineKey];
+  [self updateRendererParameters];
+  [self updateUI];
+}
+
 // Refresh: 10, 5 or 2 times a second, by the segment chosen
 - (IBAction)refreshChoiceChanged:(id)sender
 {
@@ -4924,8 +5026,9 @@ static void SetTipText(NSPanel* panel, NSTextField* label, NSString* text, CGFlo
   [self applyInfoValues];
 }
 
-// the three readings as shown, each its title and value: disk, memory, CPU; CPU and memory are their last reading
-// (updateCPU:), the disk row the last reading of readDisk
+// the readings as shown, each its title and value: disk, memory, CPU, and GPU and Neural Engine while the GPU's bar is
+// shown (GpuShown); CPU, memory, GPU and Neural Engine are their last reading (updateCPU:), the disk row the last
+// reading of readDisk
 - (NSArray<NSArray<NSString*>*>*)readingRows
 {
   return [self readingRowsPadded:false];
@@ -4963,7 +5066,15 @@ static void SetTipText(NSPanel* panel, NSTextField* label, NSString* text, CGFlo
   }
 
   NSString* disk = (padded ? diskTipText : diskText) ?: @"—";
-  return @[@[diskTitle ?: @"Disk usage:", disk], @[memoryTitle, memoryUsed], @[@"CPU:", cpu]];
+  NSMutableArray<NSArray<NSString*>*>* rows = [NSMutableArray arrayWithObjects:@[diskTitle ?: @"Disk usage:", disk], @[memoryTitle, memoryUsed], @[@"CPU:", cpu], nil];
+  if (GpuShown())
+  {
+    NSString* gpu = (readingsGpu < 0.0) ? @"—" : [[NSString alloc] initWithFormat:@"%ld%%" locale:locale, lround(fmin(readingsGpu, 1.0) * 100.0)];
+    NSString* neuralEngine = (readingsNeuralEngine < 0) ? @"—" : ((readingsNeuralEngine > 0) ? @"on" : @"off");
+    [rows addObject:@[@"GPU:", gpu]];
+    [rows addObject:@[@"Neural Engine:", neuralEngine]];
+  }
+  return rows;
 }
 
 // the panel's rows as shown: uptime, read now, then the readings as a section, then each MenuRows' panel rows as a
