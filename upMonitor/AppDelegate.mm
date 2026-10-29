@@ -4057,10 +4057,13 @@ static NSTimeInterval TopDelay(void)
     return;
   }
 
-  // a frozen row whose process has exited, or whose pid now belongs to another process (its start time
-  // differs from the one read at the freeze): show what the row recorded and run no tool on the pid
+  // a row whose process has exited, or whose pid now belongs to another process (its start time differs from the
+  // last sample's, or, while frozen, from the one read at the freeze): show what the row recorded and run no tool
+  // on the pid
+  uint64_t start = ProcessStartTime(pid);
   uint64_t frozenStart = [frozenStarts[[NSNumber numberWithInt:pid]] unsignedLongLongValue];
-  bool exited = frozen && ((frozenStart == 0) || (ProcessStartTime(pid) != frozenStart));
+  bool exited = (start == 0) || ((sample->start_us != 0) && (start != sample->start_us)) ||
+                (frozen && (start != frozenStart));
 
   inspectGeneration++;
   [self stopInspectorTools];

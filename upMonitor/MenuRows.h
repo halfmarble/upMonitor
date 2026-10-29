@@ -56,8 +56,9 @@ NS_ASSUME_NONNULL_BEGIN
 // the tallest; the last view, and the text above, end 20 pt short of the header's right edge, the margin the icon keeps
 // at its left. A view taller than about 35 pt reaches the tabs below
 - (NSArray<NSView*>*)inspectorViews;
-// each time the inspector shows a process, before its views are laid out: its pid and name, exited when it is a frozen
-// row whose process has exited or whose pid now belongs to another process. A view may change its width here
+// each time the inspector shows a process, before its views are laid out: its pid and name, exited when its process has
+// exited or its pid now belongs to another process, since the last sample or, for a frozen row, since the freeze. A view
+// may change its width here
 - (void)inspectorShowsPid:(pid_t)pid name:(NSString*)name exited:(BOOL)exited;
 // bars for the menu bar, drawn right of the core graph in the CPU bar's style, each 0..1 (below 0: not read, only its
 // background in bar style, nothing in Dot style); read at each tick of the graph, menu open or not, the app's own bars
