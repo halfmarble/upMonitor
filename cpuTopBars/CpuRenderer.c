@@ -714,10 +714,10 @@ static CTFontRef _battery_font(void)
 }
 
 // the battery's number over its bar at x, width wide: the charge in whole percent, 0 to 99, its digits upright and stacked
-// from the top, 5 pt tall, a device pixel apart (0.5 pt on a Retina display, 1 pt at 1x), each centred across the bar on
-// whole points and the stack centred down the image on device pixels, so the digits' own edges are sharp (the fill's top
-// is not snapped, as no share bar's is, so where a digit crosses it one row blends). A full bar (100) has no
-// number: stacked, it would be 16 pt, taller than the dashed style's 14-pt bar. Where the digits cross the fill (the
+// from the top, 5 pt tall, 1 pt apart, each centred across the bar on whole points and the stack 1 pt above the image's
+// centre, on device pixels, so the digits' own edges are sharp (the fill's top is not snapped, as no share bar's is, so where a
+// digit crosses it one row blends). A full bar (100) has no number: stacked, it would be 17 pt, taller than the dashed
+// style's 14-pt bar. Where the digits cross the fill (the
 // charge's share of the bar's height from bottom) they are cut out of it, so the menu bar shows through; elsewhere they
 // are in the menu bar's text colour at 0.9 opacity. Nothing without the font
 static void _render_battery_number(CGContextRef ctx, CGFloat x, CGFloat width, double charge, CGFloat bottom, bool light)
@@ -741,8 +741,8 @@ static void _render_battery_number(CGContextRef ctx, CGFloat x, CGFloat width, d
   }
   const CGFloat scale = _device_scale(ctx);
   const CGFloat digit = 5.0;
-  const CGFloat step = ceil((digit + 0.5)*scale)/scale; // a digit and the gap after it
-  const CGFloat lowest = _snap((16.0 - ((count*digit) + ((count-1)*(step - digit))))/2.0, scale); // the last digit's bottom
+  const CGFloat step = digit + 1.0; // a digit and the gap after it
+  const CGFloat lowest = _snap((16.0 - ((count*digit) + ((count-1)*(step - digit))))/2.0, scale) + 1.0; // the last digit's bottom
   CGMutablePathRef digits = CGPathCreateMutable();
   for (int i=0; i<count; i++)
   {
@@ -861,7 +861,7 @@ CGFloat CpuRenderImageHeight(bool bar, bool stripped, const CpuReadings* reading
 }
 
 // the block's letters (CpuReadings letters) in the band at the image's bottom, one under each of the block's wide bars, by
-// its kind (CPU_RENDER_KIND_*, in the order of BWDRAGCEP): CPU_RENDER_BATTERY_FONT's capital, 5 pt tall from the image's
+// its kind (CPU_RENDER_KIND_*, in the order of BWDRNGCEP): CPU_RENDER_BATTERY_FONT's capital, 5 pt tall from the image's
 // bottom, centred across the bar on device pixels (on a Retina display exactly, so W, 5 pt wide, passes a 4-pt bar by
 // 0.5 pt on each side; at 1x half a point to the left), in the menu bar's text colour at 0.9 opacity. Nothing without the
 // font
@@ -872,7 +872,7 @@ static void _render_letters(CGContextRef ctx, bool light, CGFloat tickWidth, CGF
   {
     return;
   }
-  static const char letters[] = "BWDRAGCEP";
+  static const char letters[] = "BWDRNGCEP";
   const CGFloat scale = _device_scale(ctx);
   const CGFloat width = 2.0*tickWidth;
   CGMutablePathRef paths = CGPathCreateMutable();

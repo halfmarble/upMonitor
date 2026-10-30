@@ -99,6 +99,7 @@ static NSString* ThemeKey = @"ThemeKey";
 static NSString* ShowBarsKey = @"ShowBarsKey";
 static NSString* ShowGpuNeuralEngineKey = @"ShowGpuNeuralEngine";
 static NSString* ShowBatteryWifiKey = @"ShowBatteryWifi";
+static NSString* ShowBarLettersKey = @"ShowBarLetters";
 static NSString* TopRowsKey = @"TopRowsKey";
 
 #pragma mark - C APIs
@@ -1840,7 +1841,7 @@ static NSWindow* MakeHelpWindow(void)
       hoverExamples,
     ],
     @[
-      @"In Settings, \"Show Disk, RAM, CPU, E-core, P-core bars\" turns the wide bars off and leaves the core bars, \"Show battery and Wi-Fi bars\" turns those two off, \"Show GPU and Neural Engine bars\" those two, and \"Refresh\" sets how often the bars move.",
+      @"In Settings, \"Show Disk, RAM, CPU, E-core, P-core bars\" turns the wide bars off and leaves the core bars, \"Show battery and Wi-Fi bars\" turns those two off, \"Show GPU and Neural Engine bars\" those two, \"Show letters under the bars\" the letter under each wide bar (B battery, W Wi-Fi, D disk, R memory, N Neural Engine, G GPU, C CPU, E and P the efficiency and performance cores), and \"Refresh\" sets how often the bars move.",
       @[
         MenuRowsHelpExample(&engineOff, loads, loadCount, MenuRowsExampleWhole, nil, -1, @"bars on"),
         MenuRowsHelpExample(&barsOff, loads, loadCount, MenuRowsExampleWhole, nil, -1, @"bars off"),
@@ -1991,8 +1992,8 @@ static NSTimeInterval lastBatteryWifi = 0.0; // when they were last read, system
 static bool readingsBattery = false;        // this Mac's internal battery was read, as readingsBatteryState
 static SystemInfoBattery readingsBatteryState = {};
 static SystemInfoWifi readingsWifi = {};    // Wi-Fi as last read (WifiRead); present false: no Wi-Fi interface, or not read
-// while the menu is open and Wi-Fi connected: the interface's IPv4 and MAC addresses and its router, read in full reads
-// only; empty: not read. Shown in the panel, never logged
+// while Wi-Fi's hover label is up and Wi-Fi connected: the interface's IPv4 and MAC addresses and its router, read in full
+// reads only (readWifi:); empty: not read. Shown in that label, never logged
 static char readingsWifiIp[64] = "";
 static char readingsWifiMac[64] = "";
 static char readingsWifiRouter[64] = "";
@@ -2020,6 +2021,7 @@ static int theme = THEME_YELLOW;
 static bool showBars = true;         // the disk, memory, CPU, E-cores' and P-cores' bars left of the graph
 static bool showGpuNeuralEngine = true; // with them, the GPU's bar and the Neural Engine's
 static bool showBatteryWifi = true;  // with them, the battery's bar and Wi-Fi's
+static bool showBarLetters = true;   // with them, the block's letters under its bars, in the menu bar only
 // whether the GPU's bar and the Neural Engine's are drawn, read and listed: only with the bars they belong to
 static bool GpuShown(void)
 {
@@ -2057,6 +2059,7 @@ static NSSegmentedControl* topRowsChoice = nil;  // Top processes: its segments'
 static NSSwitch* showBarsSwitch = nil;           // Show Disk, RAM, CPU, E-core, P-core bars
 static NSSwitch* showGpuSwitch = nil;            // Show GPU and Neural Engine bars
 static NSSwitch* showBatteryWifiSwitch = nil;    // Show battery and Wi-Fi bars
+static NSSwitch* showBarLettersSwitch = nil;     // Show letters under the bars
 static NSSwitch* loginSwitch = nil;              // Launch at login
 static const int topRowsChoices[] = {3, 5, 10, TOP_COUNT};
 #define TOP_ROWS_CHOICES (sizeof(topRowsChoices)/sizeof(topRowsChoices[0]))
@@ -2247,6 +2250,8 @@ static NSMutableSet<NSTask*>* runningTasks = nil;
   showGpuSwitch.enabled = showBars;
   showBatteryWifiSwitch.state = showBatteryWifi ? NSControlStateValueOn : NSControlStateValueOff;
   showBatteryWifiSwitch.enabled = showBars;
+  showBarLettersSwitch.state = showBarLetters ? NSControlStateValueOn : NSControlStateValueOff;
+  showBarLettersSwitch.enabled = showBars;
   topRowsChoice.selectedSegment = TopRowsChoiceIndex();
     
   if (granularity == 0)
@@ -2716,11 +2721,14 @@ static NSString* OthersRowText(int count)
   showGpuSwitch.enabled = showBars;
   showBatteryWifiSwitch = MenuRowsSettingsSwitch(showBatteryWifi, @selector(showBatteryWifiButtonClicked:), self);
   showBatteryWifiSwitch.enabled = showBars;
+  showBarLettersSwitch = MenuRowsSettingsSwitch(showBarLetters, @selector(showBarLettersButtonClicked:), self);
+  showBarLettersSwitch.enabled = showBars;
   place(SettingsGroup(@[@[@"Refresh", refreshChoice],
                         @[@"Top processes", topRowsChoice],
                         @[@"Show Disk, RAM, CPU, E-core, P-core bars", showBarsSwitch],
                         @[@"Show battery and Wi-Fi bars", showBatteryWifiSwitch],
-                        @[@"Show GPU and Neural Engine bars", showGpuSwitch]]), 0.0, SETTINGS_SECTION_GAP);
+                        @[@"Show GPU and Neural Engine bars", showGpuSwitch],
+                        @[@"Show letters under the bars", showBarLettersSwitch]]), 0.0, SETTINGS_SECTION_GAP);
 
   // each class's group, with at least one valid row
   for (id<MenuRows> rows in menuRows)
@@ -3010,13 +3018,13 @@ NSView* MenuRowsHelpExample(const CpuReadings* readings, const double* coreLoads
 - (void)renderMenubarWithLight:(BOOL)light readings:(const CpuReadings*)readings
 {
   CpuSamplerUpdate(&cpu_info);
-  // the menu bar's image has the block's letters under its bars, and is then taller (CpuRenderImageHeight); the Settings
-  // previews and the help's examples draw without them
+  // the menu bar's image has the block's letters under its bars while Settings' "Show letters under the bars" is on, and is
+  // then taller (CpuRenderImageHeight); the Settings previews and the help's examples draw without them
   CpuReadings lettered = {};
   if (readings != NULL)
   {
     lettered = *readings;
-    lettered.letters = true;
+    lettered.letters = showBarLetters;
   }
   const CpuReadings* drawn = (readings != NULL) ? &lettered : NULL;
   const CGFloat imageHeight = CpuRenderImageHeight(bar, stripped, drawn);
@@ -3469,10 +3477,12 @@ static NSString* WifiChannelText(const SystemInfoWifi* wifi)
   return @(text);
 }
 
-// Wi-Fi's hover label: connected, its signal and then a line each for the noise, the transmit rate and the channel,
-// "Wi-Fi: -50 dBm\nNoise: -94 dBm\nTx Rate: 720 Mbps\nChannel: 48 (5 GHz, 80 MHz)"; else "Wi-Fi: off" or "Wi-Fi: not
-// connected"
-static NSString* WifiTipText(const SystemInfoWifi* wifi)
+// Wi-Fi's hover label: connected, "Wi-Fi: -50 dBm" and then a line each for the details the macOS Wi-Fi menu lists with
+// Option held, in its order, but those that need Location Services (the network's name, its BSSID, the country code), the
+// MCS index and NSS, which CoreWLAN does not give, and the RSSI, which is the first line: "IP Address:", "Router:", "MAC
+// Address:", "Security:", "Channel:", "Noise:", "Tx Rate:" and "PHY Mode:"; a detail that was not read (ip, router and mac
+// empty), or that has no name, has no line. Else "Wi-Fi: off" or "Wi-Fi: not connected"
+static NSString* WifiTipText(const SystemInfoWifi* wifi, const char* ip, const char* router, const char* mac)
 {
   if (!wifi->present)
   {
@@ -3486,47 +3496,42 @@ static NSString* WifiTipText(const SystemInfoWifi* wifi)
   {
     return @"Wi-Fi: not connected";
   }
-  return [NSString stringWithFormat:@"Wi-Fi: %d dBm\nNoise: %d dBm\nTx Rate: %.0f Mbps\nChannel: %@", wifi->rssi, wifi->noise, wifi->txRate, WifiChannelText(wifi)];
-}
-
-// Wi-Fi's panel rows: "Wi-Fi:" and its state, then while connected the details the macOS Wi-Fi menu lists with Option
-// held, but those that need Location Services (the network's name, its BSSID, the country code) and the MCS index and
-// NSS, which CoreWLAN does not give; a detail that was not read, or that has no name, has no row. The addresses are
-// those of the last full read (readBatteryWifi:)
-static NSArray<NSArray<NSString*>*>* WifiRows(const SystemInfoWifi* wifi)
-{
-  NSMutableArray<NSArray<NSString*>*>* rows = [NSMutableArray arrayWithObject:@[@"Wi-Fi:", WifiStateText(wifi)]];
-  if (!wifi->connected)
+  NSMutableString* text = [NSMutableString stringWithFormat:@"Wi-Fi: %d dBm", wifi->rssi];
+  if (ip[0] != 0)
   {
-    return rows;
+    [text appendFormat:@"\nIP Address: %s", ip];
   }
-  if (readingsWifiIp[0] != 0)
+  if (router[0] != 0)
   {
-    [rows addObject:@[@"IP Address:", @(readingsWifiIp)]];
+    [text appendFormat:@"\nRouter: %s", router];
   }
-  if (readingsWifiRouter[0] != 0)
+  if (mac[0] != 0)
   {
-    [rows addObject:@[@"Router:", @(readingsWifiRouter)]];
-  }
-  if (readingsWifiMac[0] != 0)
-  {
-    [rows addObject:@[@"MAC Address:", @(readingsWifiMac)]];
+    [text appendFormat:@"\nMAC Address: %s", mac];
   }
   const char* security = SystemInfoWifiSecurityName(wifi->security);
   if (security != NULL)
   {
-    [rows addObject:@[@"Security:", @(security)]];
+    [text appendFormat:@"\nSecurity: %s", security];
   }
-  [rows addObject:@[@"Channel:", WifiChannelText(wifi)]];
-  [rows addObject:@[@"RSSI:", [NSString stringWithFormat:@"%d dBm", wifi->rssi]]];
-  [rows addObject:@[@"Noise:", [NSString stringWithFormat:@"%d dBm", wifi->noise]]];
-  [rows addObject:@[@"Tx Rate:", [NSString stringWithFormat:@"%.0f Mbps", wifi->txRate]]];
+  [text appendFormat:@"\nChannel: %@\nNoise: %d dBm\nTx Rate: %.0f Mbps", WifiChannelText(wifi), wifi->noise, wifi->txRate];
   const char* phy = SystemInfoWifiPhyName(wifi->phy);
   if (phy != NULL)
   {
-    [rows addObject:@[@"PHY Mode:", @(phy)]];
+    [text appendFormat:@"\nPHY Mode: %s", phy];
   }
-  return rows;
+  return text;
+}
+
+// Wi-Fi's panel row: "Wi-Fi:" and the signal while connected ("-55 dBm"), else its state; the details are in its hover
+// label (WifiTipText)
+static NSArray<NSArray<NSString*>*>* WifiRows(const SystemInfoWifi* wifi)
+{
+  if (wifi->connected)
+  {
+    return @[@[@"Wi-Fi:", [NSString stringWithFormat:@"%d dBm", wifi->rssi]]];
+  }
+  return @[@[@"Wi-Fi:", WifiStateText(wifi)]];
 }
 
 // the GPU hover label of the help window's example, as the real one reads, the percentage padded (TipPercents)
@@ -3536,7 +3541,7 @@ static NSString* HelpGpuLabel(const CpuReadings* readings)
 }
 
 // the help window's Wi-Fi example, a connection as this app reads one: -50 dBm, WPA2 Personal, 802.11ax, channel 48
-// (5 GHz, 80 MHz)
+// (5 GHz, 80 MHz); its addresses are HelpWifiLabel's
 static SystemInfoWifi HelpWifiSample(void)
 {
   SystemInfoWifi wifi = {};
@@ -3567,7 +3572,7 @@ static NSString* HelpBatteryLabel(const CpuReadings* readings)
 static NSString* HelpWifiLabel(void)
 {
   SystemInfoWifi wifi = HelpWifiSample();
-  return WifiTipText(&wifi);
+  return WifiTipText(&wifi, "192.168.1.23", "192.168.1.1", "a6:3c:12:9e:5b:70");
 }
 
 // the disk hover label of the help window's example, as the real one reads: 1 TB, readings->disk of it used, its
@@ -3692,7 +3697,7 @@ static NSArray<NSView*>* HelpCoresExamples(const CpuReadings* readings, const do
     case CPU_RENDER_KIND_BATTERY:
       return BatteryTipText(readingsBattery, &readingsBatteryState);
     case CPU_RENDER_KIND_WIFI:
-      return WifiTipText(&readingsWifi);
+      return WifiTipText(&readingsWifi, readingsWifiIp, readingsWifiRouter, readingsWifiMac);
     case CPU_RENDER_KIND_NEURAL_ENGINE:
       return NeuralEngineTipText(readingsNeuralEngine, readingsNeuralEngineBusy);
     case CPU_RENDER_KIND_GPU:
@@ -3777,14 +3782,25 @@ static NSArray<NSView*>* HelpCoresExamples(const CpuReadings* readings, const do
   [self hideBarTip];
 }
 
+// the reading armed or shown is Wi-Fi's
+static bool BarTipIsWifi(void)
+{
+  return (barTipIndex >= 0) && (barTipIndex < CpuRenderReadingsCount(barTipMask)) && (CpuRenderReadingKind(barTipMask, (int)barTipIndex) == CPU_RENDER_KIND_WIFI);
+}
+
 // the label below the menu bar, centred under its reading, kept on screen; not when the pointer has left that reading
-// since it was armed (the watch hides and re-arms at its next look)
+// since it was armed (the watch hides and re-arms at its next look). Wi-Fi's, as it comes up, first reads Wi-Fi in full,
+// for the details only it shows (readWifi:)
 - (void)showBarTip
 {
   NSStatusBarButton* button = self.statusItem.button;
   if (menuIsOpen || (barTipIndex < 0) || (button.window == nil) || ([self barTipIndexNow] != barTipIndex))
   {
     return;
+  }
+  if (BarTipIsWifi() && !barTip.isVisible && BatteryWifiShown())
+  {
+    [self readWifi:true];
   }
   NSString* text = [self barTipTextAt:barTipIndex];
   if (text.length == 0)
@@ -3989,7 +4005,7 @@ static NSArray<NSView*>* HelpCoresExamples(const CpuReadings* readings, const do
 
 // Wi-Fi from CoreWLAN into *wifi: whether this Mac has a Wi-Fi interface, its power, whether it is connected (on, with a
 // channel and a signal below 0 dBm), and then its signal, noise, transmit rate and channel; with full also its security
-// and PHY mode, which the panel alone shows. rssiValue and security cost 2 to 3.3 ms a call, the others under 0.3 ms
+// and PHY mode, which its hover label alone shows. rssiValue and security cost 2 to 3.3 ms a call, the others under 0.3 ms
 // (measured on an M3 MacBook Pro, in and out of the sandbox), so a read that is not full leaves security out. Never the
 // network's name, its BSSID or the country code, which need Location Services: this app asks for no permission. The
 // interface is asked for again while there is none
@@ -4026,15 +4042,31 @@ static void WifiRead(SystemInfoWifi* wifi, bool full)
   wifi->channel = channel.channelNumber;
   wifi->band = channel.channelBand;
   wifi->width = channel.channelWidth;
-  // a read that is not full keeps the last full read's security and PHY mode, which only the panel shows (it reads in
-  // full while the menu is open)
+  // a read that is not full keeps the last full read's security and PHY mode, which only the hover label shows (it reads
+  // in full as it comes up and while it is up)
   wifi->security = full ? (long)interface.security : security;
   wifi->phy = full ? (long)interface.activePHYMode : phy;
 }
 
+// Wi-Fi into readingsWifi (WifiRead); in full also, while connected, the interface's addresses and router, which a read
+// that is not full keeps
+- (void)readWifi:(bool)full
+{
+  WifiRead(&readingsWifi, full);
+  if (full)
+  {
+    readingsWifiIp[0] = readingsWifiMac[0] = readingsWifiRouter[0] = 0;
+    if (readingsWifi.connected)
+    {
+      SystemInfoInterfaceAddresses(readingsWifi.ifname, readingsWifiIp, sizeof(readingsWifiIp), readingsWifiMac, sizeof(readingsWifiMac));
+      SystemInfoDefaultRouter(readingsWifi.ifname, readingsWifiRouter, sizeof(readingsWifiRouter));
+    }
+  }
+}
+
 // the battery and Wi-Fi, for their bars, hover labels and panel rows: every BATTERY_WIFI_REFRESH s (half a tick early,
-// as the other readings), or now; Wi-Fi in full, with the interface's addresses and router, while the menu is open. While
-// their bars are not shown nothing is read and the old values are dropped, so a Mac's slots follow what the last read found
+// as the other readings), or now; Wi-Fi in full while its hover label is up (readWifi:). While their bars are not shown
+// nothing is read and the old values are dropped, so a Mac's slots follow what the last read found
 - (void)readBatteryWifi:(bool)now
 {
   if (!BatteryWifiShown())
@@ -4052,16 +4084,7 @@ static void WifiRead(SystemInfoWifi* wifi, bool full)
   }
   lastBatteryWifi = uptime;
   readingsBattery = SystemInfoBatteryRead(&readingsBatteryState);
-  WifiRead(&readingsWifi, menuIsOpen);
-  if (menuIsOpen)
-  {
-    readingsWifiIp[0] = readingsWifiMac[0] = readingsWifiRouter[0] = 0;
-    if (readingsWifi.connected)
-    {
-      SystemInfoInterfaceAddresses(readingsWifi.ifname, readingsWifiIp, sizeof(readingsWifiIp), readingsWifiMac, sizeof(readingsWifiMac));
-      SystemInfoDefaultRouter(readingsWifi.ifname, readingsWifiRouter, sizeof(readingsWifiRouter));
-    }
-  }
+  [self readWifi:(barTip.isVisible && BarTipIsWifi())];
   static bool batteryLogged = false;
   if (!readingsBattery && !batteryLogged)
   {
@@ -4503,6 +4526,7 @@ static double TopInterval(void)
   [[NSUserDefaults standardUserDefaults] registerDefaults:@{ShowBarsKey:@YES}];
   [[NSUserDefaults standardUserDefaults] registerDefaults:@{ShowGpuNeuralEngineKey:@YES}];
   [[NSUserDefaults standardUserDefaults] registerDefaults:@{ShowBatteryWifiKey:@YES}];
+  [[NSUserDefaults standardUserDefaults] registerDefaults:@{ShowBarLettersKey:@YES}];
   [[NSUserDefaults standardUserDefaults] registerDefaults:@{TopRowsKey:@5}];
 
   // Settings no longer offers granularity, style, line, width, appearance or theme: each takes its old default,
@@ -4517,6 +4541,7 @@ static double TopInterval(void)
   showBars = [[NSUserDefaults standardUserDefaults] boolForKey:ShowBarsKey];
   showGpuNeuralEngine = [[NSUserDefaults standardUserDefaults] boolForKey:ShowGpuNeuralEngineKey];
   showBatteryWifi = [[NSUserDefaults standardUserDefaults] boolForKey:ShowBatteryWifiKey];
+  showBarLetters = [[NSUserDefaults standardUserDefaults] boolForKey:ShowBarLettersKey];
   topShown = TopRows();
 
   [self updateRendererParameters];
@@ -5419,6 +5444,14 @@ static NSTimeInterval TopDelay(void)
   [self updateUI];
 }
 
+- (IBAction)showBarLettersButtonClicked:(id)sender
+{
+  showBarLetters = (showBarLettersSwitch.state == NSControlStateValueOn);
+  [[NSUserDefaults standardUserDefaults] setBool:showBarLetters forKey:ShowBarLettersKey];
+  [self updateRendererParameters];
+  [self updateUI];
+}
+
 // Refresh: 10, 5 or 2 times a second, by the segment chosen
 - (IBAction)refreshChoiceChanged:(id)sender
 {
@@ -5645,7 +5678,7 @@ static NSTimeInterval TopDelay(void)
   infoWidth = 0.0;
   [self performSelector:@selector(showInfoPanel) withObject:nil afterDelay:0 inModes:@[NSRunLoopCommonModes]];
   [self readDisk];
-  // Wi-Fi in full, with its addresses, for the panel's first values
+  // the battery and Wi-Fi, for the panel's first values
   [self readBatteryWifi:true];
   [infoTimer invalidate];
   infoTimer = [NSTimer timerWithTimeInterval:INFO_REFRESH target:self selector:@selector(updateInfoPanel:) userInfo:nil repeats:YES];
@@ -5997,12 +6030,11 @@ static void SetTipText(NSPanel* panel, NSTextField* label, NSString* text, CGFlo
   [self applyInfoValues];
 }
 
-// the readings as shown, each its title and value, in the bars' order: disk, memory, and the Neural Engine and the GPU
-// while their bars are shown (GpuShown), then CPU; CPU, memory, GPU and Neural Engine are their last reading
-// (updateCPU:), the disk row the last reading of readDisk
-- (NSArray<NSArray<NSString*>*>*)readingRows
+// the readings after the menu bar's gap, as shown, each its title and value, in the bars' order: the Neural Engine and
+// the GPU while their bars are shown (GpuShown), then CPU; each its last reading (updateCPU:)
+- (NSArray<NSArray<NSString*>*>*)readingRowsAfterGap
 {
-  NSMutableArray<NSArray<NSString*>*>* rows = [NSMutableArray arrayWithObjects:[self diskRowPadded:false], [self memoryRowPadded:false], nil];
+  NSMutableArray<NSArray<NSString*>*>* rows = [NSMutableArray array];
   if (GpuShown())
   {
     [rows addObject:[self neuralEngineRow]];
@@ -6078,10 +6110,11 @@ static void SetTipText(NSPanel* panel, NSTextField* label, NSString* text, CGFlo
   return @[@"Neural Engine:", neuralEngine];
 }
 
-// the panel's rows as shown: uptime, read now, then the readings in the bars' order, the battery's row, Wi-Fi's rows and
-// the rest (readingRows), each of the three that is shown a section of its own, then each MenuRows' panel rows as a
-// section of their own; starts, when given, gets the first row of each section after uptime, and headings, when given,
-// gets the rows a build marks as headings
+// the panel's rows as shown: uptime, read now, then the readings in the bars' order in two sections, split where the
+// menu bar's gap is: the battery's row, Wi-Fi's, disk and memory (the disk row the last reading of readDisk, memory the
+// last of updateCPU:), then those after the gap (readingRowsAfterGap); then each MenuRows' panel rows as a section of
+// their own; starts, when given, gets the first row of each section after uptime, and headings, when given, gets the
+// rows a build marks as headings
 - (NSArray<NSArray<NSString*>*>*)infoRowsWithStarts:(NSMutableIndexSet*)starts headings:(NSMutableIndexSet*)headings
 {
   NSMutableArray<NSArray<NSString*>*>* rows = [NSMutableArray arrayWithObject:@[@"Uptime:", UptimeText(SystemInfoUptimeSeconds())]];
@@ -6094,17 +6127,12 @@ static void SetTipText(NSPanel* panel, NSTextField* label, NSString* text, CGFlo
   }
   if ((shown & CPU_RENDER_SHOWN_WIFI) != 0)
   {
-    if (rows.count > readingsFirst)
-    {
-      [starts addIndex:rows.count];
-    }
     [rows addObjectsFromArray:WifiRows(&readingsWifi)];
   }
-  if (rows.count > readingsFirst)
-  {
-    [starts addIndex:rows.count];
-  }
-  [rows addObjectsFromArray:[self readingRows]];
+  [rows addObject:[self diskRowPadded:false]];
+  [rows addObject:[self memoryRowPadded:false]];
+  [starts addIndex:rows.count];
+  [rows addObjectsFromArray:[self readingRowsAfterGap]];
   for (id<MenuRows> menuRow in menuRows)
   {
     NSArray<NSArray<NSString*>*>* section = [menuRow respondsToSelector:@selector(panelRows)] ? [menuRow panelRows] : nil;

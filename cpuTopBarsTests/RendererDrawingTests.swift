@@ -185,9 +185,9 @@ extension FreeTests {
 
     // the battery alone, in a 120-wide image: its bar at x = 0 to 8, a reading's width, drawn last from DASHED_BOTTOM 2 in
     // the dashed style and whole, without the dashes. Its digits, Micro 5 at 1 pt a pixel, 5 pt tall and 3 wide ("1" 2),
-    // are centred across it on whole points, x = 2 to 5 ("1" 3 to 5), and stacked from the top a device pixel apart: in these
-    // 1x bitmaps 1 pt, so two digits are 11 pt, from height 3 ("87": the 7 at 3 to 8, the 8 at 9 to 14). Columns 0, 1, 6
-    // and 7 never hold a digit
+    // are centred across it on whole points, x = 2 to 5 ("1" 3 to 5), and stacked from the top 1 pt apart, 1 pt above the
+    // centre: two digits are 11 pt, from height 4 ("87": the 7 at 4 to 9, the 8 at 10 to 15). Columns 0, 1, 6 and 7 never
+    // hold a digit
     private func batteryReadings(_ charge: Double, charging: Bool = false, onAC: Bool = false) -> CpuReadings {
       var r = readings(disk: -1)
       r.batteryShown = true
@@ -215,9 +215,10 @@ extension FreeTests {
 
     @Test func batteryNumberIsCutOutOfTheFill() {
       #expect(Self.batteryFont)
-      // 87% on the adapter: the fill to 2 + 0.87 * 14 = 14.18, so both digits stand in it and are cut out of it
+      // 87% on the adapter: the fill to 2 + 0.87 * 14 = 14.18, so the 7 and all but the 8's top row stand in it and are
+      // cut out of it
       let image = render(bar: true, stripped: true, width: 120, readings: batteryReadings(0.87, onAC: true))
-      let cut = (2..<5).flatMap { x in (3..<14).map { y in image.alpha(x: x, y: y) } }.filter { $0 == 0 }
+      let cut = (2..<5).flatMap { x in (4..<14).map { y in image.alpha(x: x, y: y) } }.filter { $0 == 0 }
       #expect(cut.count >= 12, "cut-out pixels: \(cut.count)")
       for x in [0, 1, 6, 7] {
         for y in 2..<14 { #expect(image.alpha(x: x, y: y) > 200, "column \(x), height \(y)") }
@@ -242,10 +243,10 @@ extension FreeTests {
     @Test(arguments: [false, true])
     func batteryNumberOverTheEmptyBarIsTheTextColour(light: Bool) {
       #expect(Self.batteryFont)
-      // 20% in the solid style: the fill to height 3.2, "20" stacked from 3, its "2" at heights 9 to 14, over the
+      // 20% in the solid style: the fill to height 3.2, "20" stacked from 4, its "2" at heights 10 to 15, over the
       // background alone
       let image = render(bar: true, stripped: false, width: 120, readings: batteryReadings(0.2), light: light)
-      let digit = (2..<5).flatMap { x in (9..<14).map { y in (x, y) } }.filter { image.alpha(x: $0.0, y: $0.1) > 200 }
+      let digit = (2..<5).flatMap { x in (10..<15).map { y in (x, y) } }.filter { image.alpha(x: $0.0, y: $0.1) > 200 }
       #expect(digit.count >= 5, "the 2's pixels: \(digit.count)")
       for (x, y) in digit { #expect((image.red(x: x, y: y) > 200) == !light, "column \(x), height \(y)") }
       for x in [0, 1, 6, 7] {
