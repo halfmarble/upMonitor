@@ -72,11 +72,31 @@ struct TopProcessInfo
 int TopInit(void);
 int TopSample(void);
 const TopProcessSample_t* TopIterate(void);
+// Starts the next TopIterate walk at the first process again.
+void TopIterateReset(void);
 const char* TopGetUsername(uid_t a_uid);
 TopProcessInfo_t* TopGetArgs(pid_t pid);
 TopProcessSample_t* TopGetSample(pid_t pid);
 // The number of other users' processes in the latest sample whose CPU is unknown (cpu_known 0).
 int TopUnreadableCount(void);
+
+// One process row of /usr/bin/top's output, as `-stats pid,cpu` or `-stats pid,uid,cpu,command` prints it.
+#define TOP_PARSED_NAME_SIZE (64)
+typedef struct TopParsedRow TopParsedRow_t;
+struct TopParsedRow
+{
+  pid_t  pid;
+  int    has_uid;     // 1 when the row carries a uid column
+  uid_t  uid;         // 0 when has_uid is 0
+  double cpu;         // % of one core
+  char   name[TOP_PARSED_NAME_SIZE]; // the command column as top prints it (it may hold spaces and is cut by top), "" when absent
+};
+// Parses one line of /usr/bin/top's output (no newline). Returns 1 and fills *out for a process row,
+// 0 for a header, a summary line, a blank line or anything else. Pure: no globals, no I/O.
+int TopParseTopLine(const char *line, TopParsedRow_t *out);
+
+// Whether the app may offer to end the process pid, owned by uid: pid above 1, not self, and uid equal to me.
+int KillAllowed(pid_t pid, uid_t uid, pid_t self, uid_t me);
 
 typedef enum { TopOrderCpu = 0, TopOrderMemory = 1 } TopOrder;
 // Sets the order TopIterate walks the sample in, and sorts the latest sample again if there is one.

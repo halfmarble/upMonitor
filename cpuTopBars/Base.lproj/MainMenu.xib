@@ -16,6 +16,7 @@
         <customObject id="Voe-Tx-rLC" customClass="AppDelegate">
             <connections>
                 <outlet property="flatDemoView" destination="XCP-O9-lhq" id="dVl-d1-hWZ"/>
+                <outlet property="killButton" destination="gcf-yf-ZBO" id="kBt-0K-iL1"/>
                 <outlet property="procAppIcon" destination="AdB-FV-8nM" id="Hd4-J2-EEn"/>
                 <outlet property="procAppName" destination="bz2-4D-pPb" id="8jm-4m-ao6"/>
                 <outlet property="procAppView" destination="RyE-qN-E6o" id="IF1-QT-KoG"/>

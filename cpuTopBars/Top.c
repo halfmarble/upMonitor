@@ -24,6 +24,7 @@
 #include <errno.h>
 #include <limits.h>
 #include <stdbool.h>
+#include <ctype.h>
 #include <string.h>
 #include <unistd.h>
 #include <libproc.h>
@@ -553,6 +554,11 @@ const TopProcessSample_t* TopIterate(void)
   return (_top_iterator != NULL) ? &_top_iterator->sample : NULL;
 }
 
+void TopIterateReset(void)
+{
+  _top_iterator = NULL;
+}
+
 const char* TopGetUsername(uid_t uid)
 {
   const void* k = (const void *)(uintptr_t)uid;
@@ -804,3 +810,80 @@ TopProcessInfo_t* TopGetArgs(pid_t pid)
 //  /* Clean up the uid->username translation cache. */
 //  CFRelease(top_uhash);
 //}
+
+// Reads the digits of one number (an optional fraction when allowed) and moves *s past it; false when none.
+static bool ParseTopNumber(const char **s, double *value, bool *has_fraction)
+{
+  const char *p = *s;
+  if (!isdigit((unsigned char)*p)) return false;
+  double v = 0.0;
+  while (isdigit((unsigned char)*p))
+  {
+    v = (v * 10.0) + (*p++ - '0');
+    if (v > 4294967295.0) return false;
+  }
+  bool fraction = false;
+  if (*p == '.')
+  {
+    p++;
+    if (!isdigit((unsigned char)*p)) return false;
+    fraction = true;
+    double scale = 0.1;
+    while (isdigit((unsigned char)*p))
+    {
+      v += (*p++ - '0') * scale;
+      scale /= 10.0;
+    }
+  }
+  if (*p != '\0' && !isspace((unsigned char)*p)) return false;
+  *s = p;
+  *value = v;
+  *has_fraction = fraction;
+  return true;
+}
+
+// A row is: spaces, pid, [uid,] cpu (digits with a fraction), then, when top was given the command column, the name.
+// With a uid column the second number has no fraction and a third number follows; without one the second is the CPU.
+int TopParseTopLine(const char *line, TopParsedRow_t *out)
+{
+  if ((line == NULL) || (out == NULL)) return 0;
+  const char *s = line;
+  while (isspace((unsigned char)*s)) s++;
+  double pid = 0.0, second = 0.0, third = 0.0;
+  bool fraction = false;
+  if (!ParseTopNumber(&s, &pid, &fraction) || fraction || (pid > 2147483647.0)) return 0;
+  if (!isspace((unsigned char)*s)) return 0;
+  while (isspace((unsigned char)*s)) s++;
+  if (!ParseTopNumber(&s, &second, &fraction)) return 0;
+  bool has_uid = false;
+  double cpu = second;
+  if (!fraction)
+  {
+    // the second number is a uid only when a CPU figure follows it
+    const char *t = s;
+    while (isspace((unsigned char)*t)) t++;
+    bool third_fraction = false;
+    if (!ParseTopNumber(&t, &third, &third_fraction)) return 0;
+    has_uid = true;
+    cpu = third;
+    s = t;
+  }
+  while (isspace((unsigned char)*s)) s++;
+  size_t length = strlen(s);
+  while ((length > 0) && isspace((unsigned char)s[length - 1])) length--;
+  if (length >= TOP_PARSED_NAME_SIZE) length = TOP_PARSED_NAME_SIZE - 1;
+  out->pid = (pid_t)pid;
+  out->has_uid = has_uid ? 1 : 0;
+  out->uid = has_uid ? (uid_t)second : 0;
+  out->cpu = cpu;
+  memcpy(out->name, s, length);
+  out->name[length] = '\0';
+  return 1;
+}
+
+// Whether the app may offer to end a process: not pid 0 (the kernel) or 1 (launchd), not itself, and only a process of
+// the user running it. Pure, so both variants and the tests reach it; only the unsandboxed app calls kill().
+int KillAllowed(pid_t pid, uid_t uid, pid_t self, uid_t me)
+{
+  return (pid > 1) && (pid != self) && (uid == me);
+}

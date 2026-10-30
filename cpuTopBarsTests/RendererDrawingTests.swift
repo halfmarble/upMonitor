@@ -123,6 +123,37 @@ extension FreeTests {
       #expect(image.column(50)[2] > 0)   // the E-cores' reading's background starts at x = 50
     }
 
+    @Test(arguments: [(0.0, 0), (0.37, 5), (1.0, 14)])
+    func neuralEngineBarByShare(share: Double, filled: Int) {
+      // the same layout as above, with neuralEngineByShare (_render_neural_engine, CpuRenderer.c:515): the background over
+      // the whole bar from DASHED_BOTTOM 2, then a white fill fmin(share, 1) * 14 pt high at 0.9 opacity over it.
+      // Share 0 is 0 rows; 1.0 is rows 2 to 15, all filled; 0.37 is 5.18 pt: rows 2 to 6 whole, row 7 0.18 covered, rows
+      // 8 to 15 the background alone. Measured (column 40, height 0 upward): background 77, filled 238, and the partly
+      // covered row 106: share 0 is [0, 0, 77 x 14]; 0.37 is [0, 0, 238 x 5, 106, 77 x 8]; 1.0 is [0, 0, 238 x 14]
+      var r = readings(disk: -1)
+      r.gpuShown = true
+      r.gpu = -1
+      r.neuralEngine = 0   // ignored by share
+      r.neuralEngineByShare = true
+      r.neuralEngineBusy = share
+      let image = render(bar: true, stripped: true, width: 100, readings: r)
+      for x in 40..<48 {
+        let column = image.column(x)
+        #expect(column[0] == 0 && column[1] == 0, "below DASHED_BOTTOM, column \(x)")
+        for y in 2..<16 {
+          let row = y - 2
+          if row < filled {
+            #expect(column[y] > 200, "filled, column \(x), height \(y): \(column[y])")
+          } else if y == 7 && filled == 5 {
+            #expect(column[y] > 76 && column[y] < 200, "the partly covered row, column \(x): \(column[y])")
+          } else {
+            #expect(column[y] > 0 && column[y] < 127, "background only, column \(x), height \(y): \(column[y])")
+          }
+        }
+      }
+      for x in [38, 39, 48, 49] { #expect(image.column(x).allSatisfy { $0 == 0 }, "gap column \(x)") }
+    }
+
     @Test func extraReadingMarkDrawsOneRow() {
       // one extra reading, value 0.5 and mark 0.5, in a 100-wide image: its x is 100 - _extra_width (4 + 10) + 4 = 90
       // (CpuRenderer.c:317), its bar 2 * tickWidth = 8 wide. The mark is a 1-pt white line at

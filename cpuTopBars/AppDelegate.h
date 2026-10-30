@@ -24,7 +24,7 @@
 #import <AppKit/AppKit.h>
 #import <Foundation/Foundation.h>
 
-@interface AppDelegate : NSObject <NSApplicationDelegate, NSMenuDelegate>
+@interface AppDelegate : NSObject <NSApplicationDelegate, NSMenuDelegate, NSTabViewDelegate>
 
 @property (weak) IBOutlet NSWindow *window;
 @property (weak) IBOutlet NSWindow *top;
@@ -59,6 +59,7 @@
 @property (weak) IBOutlet NSImageView *procAppIcon;
 @property (weak) IBOutlet NSTextField *procAppName;
 @property (weak) IBOutlet NSTabView *procAppView;
+@property (weak) IBOutlet NSButton *killButton;
 
 @property (weak) IBOutlet NSScrollView *procDescScrollView;
 @property (assign) IBOutlet NSTextView *procDescTextView;

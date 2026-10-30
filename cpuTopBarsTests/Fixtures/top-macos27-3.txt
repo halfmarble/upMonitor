@@ -1,0 +1,84 @@
+Processes: 903 total, 5 running, 898 sleeping, 3558 threads 
+2026/10/30 10:27:04
+Load Avg: 6.83, 6.28, 4.49 
+CPU usage: 21.87% user, 26.56% sys, 51.56% idle 
+SharedLibs: 670M resident, 124M data, 92M linkedit.
+MemRegions: 151182 total, 3369M resident, 272M private, 1344M shared.
+PhysMem: 15G used (2568M wired, 5581M compressor), 343M unused.
+VM: 412T vsize, 57G framework vsize, 0(0) swapins, 0(0) swapouts.
+Networks: packets: 5968603/4008M in, 7245857/9034M out.
+Disks: 10915550/348G read, 2382259/49G written.
+
+PID    UID %CPU COMMAND         
+99502  0   0.0  diskimagescontro
+99432  0   0.0  microstackshot  
+99281  0   0.0  PerfPowerService
+99214  501 0.0  IMAutomaticHisto
+94448  501 0.0  com.apple.WebKit
+94433  301 0.0  TGOnDeviceInfere
+94431  501 0.0  reversetemplated
+94430  501 0.0  com.apple.audio.
+94428  501 0.0  com.apple.WebKit
+94426  501 0.0  com.apple.WebKit
+94425  501 0.0  com.apple.WebKit
+94410  501 0.0  SpeechSynthesisS
+93642  0   0.0  top             
+93499  501 0.0  sleep           
+93465  501 0.0  yes with space  
+93460  501 0.0  zsh             
+93389  501 0.0  mdworker_shared 
+93180  501 0.0  biomesyncd      
+92858  501 0.0  mdworker_shared 
+92749  501 0.0  caffeinate      
+92326  501 0.0  mdworker_shared 
+92324  501 0.0  mdworker_shared 
+92323  501 0.0  mdworker_shared 
+92322  501 0.0  mdworker_shared 
+92320  501 0.0  mdworker_shared 
+92316  501 0.0  mdworker_shared 
+92305  501 0.0  mdworker_shared 
+92304  501 0.0  mdworker_shared 
+92270  501 0.0  mdworker_shared 
+92266  501 0.0  caffeinate      
+Processes: 903 total, 4 running, 899 sleeping, 3546 threads 
+2026/10/30 10:27:05
+Load Avg: 6.83, 6.28, 4.49 
+CPU usage: 16.48% user, 18.96% sys, 64.54% idle 
+SharedLibs: 670M resident, 124M data, 92M linkedit.
+MemRegions: 0 total, 0B resident, 272M private, 1344M shared.
+PhysMem: 15G used (2344M wired, 5579M compressor), 394M unused.
+VM: 412T vsize, 57G framework vsize, 0(0) swapins, 0(0) swapouts.
+Networks: packets: 5968729/4008M in, 7246009/9034M out.
+Disks: 10915578/348G read, 2382266/49G written.
+
+PID    UID %CPU COMMAND         
+93465  501 88.7 yes with space  
+743    501 66.3 mediaanalysisd  
+0      0   10.9 kernel_task     
+5528   501 10.2 Preview         
+412    88  10.0 WindowServer    
+80247  501 6.4  node            
+93642  0   5.0  top             
+66161  501 4.2  Safari          
+1165   501 3.5  Terminal        
+801    501 2.5  duetexpertd     
+563    270 2.1  com.apple.Driver
+66374  501 1.5  node            
+714    501 1.5  com.apple.WebKit
+76913  501 1.5  node            
+600    501 1.4  WindowManager   
+388    205 1.0  locationd       
+417    0   0.9  runningboardd   
+614    501 0.9  routined        
+1152   501 0.8  trustd          
+381    0   0.8  opendirectoryd  
+405    0   0.8  bluetoothd      
+92324  501 0.8  mdworker_shared 
+601    501 0.7  BiomeAgent      
+92323  501 0.7  mdworker_shared 
+369    0   0.6  mds             
+339    0   0.6  logd            
+499    308 0.6  mds_stores      
+695    501 0.6  com.apple.WebKit
+3459   501 0.5  spotlightknowled
+526    0   0.5  searchpartyd    

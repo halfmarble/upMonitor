@@ -16,11 +16,11 @@ A lightweight CPU monitoring tool designed specifically for the macOS menu bar. 
 
 `cpuTopBars` provides real-time insights into your system's CPU usage with a focus on aesthetics and customization.
 
-* **Real-time Menu Bar Visualization:** View your CPU activity at a glance with a live-updating graph right in your macOS menu bar, beside small bars for disk, memory, overall CPU and GPU use, a bar that shows when the Neural Engine is powered on, and bars for the efficiency cores' and the performance cores' use, each of these two heading its own cores' bars when the graph shows each core and the Mac lists its efficiency cores first (switchable in Settings).
-* **Top Process Tracking:** Quickly identify which of your processes are consuming the most CPU with a ranked list of "Your Top Processes by CPU", each with its CPU share and its memory (physical footprint, in GB); processes of other users, among them macOS's system daemons and WindowServer, are counted in one row below it.
-* **System readings:** when the menu opens, a panel beside it shows uptime, then startup-volume, memory and overall CPU usage as percentages with their sizes, the disk and memory with their free and used space, memory with its swap in use and CPU with its efficiency and performance cores' use, GPU use and whether the Neural Engine is powered on, all read on the Mac; nothing is sent over the network.
+* **Real-time Menu Bar Visualization:** View your CPU activity at a glance with a live-updating graph right in your macOS menu bar, beside small bars for disk, memory, overall CPU and GPU use, a bar for the Neural Engine (its busy share in the version built from this repository, whether it is powered on in the App Store versions), and bars for the efficiency cores' and the performance cores' use, each of these two heading its own cores' bars when the graph shows each core and the Mac lists its efficiency cores first (switchable in Settings).
+* **Top Process Tracking:** Quickly identify which of your processes are consuming the most CPU with a ranked list of "Your Top Processes by CPU", each with its CPU share and its memory (physical footprint, in GB); in the version built from this repository the list ranks other users' processes too, among them macOS's system daemons and WindowServer, while it is sorted by CPU; sorted by memory, and in the App Store versions, they are counted in one row below it.
+* **System readings:** when the menu opens, a panel beside it shows uptime, then startup-volume, memory and overall CPU usage as percentages with their sizes, the disk and memory with their free and used space, memory with its swap in use and CPU with its efficiency and performance cores' use, GPU use (with its power in watts in the version built from this repository) and the Neural Engine's busy share (in the App Store versions, whether it is powered on), all read on the Mac; nothing is sent over the network.
 * **Hover labels:** rest the pointer on a bar for a second to see its value below the menu bar; on the core bars it lists each core's load.
-* **Process inspector:** click a process in the menu to open a window with its man page, where it has one, and its arguments and environment.
+* **Process inspector:** click a process in the menu to open a window with its man page, where it has one, and its arguments and environment; in the version built from this repository also its open files (lsof), its symbols (nm) and a sample of its stacks (sample), and a Kill button for your own processes.
 * **Freeze:** pause the process list to examine it while the CPU graph keeps running; while frozen, rest on a ↳ row to see what it is a helper of.
 * **Launch at login:** turn it on in Settings to open cpuTopBars when you log in.
 * **How to Read the Menu Bar:** a window, opened from the menu, that explains the bars and their colours, with drawn examples.
@@ -50,7 +50,7 @@ Rest the pointer on a bar for a second and its reading shows below the menu bar.
 
 <img src="screenshots/hover-gpu.png" width="153" alt="GPU label">
 
-* **Neural Engine:** whether the Neural Engine is powered on.
+* **Neural Engine:** the Neural Engine's busy share (in the App Store versions, whether it is powered on).
 
 <img src="screenshots/hover-neural-engine.png" width="174" alt="Neural Engine label">
 
@@ -74,7 +74,7 @@ cpuTopBars requires macOS 27 or later.
 
 cpuTopBars was called upMonitor; release 1.0 on GitHub is that old app. A copy you built from source under the old name keeps its own settings and its own login item, which still opens that copy at login: turn Launch at login off in the old copy, or delete it, then set your settings and Launch at login again in cpuTopBars, which starts with the default settings.
 
-cpuTopBars runs in the App Sandbox. The sandbox gives an app no CPU figures for other users' processes (WindowServer, kernel_task, system daemons), so the menu lists your own processes and counts the others in one row.
+The version you build from this repository runs outside the App Sandbox. Sorted by CPU, it ranks every user's processes (WindowServer, kernel_task, system daemons) in the list; it gives the inspector lsof, nm and sample tabs and a Kill button for your own processes, and shows the Neural Engine's busy share and the GPU's power in watts. The App Store versions are sandboxed: the sandbox gives an app no CPU figures for other users' processes and does not let it run those tools or signal other processes, and the counters behind the Neural Engine's share and the GPU's watts are left out of those versions. So they list your own processes, count the others in one row, show no extra inspector tabs and no Kill button, and show the Neural Engine as on or off. The Neural Engine's share and the GPU's watts come from counters Apple does not document; they were checked on one Mac (an M3), and where they cannot be read the Neural Engine shows on or off and the GPU shows its use alone.
 
 ## ⚙️ Configuration
 

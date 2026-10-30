@@ -10,6 +10,8 @@
 		A07E57000000000000000010 /* CpuRenderer.c in Sources */ = {isa = PBXBuildFile; fileRef = D540B2BB23FB0C4400752C7F /* CpuRenderer.c */; };
 		A07E57000000000000000011 /* CpuSampler.c in Sources */ = {isa = PBXBuildFile; fileRef = D540B2BE23FB0C7100752C7F /* CpuSampler.c */; };
 		A07E57000000000000000012 /* SystemInfo.c in Sources */ = {isa = PBXBuildFile; fileRef = B942C7661FE2A67926626466 /* SystemInfo.c */; };
+		A07E570000000000000000F4 /* IOReportReader.c in Sources */ = {isa = PBXBuildFile; fileRef = A07E570000000000000000F2 /* IOReportReader.c */; };
+		A07E570000000000000000F5 /* IOReportReader.c in Sources */ = {isa = PBXBuildFile; fileRef = A07E570000000000000000F2 /* IOReportReader.c */; };
 		A07E57000000000000000013 /* Top.c in Sources */ = {isa = PBXBuildFile; fileRef = D5E340DE2415258A00BD045D /* Top.c */; };
 		A07E57000000000000000014 /* FreeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A07E57000000000000000020 /* FreeTests.swift */; };
 		A07E57000000000000000015 /* RendererGeometryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A07E57000000000000000021 /* RendererGeometryTests.swift */; };
@@ -57,6 +59,7 @@
 		D540B2BB23FB0C4400752C7F /* CpuRenderer.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = CpuRenderer.c; sourceTree = "<group>"; };
 		D540B2BC23FB0C4400752C7F /* CpuRenderer.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = CpuRenderer.h; sourceTree = "<group>"; };
 		D540B2BE23FB0C7100752C7F /* CpuSampler.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = CpuSampler.c; sourceTree = "<group>"; };
+		A07E570000000000000000F1 /* Sandbox.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = Sandbox.h; sourceTree = "<group>"; };
 		D540B2BF23FB0C7100752C7F /* CpuSampler.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = CpuSampler.h; sourceTree = "<group>"; };
 		D5BBD70C242A3E3700D0D53A /* ServiceManagement.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ServiceManagement.framework; path = System/Library/Frameworks/ServiceManagement.framework; sourceTree = SDKROOT; };
 		EE1958CC2E405B265729211C /* UniformTypeIdentifiers.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UniformTypeIdentifiers.framework; path = System/Library/Frameworks/UniformTypeIdentifiers.framework; sourceTree = SDKROOT; };
@@ -66,6 +69,8 @@
 		D5E340DE2415258A00BD045D /* Top.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = Top.c; sourceTree = "<group>"; };
 		87604E9276990C906AEC773D /* SystemInfo.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = SystemInfo.h; sourceTree = "<group>"; };
 		B942C7661FE2A67926626466 /* SystemInfo.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = SystemInfo.c; sourceTree = "<group>"; };
+		A07E570000000000000000F2 /* IOReportReader.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = IOReportReader.c; sourceTree = "<group>"; };
+		A07E570000000000000000F3 /* IOReportReader.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = IOReportReader.h; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -126,6 +131,7 @@
 			isa = PBXGroup;
 			children = (
 				D540B2BF23FB0C7100752C7F /* CpuSampler.h */,
+				A07E570000000000000000F1 /* Sandbox.h */,
 				D540B2BE23FB0C7100752C7F /* CpuSampler.c */,
 				D540B2BC23FB0C4400752C7F /* CpuRenderer.h */,
 				D540B2BB23FB0C4400752C7F /* CpuRenderer.c */,
@@ -135,6 +141,8 @@
 				D5E340DE2415258A00BD045D /* Top.c */,
 				87604E9276990C906AEC773D /* SystemInfo.h */,
 				B942C7661FE2A67926626466 /* SystemInfo.c */,
+				A07E570000000000000000F3 /* IOReportReader.h */,
+				A07E570000000000000000F2 /* IOReportReader.c */,
 				D540B2A923FA2F5400752C7F /* AppDelegate.h */,
 				D540B2AA23FA2F5400752C7F /* AppDelegate.mm */,
 				D540B2AC23FA2F5800752C7F /* Assets.xcassets */,
@@ -275,6 +283,7 @@
 				A07E57000000000000000010 /* CpuRenderer.c in Sources */,
 				A07E57000000000000000011 /* CpuSampler.c in Sources */,
 				A07E57000000000000000012 /* SystemInfo.c in Sources */,
+				A07E570000000000000000F5 /* IOReportReader.c in Sources */,
 				A07E57000000000000000013 /* Top.c in Sources */,
 				A07E57000000000000000014 /* FreeTests.swift in Sources */,
 				A07E57000000000000000015 /* RendererGeometryTests.swift in Sources */,
@@ -295,6 +304,7 @@
 				D540B2C023FB0C7100752C7F /* CpuSampler.c in Sources */,
 				D5E340DF2415258A00BD045D /* Top.c in Sources */,
 				E6C299EE59A48123388B7F6F /* SystemInfo.c in Sources */,
+				A07E570000000000000000F4 /* IOReportReader.c in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -318,7 +328,12 @@
 				BUNDLE_LOADER = "";
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Manual;
+				CPUTOPBARS_SANDBOX = NO;
 				ENABLE_APP_SANDBOX = NO;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"CPUTOPBARS_SANDBOX_$(CPUTOPBARS_SANDBOX)=1",
+				);
 				GCC_TREAT_WARNINGS_AS_ERRORS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				HEADER_SEARCH_PATHS = (
@@ -345,7 +360,12 @@
 				BUNDLE_LOADER = "";
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Manual;
+				CPUTOPBARS_SANDBOX = NO;
 				ENABLE_APP_SANDBOX = NO;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"CPUTOPBARS_SANDBOX_$(CPUTOPBARS_SANDBOX)=1",
+				);
 				GCC_TREAT_WARNINGS_AS_ERRORS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				HEADER_SEARCH_PATHS = (
@@ -487,9 +507,14 @@
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
+				CPUTOPBARS_SANDBOX = NO;
 				DEVELOPMENT_TEAM = "";
-				ENABLE_APP_SANDBOX = YES;
+				ENABLE_APP_SANDBOX = "$(CPUTOPBARS_SANDBOX)";
 				ENABLE_HARDENED_RUNTIME = YES;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"CPUTOPBARS_SANDBOX_$(CPUTOPBARS_SANDBOX)=1",
+				);
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
 					"$(PROJECT_DIR)/cpuTopBars",
@@ -513,9 +538,14 @@
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
+				CPUTOPBARS_SANDBOX = NO;
 				DEVELOPMENT_TEAM = "";
-				ENABLE_APP_SANDBOX = YES;
+				ENABLE_APP_SANDBOX = "$(CPUTOPBARS_SANDBOX)";
 				ENABLE_HARDENED_RUNTIME = YES;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"CPUTOPBARS_SANDBOX_$(CPUTOPBARS_SANDBOX)=1",
+				);
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
 					"$(PROJECT_DIR)/cpuTopBars",

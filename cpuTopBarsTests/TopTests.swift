@@ -67,6 +67,19 @@ extension FreeTests {
       #expect(seen > 0)
     }
 
+    @Test func iterateResetStartsTheWalkAgain() {
+      // TopIterateReset (Top.c): after a walk that stopped part way, the next TopIterate starts at the first process
+      _ = TopTests.sample()
+      TopIterateReset()
+      let first = TopIterate()?.pointee.pid
+      #expect(first != nil)
+      TopIterateReset()
+      for _ in 0..<3 { _ = TopIterate() }
+      TopIterateReset()
+      #expect(TopIterate()?.pointee.pid == first)
+      TopIterateReset()
+    }
+
     @Test func argumentsAndUserName() {
       _ = TopTests.sample()
       // TopGetArgs (Top.c:651) reads KERN_PROCARGS2 of the runner's own process: argc is at least 1 (Top.c:693)
@@ -74,6 +87,66 @@ extension FreeTests {
       #expect((args?.pointee.args_count ?? 0) >= 1)
       // TopGetUsername (Top.c:556) is getpwuid's pw_name
       #expect(String(cString: TopGetUsername(getuid())) == NSUserName())
+    }
+
+    // TopParseTopLine over three recordings of `top -l 2 -stats pid,cpu` (or pid,uid,cpu,command) on macOS 27 (in the
+    // third, five process names were replaced by common app names), in Fixtures/ beside this file (read by #filePath: the runner is not sandboxed). Each sample is 12 lines that are not
+    // process rows: 10 header lines (Processes, the date, Load Avg, CPU usage, SharedLibs, MemRegions, PhysMem, VM,
+    // Networks, Disks), a blank line and the column heads "PID ...". Samples: 2, 3 and 2; lines: 84, 126 and 84.
+    private static func fixtureLines(_ name: String) throws -> [String] {
+      let dir = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("Fixtures")
+      let text = try String(contentsOf: dir.appendingPathComponent(name), encoding: .utf8)
+      return text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+    }
+
+    @Test(arguments: [("top-macos27-1.txt", 2, 60), ("top-macos27-2.txt", 3, 90), ("top-macos27-3.txt", 2, 60)])
+    func parsesEveryProcessRow(file: String, samples: Int, rows: Int) throws {
+      var lines = try TopTests.fixtureLines(file)
+      if lines.last == "" { lines.removeLast() }   // the final newline
+      let headerLines = 12 * samples
+      #expect(lines.filter { $0.hasPrefix("Processes:") }.count == samples)
+      #expect(lines.count - headerLines == rows, "lines that are not header lines")
+      var parsed = 0, rejected: [String] = []
+      for line in lines {
+        var row = TopParsedRow()
+        if TopParseTopLine(line, &row) == 1 {
+          parsed += 1
+          #expect(row.pid >= 0)   // kernel_task is pid 0
+          #expect(row.cpu >= 0)
+        } else {
+          rejected.append(line)
+        }
+      }
+      #expect(parsed == rows)
+      #expect(rejected.count == headerLines)
+      #expect(rejected.contains { $0.hasPrefix("PID") } && rejected.contains("") && rejected.contains { $0.hasPrefix("Disks:") })
+    }
+
+    @Test func parsesOneRowsFields() {
+      var row = TopParsedRow()
+      #expect(TopParseTopLine("99502  0.0 ", &row) == 1)
+      #expect(row.pid == 99502)
+      #expect(row.cpu == 0.0)
+      #expect(row.has_uid == 0)
+      #expect(TopParseTopLine("PID    %CPU", &row) == 0)
+      #expect(TopParseTopLine("", &row) == 0)
+    }
+
+    // KillAllowed (Top.c): pid above 1, not self, and the process's uid equal to the user's
+    @Test func killAllowedRefusesWhatItMust() {
+      let me = getuid(), self_ = getpid()
+      #expect(KillAllowed(0, me, self_, me) == 0, "pid 0")
+      #expect(KillAllowed(1, me, self_, me) == 0, "pid 1 (launchd)")
+      #expect(KillAllowed(-1, me, self_, me) == 0, "a negative pid")
+      #expect(KillAllowed(self_, me, self_, me) == 0, "itself")
+      #expect(KillAllowed(self_ + 1, me &+ 1, self_, me) == 0, "another user's process")
+      #expect(KillAllowed(self_ + 1, 0, 1234, 501) == 0, "root's process, user 501")
+    }
+
+    @Test func killAllowedAllowsAnotherProcessOfTheSameUser() {
+      let me = getuid(), self_ = getpid()
+      #expect(KillAllowed(self_ + 1, me, self_, me) != 0)
+      #expect(KillAllowed(2, 501, 1234, 501) != 0)
     }
 
     // Run as root, the test is skipped, not passed: root reads every process

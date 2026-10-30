@@ -24,3 +24,5 @@
 #include "CpuSampler.h"
 #include "SystemInfo.h"
 #include "Top.h"
+#include "IOReportReader.h"
+#include "Sandbox.h"

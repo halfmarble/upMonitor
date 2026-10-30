@@ -38,7 +38,9 @@
 #import "CpuRenderer.h"
 #import "Top.h"
 #import "SystemInfo.h"
+#import "IOReportReader.h"
 #import "MenuRows.h"
+#import "Sandbox.h"
 
 #pragma mark Constants
 
@@ -898,6 +900,96 @@ static SettingsGroupView* SettingsGroup(NSArray<NSArray*>* rows)
 // the Demo card's captions' horizontal centres, which placeDemoPreviews moves with their previews
 static NSLayoutConstraint* demoCaptionCentres[3] = {nil, nil, nil};
 
+#pragma mark - /usr/bin/top reader
+
+#if !CPUTOPBARS_SANDBOXED
+#define TOP_TOOL_ROWS               (2*TOP_COUNT) // headroom: 2x the rows shown
+
+// One /usr/bin/top run per menu opening. Its lines are parsed on the file handle's background queue;
+// only complete blocks of (pid, cpu) rows reach the main thread.
+@interface TopToolSession : NSObject
+{
+@public
+  NSUInteger generation;
+  NSTask* task;
+  NSMutableData* pending;       // bytes after the last newline
+  int blocks;                   // "PID" header lines seen; block 1 is all zeros and is dropped
+  bool inBlock;
+  int rows;
+  pid_t pids[TOP_TOOL_ROWS];
+  double cpus[TOP_TOOL_ROWS];
+  bool loggedExit;
+  bool loggedEmpty;
+  bool drawn;                   // this run's first block with rows has come (applyTopTool:)
+}
+@end
+
+@implementation TopToolSession
+@end
+
+// feeds one line to the parser; calls block() for every complete block after the first
+static void TopToolParseLine(TopToolSession* session, const char* line, void (^block)(NSData* pids, NSData* cpus), void (^empty)(void))
+{
+  TopParsedRow_t row;
+  if (strncmp(line, "PID", 3) == 0)
+  {
+    session->blocks++;
+    session->inBlock = true;
+    session->rows = 0;
+  }
+  else if (strncmp(line, "Processes:", 10) == 0)
+  {
+    if (session->inBlock && (session->blocks > 1))
+    {
+      if (session->rows > 0)
+      {
+        block([NSData dataWithBytes:session->pids length:session->rows * sizeof(pid_t)], [NSData dataWithBytes:session->cpus length:session->rows * sizeof(double)]);
+      }
+      else
+      {
+        empty();
+      }
+    }
+    session->inBlock = false;
+  }
+  else if (session->inBlock && TopParseTopLine(line, &row) && !row.has_uid)
+  {
+    session->pids[session->rows] = row.pid;
+    session->cpus[session->rows] = row.cpu;
+    session->rows++;
+    if (session->rows == TOP_TOOL_ROWS)
+    {
+      if (session->blocks > 1)
+      {
+        block([NSData dataWithBytes:session->pids length:session->rows * sizeof(pid_t)], [NSData dataWithBytes:session->cpus length:session->rows * sizeof(double)]);
+      }
+      session->inBlock = false;
+    }
+  }
+}
+
+static void TopToolConsume(TopToolSession* session, NSData* data, void (^block)(NSData* pids, NSData* cpus), void (^empty)(void))
+{
+  [session->pending appendData:data];
+  const char* bytes = (const char*)[session->pending bytes];
+  NSUInteger length = [session->pending length];
+  NSUInteger start = 0;
+  for (NSUInteger i=0; i<length; i++)
+  {
+    if (bytes[i] == '\n')
+    {
+      char line[256];
+      NSUInteger n = MIN(i - start, sizeof(line) - 1);
+      memcpy(line, &bytes[start], n);
+      line[n] = '\0';
+      TopToolParseLine(session, line, block, empty);
+      start = i + 1;
+    }
+  }
+  [session->pending replaceBytesInRange:NSMakeRange(0, start) withBytes:NULL length:0];
+}
+#endif
+
 #pragma mark - Process icons
 
 typedef NS_ENUM(NSInteger, ProcessIconRule)
@@ -1623,6 +1715,13 @@ static NSView* HelpExtraExample(const double* values, int count, NSString* capti
   return MenuRowsHelpExample(&readings, NULL, 0, MenuRowsExampleExtra, nil, -1, caption);
 }
 
+// the help's sentences on the Neural Engine's bar, as this variant draws it
+#if CPUTOPBARS_SANDBOXED
+static NSString* const NeuralEngineHelp = @" The bar right after the GPU bar is the Neural Engine's: solid while it is powered on, empty while it is off. It turns on when an app gives it work and goes off a few seconds after the work ends, and may come on again for a few seconds about ten seconds later while that app stays open, so it shows that the Neural Engine was powered recently, not how hard it works.";
+#else
+static NSString* const NeuralEngineHelp = @" The bar right after the GPU bar is the Neural Engine's: it fills to the share of time it was busy, read from the Mac's own counters of the Neural Engine's memory traffic. On a Mac whose counters cannot be read it shows instead whether the Neural Engine is powered: solid while it is on, empty while it is off.";
+#endif
+
 // the help window: the "Menu bar" section, then each MenuRows class's section in registration order, under its
 // heading (none for a class with no title or no valid row), each a card of paragraphs, in a scroll view as tall as the
 // content up to HELP_MAX_HEIGHT. Asked of the classes once, here
@@ -1669,9 +1768,15 @@ static NSWindow* MakeHelpWindow(void)
   withGpu.gpuShown = true;
   withGpu.gpu = 0.35;
   withGpu.neuralEngine = 1;
+#if !CPUTOPBARS_SANDBOXED
+  // the unsandboxed variant draws it by its share of time busy, as the menu bar does where IOReport can be read
+  withGpu.neuralEngineByShare = true;
+  withGpu.neuralEngineBusy = 0.40;
+#endif
   // and with the Neural Engine off: every other whole menu bar shown below but "bars off"
   CpuReadings engineOff = withGpu;
   engineOff.neuralEngine = 0;
+  engineOff.neuralEngineBusy = 0.0;
   const double fills[] = {0.0, 0.20, 0.50, 0.70, 1.00};
   const double colours[] = {0.10, 0.30, 0.50, 0.75, 1.00};
 
@@ -1683,7 +1788,7 @@ static NSWindow* MakeHelpWindow(void)
 
   section(@"Menu bar", @[
     @[
-      @"Wide bars show the startup volume's used space (disk), the memory in use, the CPU's load, overall and for the efficiency cores (E) and the performance cores (P), and the GPU's. Disk, memory, CPU and GPU come first, on the left; the E and P bars are shown with the cores, below. The bar right after the GPU bar is the Neural Engine's: solid while it is powered on, empty while it is off. It turns on when an app gives it work and goes off a few seconds after the work ends, and may come on again for a few seconds about ten seconds later while that app stays open, so it shows that the Neural Engine was powered recently, not how hard it works.",
+      [@"Wide bars show the startup volume's used space (disk), the memory in use, the CPU's load, overall and for the efficiency cores (E) and the performance cores (P), and the GPU's. Disk, memory, CPU and GPU come first, on the left; the E and P bars are shown with the cores, below." stringByAppendingString:NeuralEngineHelp],
       @[MenuRowsHelpExample(&withGpu, loads, loadCount, MenuRowsExampleReadings, nil, -1, HelpReadingsCaption(&withGpu))],
     ],
     @[
@@ -1783,6 +1888,12 @@ static int topShown = TOP_COUNT;         // the process rows shown, from Setting
 static TopOrder topOrder;                 // the order of the rows; TopOrderCpu (0) until set
 static int topOthersCount = 0;            // other users' processes at the last sample, whose CPU cannot be read
 static NSMenuItem* othersItem = nil;      // the row below the process rows that counts them
+#if !CPUTOPBARS_SANDBOXED
+// while the menu is open, /usr/bin/top gives the CPU of the other users' processes too (startTopTool)
+static NSMutableDictionary<NSNumber*, NSNumber*>* topFigures = nil; // % of one core, by pid; nil until a block has come
+static TopToolSession* topToolSession = nil;
+static NSUInteger topToolGeneration = 0;
+#endif
 static NSTimeInterval lastTopSample = 0.0;
 #define TOP_MIN_INTERVAL (0.25)
 
@@ -1835,6 +1946,9 @@ static double readingsCpuEfficiency = -1.0; // the E-cores' and the P-cores' ove
 static double readingsCpuPerformance = -1.0;
 static double readingsGpu = -1.0;           // the GPU's busy share, 0..1, read with them while the GPU's bar is shown; -1: not read
 static int readingsNeuralEngine = -1;       // the Neural Engine's power: 1 on, 0 off, -1 not read
+static double readingsNeuralEngineBusy = -1.0; // its share of time busy, 0..1, from IOReport, read with them; -1: not read
+                                               // (always in the sandboxed variant), and ON/OFF is shown instead
+static double readingsGpuWatts = -1.0;      // the GPU's power in W, from IOReport, read with them; -1: not read
 static bool readingsMemory = false;         // memory could be read, as these two bytes
 static uint64_t readingsMemoryUsed = 0;
 static uint64_t readingsMemoryTotal = 0;
@@ -1913,6 +2027,17 @@ static double spaceWidth = 0.0;
 static CGFloat memTarget = 0.0;           // the width of the memory column
 
 static NSNumber *current_process_pid = nil;
+#if !CPUTOPBARS_SANDBOXED
+// the inspector's lsof, nm and sample tabs; each *Job holds the inspectGeneration it runs for, 0 when it has finished
+static NSString *current_process_path = nil;
+static NSUInteger lsofJob = 0;
+static NSUInteger nmJob = 0;
+static NSUInteger threadsJob = 0;
+static NSUInteger threadsRun = 0;
+static NSTextView* procLsofTextView = nil;
+static NSTextView* procNmTextView = nil;
+static NSTextView* procThreadsTextView = nil;
+#endif
 
 // The inspector's man page tool runs on a background queue. Every selection bumps
 // inspectGeneration, and a result that belongs to an older selection is dropped. Main thread only.
@@ -3196,7 +3321,8 @@ static void HelpCoreReadings(const double* coreLoads, int coreLoadCount, CpuRead
   readings->performance = (kindCount[1] > 0) ? (kindSum[1] / kindCount[1]) : -1.0;
 }
 
-// the GPU's hover label, "GPU: 12%", and the Neural Engine's, "Neural Engine: ON"; unpadded, as barTipTextAt: pads them
+// the GPU's hover label, "GPU: 12%", and the Neural Engine's, "Neural Engine: ON", or with its share of time busy read
+// (busy 0..1), "Neural Engine: 37%"; unpadded, as barTipTextAt: pads them
 static NSString* GpuTipText(double gpu)
 {
   if (gpu < 0.0)
@@ -3206,8 +3332,12 @@ static NSString* GpuTipText(double gpu)
   return [[NSString alloc] initWithFormat:@"GPU: %ld%%" locale:[NSLocale currentLocale], lround(fmin(gpu, 1.0) * 100.0)];
 }
 
-static NSString* NeuralEngineTipText(int state)
+static NSString* NeuralEngineTipText(int state, double busy)
 {
+  if (busy >= 0.0)
+  {
+    return [[NSString alloc] initWithFormat:@"Neural Engine: %ld%%" locale:[NSLocale currentLocale], lround(fmin(busy, 1.0) * 100.0)];
+  }
   if (state < 0)
   {
     return @"Neural Engine: cannot be read on this Mac";
@@ -3325,7 +3455,7 @@ static NSArray<NSView*>* HelpCoresExamples(const CpuReadings* readings, const do
   }
   if (barTipGpu && (index == CPU_RENDER_READING_NEURAL_ENGINE))
   {
-    return NeuralEngineTipText(readingsNeuralEngine);
+    return NeuralEngineTipText(readingsNeuralEngine, readingsNeuralEngineBusy);
   }
   if ((index == CpuRenderReadingEfficiency(barTipGpu)) || (index == CpuRenderReadingPerformance(barTipGpu)))
   {
@@ -3645,6 +3775,21 @@ static NSArray<NSView*>* HelpCoresExamples(const CpuReadings* readings, const do
       {
         readingsGpu = SystemInfoGpuBusy();
         readingsNeuralEngine = SystemInfoNeuralEngine();
+        // the next sample is queued first, so that after a pause of more than 10 s the old readings are dropped before
+        // they are read (they read -1, shown as ON/OFF and no watts, until a sample finishes); the readings are those the
+        // last finished sample published, a reading behind (IOReportReader.h); -1 each in the sandboxed variant
+        IOReportSample();
+        const double aneBusy = IOReportAneBusy();
+        readingsNeuralEngineBusy = (aneBusy < 0.0) ? -1.0 : fmin(aneBusy / 100.0, 1.0);
+        readingsGpuWatts = IOReportGpuWatts();
+#if !CPUTOPBARS_SANDBOXED
+        static bool ioReportLogged = false;
+        if (IOReportUnreadable() && !ioReportLogged)
+        {
+          ioReportLogged = true;
+          NSLog(@"IOReport could not be read: the Neural Engine may show ON and OFF, and the GPU row may leave out its watts");
+        }
+#endif
         static bool gpuLogged = false;
         static bool neuralEngineLogged = false;
         if ((readingsGpu < 0.0) && !gpuLogged)
@@ -3662,6 +3807,8 @@ static NSArray<NSView*>* HelpCoresExamples(const CpuReadings* readings, const do
       {
         readingsGpu = -1.0;
         readingsNeuralEngine = -1;
+        readingsNeuralEngineBusy = -1.0;
+        readingsGpuWatts = -1.0;
       }
       lastReadings = [[NSProcessInfo processInfo] systemUptime];
     }
@@ -3683,6 +3830,8 @@ static NSArray<NSView*>* HelpCoresExamples(const CpuReadings* readings, const do
   {
     readings.gpu = readingsGpu;
     readings.neuralEngine = readingsNeuralEngine;
+    readings.neuralEngineByShare = (readingsNeuralEngineBusy >= 0.0);
+    readings.neuralEngineBusy = readingsNeuralEngineBusy;
     readings.cpu = readingsCpu;
     readings.efficiency = readingsCpuEfficiency;
     readings.performance = readingsCpuPerformance;
@@ -3768,7 +3917,54 @@ static NSArray<NSView*>* HelpCoresExamples(const CpuReadings* readings, const do
 
 - (void)collectTopList
 {
+  // the walk starts at the busiest process, wherever the last walk stopped (the first block of top and stopTopTool
+  // collect again between samples)
+  TopIterateReset();
   int counter = 0;
+#if !CPUTOPBARS_SANDBOXED
+  if ((topFigures != nil) && (topOrder == TopOrderCpu))
+  {
+    // other users' processes take the CPU top read for them, and are ranked with the rest: the whole sample is walked,
+    // keeping the TOP_COUNT busiest
+    const TopProcessSample_t *each = TopIterate();
+    while (each != NULL)
+    {
+      TopProcessSample_t candidate = *each;
+      if (candidate.cpu_known == 0)
+      {
+        NSNumber* figure = topFigures[[NSNumber numberWithInt:candidate.pid]];
+        if (figure != nil)
+        {
+          candidate.cpu = [figure doubleValue];
+          candidate.cpu_known = 1;
+        }
+      }
+      if (candidate.cpu_known != 0)
+      {
+        int at = counter;
+        while ((at > 0) && (topProcceses[at - 1].cpu < candidate.cpu))
+        {
+          at--;
+        }
+        if (at < TOP_COUNT)
+        {
+          int last = MIN(counter, TOP_COUNT - 1);
+          for (int j=last; j>at; j--)
+          {
+            topProcceses[j] = topProcceses[j - 1];
+          }
+          topProcceses[at] = candidate;
+          counter = MIN(counter + 1, TOP_COUNT);
+        }
+      }
+      each = TopIterate();
+    }
+    topCount = counter;
+    // the row that counts them stays hidden while top's figures are in
+    topOthersCount = 0;
+    return;
+  }
+#endif
   const TopProcessSample_t *psample = TopIterate();
   while ((psample != NULL) && (counter < TOP_COUNT))
   {
@@ -3783,6 +3979,130 @@ static NSArray<NSView*>* HelpCoresExamples(const CpuReadings* readings, const do
   topCount = counter;
   topOthersCount = TopUnreadableCount();
 }
+
+#if !CPUTOPBARS_SANDBOXED
+#pragma mark - /usr/bin/top while the menu is open
+
+- (void)startTopTool
+{
+  [self stopTopTool];
+
+  TopToolSession* session = [[TopToolSession alloc] init];
+  session->generation = ++topToolGeneration;
+  session->pending = [NSMutableData data];
+
+  NSTask* task = [[NSTask alloc] init];
+  [task setExecutableURL:[NSURL fileURLWithPath:@"/usr/bin/top"]];
+  // a sample every 2 s, whatever the Refresh setting: top takes whole seconds, and 2 s costs it about half the CPU of 1 s
+  [task setArguments:@[@"-l", @"0", @"-s", @"2", @"-o", @"cpu", @"-stats", @"pid,cpu", @"-n", [NSString stringWithFormat:@"%d", TOP_TOOL_ROWS]]];
+  // the decimal separator is '.' whatever the user's locale
+  NSMutableDictionary* environment = [NSMutableDictionary dictionaryWithObject:@"C" forKey:@"LC_ALL"];
+  NSString* path = [[[NSProcessInfo processInfo] environment] objectForKey:@"PATH"];
+  if (path != nil)
+  {
+    environment[@"PATH"] = path;
+  }
+  [task setEnvironment:environment];
+  NSPipe* pipe = [NSPipe pipe];
+  [task setStandardOutput:pipe];
+  [task setStandardError:[NSFileHandle fileHandleWithNullDevice]];
+
+  NSUInteger generation = session->generation;
+  [task setTerminationHandler:^(NSTask* t) {
+    int status = [t terminationStatus];
+    long reason = (long)[t terminationReason];
+    dispatch_async(dispatch_get_main_queue(), ^{
+      if ((topToolSession != nil) && (topToolSession->generation == generation) && !topToolSession->loggedExit)
+      {
+        topToolSession->loggedExit = true;
+        NSLog(@"/usr/bin/top exited while the menu was open: status %d, reason %ld", status, reason);
+      }
+    });
+  }];
+
+  NSError* error = nil;
+  if (![task launchAndReturnError:&error])
+  {
+    NSLog(@"could not launch /usr/bin/top: %@", error);
+    return;
+  }
+  session->task = task;
+  topToolSession = session;
+
+  __weak AppDelegate* weakSelf = self;
+  [[pipe fileHandleForReading] setReadabilityHandler:^(NSFileHandle* handle) {
+    NSData* data = [handle availableData];
+    if ([data length] == 0)
+    {
+      // end of file: a handler left set would be called again and again
+      [handle setReadabilityHandler:nil];
+      return;
+    }
+    TopToolConsume(session, data, ^(NSData* pids, NSData* cpus) {
+      dispatch_async(dispatch_get_main_queue(), ^{
+        [weakSelf applyTopTool:session pids:pids cpus:cpus];
+      });
+    }, ^{
+      dispatch_async(dispatch_get_main_queue(), ^{
+        if ((topToolSession == session) && !session->loggedEmpty)
+        {
+          session->loggedEmpty = true;
+          NSLog(@"/usr/bin/top printed a sample with no readable rows");
+        }
+      });
+    });
+  }];
+}
+
+- (void)applyTopTool:(TopToolSession*)session pids:(NSData*)pids cpus:(NSData*)cpus
+{
+  if ((topToolSession != session) || (session->generation != topToolGeneration))
+  {
+    return;
+  }
+  const pid_t* pidList = (const pid_t*)[pids bytes];
+  const double* cpuList = (const double*)[cpus bytes];
+  NSUInteger count = [pids length] / sizeof(pid_t);
+  NSMutableDictionary<NSNumber*, NSNumber*>* figures = [NSMutableDictionary dictionaryWithCapacity:count];
+  for (NSUInteger i=0; i<count; i++)
+  {
+    figures[[NSNumber numberWithInt:pidList[i]]] = [NSNumber numberWithDouble:cpuList[i]];
+  }
+  topFigures = figures;
+  // the rows redraw at each process sample (updateTop:), which picks up top's latest block. At the run's first block
+  // they redraw now, so that other users' processes join with it and the rows change once
+  if (refreshTop && !session->drawn)
+  {
+    session->drawn = true;
+    [self collectTopList];
+    [self updateMenuTop];
+  }
+}
+
+- (void)stopTopTool
+{
+  topToolGeneration++;
+  TopToolSession* session = topToolSession;
+  topToolSession = nil;
+  if (session != nil)
+  {
+    NSTask* task = session->task;
+    [[[task standardOutput] fileHandleForReading] setReadabilityHandler:nil];
+    [task setTerminationHandler:nil];
+    // terminate on a task that never launched throws
+    if ([task isRunning])
+    {
+      [task terminate];
+    }
+  }
+  bool had = (topFigures != nil);
+  topFigures = nil;
+  if (had && !frozen)
+  {
+    [self collectTopList];
+  }
+}
+#endif
 
 - (void)setupStatusItem
 {
@@ -4008,6 +4328,155 @@ static NSTimeInterval TopDelay(void)
   return found;
 }
 
+#if !CPUTOPBARS_SANDBOXED
+#pragma mark - Inspector tabs: lsof, nm, sample
+
+// a tab that holds one read-only text, laid out and set in the type of the "args & env" tab
+- (NSTabViewItem*)inspectorTabLabeled:(NSString*)label identifier:(NSString*)identifier textView:(NSTextView* __strong *)textView
+{
+  NSScrollView* argsScroll = self.procArgsEnvScrollView;
+  NSView* container = [[NSView alloc] initWithFrame:[[argsScroll superview] bounds]];
+  [container setAutoresizingMask:(NSViewWidthSizable | NSViewHeightSizable)];
+
+  NSScrollView* scroll = [[NSScrollView alloc] initWithFrame:[argsScroll frame]];
+  [scroll setAutoresizingMask:[argsScroll autoresizingMask]];
+  [scroll setBorderType:NSNoBorder];
+  [scroll setHasVerticalScroller:YES];
+  [scroll setHasHorizontalScroller:NO];
+  [scroll setDrawsBackground:NO];
+
+  NSSize size = [scroll contentSize];
+  NSTextView* text = [[NSTextView alloc] initWithFrame:NSMakeRect(0.0, 0.0, size.width, size.height)];
+  [text setEditable:NO];
+  [text setRichText:NO];
+  [text setImportsGraphics:NO];
+  [text setUsesFindBar:YES];
+  [text setIncrementalSearchingEnabled:YES];
+  [text setFont:[self.procArgsEnvTextView font]];
+  [text setMinSize:NSMakeSize(0.0, size.height)];
+  [text setMaxSize:NSMakeSize(FLT_MAX, FLT_MAX)];
+  [text setVerticallyResizable:YES];
+  [text setHorizontallyResizable:NO];
+  [text setAutoresizingMask:NSViewWidthSizable];
+  [[text textContainer] setContainerSize:NSMakeSize(size.width, FLT_MAX)];
+  [[text textContainer] setWidthTracksTextView:YES];
+  [scroll setDocumentView:text];
+  [container addSubview:scroll];
+
+  NSTabViewItem* item = [[NSTabViewItem alloc] initWithIdentifier:identifier];
+  [item setLabel:label];
+  [item setView:container];
+  *textView = text;
+  return item;
+}
+
+// after "args & env", where the xib's tabs end; the tab view's delegate runs a tab's tool when it is selected
+- (void)setupInspectorTabs
+{
+  [self.procAppView addTabViewItem:[self inspectorTabLabeled:@"lsof" identifier:@"3" textView:&procLsofTextView]];
+  [self.procAppView addTabViewItem:[self inspectorTabLabeled:@"nm" identifier:@"4" textView:&procNmTextView]];
+  [self.procAppView addTabViewItem:[self inspectorTabLabeled:@"sample" identifier:@"5" textView:&procThreadsTextView]];
+  [self.procAppView setDelegate:self];
+}
+
+- (void)fillLsofForProcess:(NSNumber*)pid_number
+{
+  if ((pid_number == nil) || (lsofJob == inspectGeneration))
+  {
+    return;
+  }
+  NSUInteger generation = inspectGeneration;
+  lsofJob = generation;
+
+  [self runTool:@"/usr/sbin/lsof" arguments:@[@"-p", [pid_number stringValue]] withStderr:YES done:^(NSString* output) {
+    if (lsofJob == generation)
+    {
+      lsofJob = 0;
+    }
+    [procLsofTextView setString:(output != nil) ? output : @"N/A (error)"];
+  }];
+}
+
+- (void)fillNmForProcess:(NSString*)path
+{
+  if ([path length] == 0)
+  {
+    // no executable path (kernel_task): nothing to run nm on
+    [procNmTextView setString:@"N/A"];
+    return;
+  }
+  if (nmJob == inspectGeneration)
+  {
+    return;
+  }
+  NSUInteger generation = inspectGeneration;
+  nmJob = generation;
+
+  // "--": a path starting with '-' must not be read as an option
+  [self runTool:@"/usr/bin/nm" arguments:@[@"--", path] withStderr:YES done:^(NSString* output) {
+    if (nmJob == generation)
+    {
+      nmJob = 0;
+    }
+    [procNmTextView setString:(output != nil) ? output : @"N/A (error)"];
+  }];
+}
+
+- (void)fillThreadsForProcess:(NSNumber*)pid_number
+{
+  if ((pid_number == nil) || (threadsJob == inspectGeneration))
+  {
+    return;
+  }
+  NSUInteger generation = inspectGeneration;
+  threadsJob = generation;
+  NSUInteger run = ++threadsRun;
+
+  // sample runs for 10 seconds by default: count down until its report arrives
+  for (int i=0; i<=10; i++)
+  {
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)i * (int64_t)NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+      if ((threadsRun == run) && (threadsJob == generation) && (inspectGeneration == generation))
+      {
+        [procThreadsTextView setString:[NSString stringWithFormat:@"\nsampling ends in %d seconds ...", (10-i)]];
+      }
+    });
+  }
+
+  [self runTool:@"/usr/bin/sample" arguments:@[[pid_number stringValue]] withStderr:YES done:^(NSString* output) {
+    if (threadsJob == generation)
+    {
+      threadsJob = 0;
+    }
+    [procThreadsTextView setString:(output != nil) ? output : @"N/A (error)"];
+  }];
+}
+
+- (void)tabView:(NSTabView *)tabView didSelectTabViewItem:(NSTabViewItem *)tabViewItem
+{
+  if (current_process_pid == nil)
+  {
+    // no selection yet, or a row whose process has exited: no tool runs
+    return;
+  }
+
+  switch ([[tabViewItem identifier] intValue])
+  {
+    case 3:
+      [self fillLsofForProcess:current_process_pid];
+      break;
+    case 4:
+      [self fillNmForProcess:current_process_path];
+      break;
+    case 5:
+      [self fillThreadsForProcess:current_process_pid];
+      break;
+    default:
+      break;
+  }
+}
+#endif
+
 #pragma mark - Public APIs
 
 - (void)applicationDidFinishLaunching:(NSNotification *)aNotification
@@ -4092,11 +4561,17 @@ static NSTimeInterval TopDelay(void)
     // room for the inspector's "Helper of:" line
     [self.procAppName setUsesSingleLineMode:NO];
     [self.procAppName setMaximumNumberOfLines:2];
+#if !CPUTOPBARS_SANDBOXED
+  [self setupInspectorTabs];
+#endif
   }
 }
 
 - (void)applicationWillTerminate:(NSNotification *)aNotification
 {
+#if !CPUTOPBARS_SANDBOXED
+  [self stopTopTool];
+#endif
   //[[NSUserDefaults standardUserDefaults] synchronize];
 }
 
@@ -4231,6 +4706,10 @@ static NSTimeInterval TopDelay(void)
   inspectGeneration++;
   [self stopInspectorTools];
   current_process_pid = exited ? nil : [NSNumber numberWithInt:pid];
+#if !CPUTOPBARS_SANDBOXED
+  // KERN_PROCARGS2 (info->command) fails for other users' processes; proc_pidpath fails only for kernel_task
+  current_process_path = exited ? nil : ProcessPath(pid);
+#endif
 
   ProcessIconDecision* decision = exited ? topIconCache[[NSNumber numberWithInt:pid]] : [self decisionForPid:pid];
   NSImage *icon = [decision.image copy];
@@ -4297,10 +4776,18 @@ static NSTimeInterval TopDelay(void)
   frame.origin.y = midY - (frame.size.height / 2.0);
   [self.procAppName setFrame:frame];
   [self showInspectorRowsForPid:pid name:SampleText(sample->name) exited:exited];
+#if !CPUTOPBARS_SANDBOXED
+  [self updateKillButton:sample exited:exited];
+#endif
 
   NSString* live = exited ? @"\nN/A (exited)" : @"\npreparing...";
   [self.procDescTextView setString:@"\npreparing..."];
   [self.procArgsEnvTextView setString:live];
+#if !CPUTOPBARS_SANDBOXED
+  [procLsofTextView setString:live];
+  [procNmTextView setString:live];
+  [procThreadsTextView setString:live];
+#endif
 
   //if ([self.top isVisible] == NO)
   {
@@ -4338,6 +4825,9 @@ static NSTimeInterval TopDelay(void)
   {
     // the menu stays open, and its rows keep what they show
     refreshTop = false;
+#if !CPUTOPBARS_SANDBOXED
+    [self stopTopTool];
+#endif
     for (int i=0; i<TOP_COUNT; i++)
     {
       if (![topMenus[i] isHidden])
@@ -4357,6 +4847,9 @@ static NSTimeInterval TopDelay(void)
     {
       // as at an opening: the rows refresh from the next sample, taken soon
       refreshTop = true;
+#if !CPUTOPBARS_SANDBOXED
+      [self startTopTool];
+#endif
       [self startTopTimer:MIN(TOP_MIN_INTERVAL, TopInterval())];
     }
     else
@@ -4617,22 +5110,106 @@ static NSTimeInterval TopDelay(void)
   [self updateLoginButton];
 }
 
-// TODO: implement (using SMJobBless ?)
+#if !CPUTOPBARS_SANDBOXED
+// the Kill button: shown, and enabled only for a process KillAllowed lets the app end
+- (void)updateKillButton:(TopProcessSample_t*)sample exited:(bool)exited
+{
+  [self.killButton setHidden:NO];
+  [self.killButton setEnabled:(!exited && KillAllowed(sample->pid, sample->uid, getpid(), getuid()))];
+}
+
+- (void)showKillProblem:(int)error name:(NSString*)name pid:(pid_t)pid
+{
+  NSAlert* alert = [[NSAlert alloc] init];
+  if (error == ESRCH)
+  {
+    [alert setMessageText:[NSString stringWithFormat:@"%@ (pid %d) has already exited.", name, pid]];
+  }
+  else if (error == EPERM)
+  {
+    [alert setMessageText:[NSString stringWithFormat:@"%@ (pid %d) cannot be ended from here.", name, pid]];
+    [alert setInformativeText:@"macOS does not let this app end it."];
+  }
+  else
+  {
+    [alert setMessageText:[NSString stringWithFormat:@"%@ (pid %d) could not be ended.", name, pid]];
+    [alert setInformativeText:[NSString stringWithUTF8String:strerror(error)]];
+  }
+  [alert beginSheetModalForWindow:self.top completionHandler:nil];
+}
+
+// SIGTERM first; if the process is still there 3 s later, the user is offered SIGKILL
 - (IBAction)killButtonClicked:(id)sender
 {
   pid_t pid = [current_process_pid intValue];
-  if (pid > 0)
+  TopProcessSample_t* sample = (pid > 0) ? TopGetSample(pid) : NULL;
+  if ((sample == NULL) || !KillAllowed(pid, sample->uid, getpid(), getuid()))
   {
-// Does not work! - needs priviledged action
-//    NSString *appPath = @"/bin/kill";
-//    NSArray<NSString *> *arguments = [NSArray arrayWithObjects:@"-9", [NSString stringWithFormat:@"%d", pid], nil];
-//    NSTask *task = [[NSTask alloc] init];
-//    [task setLaunchPath:appPath];
-//    [task setArguments:arguments];
-//    [task launch];
-//    [task terminate];
+    return;
   }
+  NSString* name = SampleText(sample->name);
+  // the start time tells the process from a later one that is given the same pid
+  uint64_t start = ProcessStartTime(pid);
+  if (start == 0)
+  {
+    [self showKillProblem:ESRCH name:name pid:pid];
+    return;
+  }
+
+  NSAlert* alert = [[NSAlert alloc] init];
+  [alert setMessageText:[NSString stringWithFormat:@"End %@ (pid %d)?", name, pid]];
+  [alert setInformativeText:@"The process is asked to quit. Work it has not saved can be lost."];
+  [[alert addButtonWithTitle:@"End Process"] setHasDestructiveAction:YES];
+  [alert addButtonWithTitle:@"Cancel"];
+  [alert beginSheetModalForWindow:self.top completionHandler:^(NSModalResponse response) {
+    if (response != NSAlertFirstButtonReturn)
+    {
+      return;
+    }
+    if (ProcessStartTime(pid) != start)
+    {
+      [self showKillProblem:ESRCH name:name pid:pid];
+      return;
+    }
+    if (kill(pid, SIGTERM) != 0)
+    {
+      [self showKillProblem:errno name:name pid:pid];
+      return;
+    }
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+      // gone: the pid is free, or belongs to a later process
+      if ((kill(pid, 0) != 0) || (ProcessStartTime(pid) != start))
+      {
+        return;
+      }
+      NSAlert* force = [[NSAlert alloc] init];
+      [force setMessageText:[NSString stringWithFormat:@"%@ (pid %d) is still running.", name, pid]];
+      [force setInformativeText:@"Force Quit ends it at once, without letting it save anything."];
+      [[force addButtonWithTitle:@"Force Quit"] setHasDestructiveAction:YES];
+      [force addButtonWithTitle:@"Leave It"];
+      [force beginSheetModalForWindow:self.top completionHandler:^(NSModalResponse answer) {
+        if (answer != NSAlertFirstButtonReturn)
+        {
+          return;
+        }
+        if (ProcessStartTime(pid) != start)
+        {
+          [self showKillProblem:ESRCH name:name pid:pid];
+        }
+        else if (kill(pid, SIGKILL) != 0)
+        {
+          [self showKillProblem:errno name:name pid:pid];
+        }
+      }];
+    });
+  }];
 }
+#else
+// the Kill button stays hidden
+- (IBAction)killButtonClicked:(id)sender
+{
+}
+#endif
 
 - (void)menuWillOpen:(NSMenu *)menu
 {
@@ -4661,6 +5238,9 @@ static NSTimeInterval TopDelay(void)
   if (!frozen)
   {
     refreshTop = true;
+#if !CPUTOPBARS_SANDBOXED
+    [self startTopTool];
+#endif
 
     // take a fresh sample, unless the timer has just taken one: a very short interval gives noisy CPU%
     if (!topListValid || (([[NSProcessInfo processInfo] systemUptime] - lastTopSample) >= TOP_MIN_INTERVAL))
@@ -4710,6 +5290,9 @@ static NSTimeInterval TopDelay(void)
 
   menuIsOpen = false;
   refreshTop = false;
+#if !CPUTOPBARS_SANDBOXED
+  [self stopTopTool];
+#endif
   // the next sample an interval after the last, or at the timer's own fire when that comes sooner (TopDelay)
   [self startTopTimer:TopDelay()];
   [self hideRowTip];
@@ -5083,7 +5666,16 @@ static void SetTipText(NSPanel* panel, NSTextField* label, NSString* text, CGFlo
   if (GpuShown())
   {
     NSString* gpu = (readingsGpu < 0.0) ? @"—" : [[NSString alloc] initWithFormat:@"%ld%%" locale:locale, lround(fmin(readingsGpu, 1.0) * 100.0)];
+    // its power beside it, "12%  0.08 W", when IOReport gives it (the unsandboxed variant)
+    if ((readingsGpu >= 0.0) && (readingsGpuWatts >= 0.0))
+    {
+      gpu = [[NSString alloc] initWithFormat:@"%@  %.2f W" locale:locale, gpu, readingsGpuWatts];
+    }
     NSString* neuralEngine = (readingsNeuralEngine < 0) ? @"—" : ((readingsNeuralEngine > 0) ? @"ON" : @"OFF");
+    if (readingsNeuralEngineBusy >= 0.0)
+    {
+      neuralEngine = [[NSString alloc] initWithFormat:@"%ld%%" locale:locale, lround(readingsNeuralEngineBusy * 100.0)];
+    }
     [rows addObject:@[@"GPU:", gpu]];
     [rows addObject:@[@"Neural Engine:", neuralEngine]];
   }

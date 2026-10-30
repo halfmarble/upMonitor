@@ -495,15 +495,30 @@ static void _render_colored(CGContextRef ctx, CGFloat x, CGFloat width, CGFloat 
 // colour at 0.9 opacity, the brightness of the system's Wi-Fi icon and clock over the dark menu bar (232-233 of 255
 // over its 32, measured on screen; the battery's body reads 243); off (0), only the bars' background. In Dot style the readings' dot, where theirs is drawn: on,
 // filled in that colour; off, a 1-pt ring at the bars' background opacity
-static void _render_neural_engine(CGContextRef ctx, CGFloat x, int state, CGFloat color, bool bar, CGFloat tickWidth, bool light, CGFloat bottom)
+// share, 0..1, when byShare: the share of time busy sets the fill (CpuReadings neuralEngineByShare); else state, ON/OFF
+static void _render_neural_engine(CGContextRef ctx, CGFloat x, int state, bool byShare, double share, CGFloat color, bool bar, CGFloat tickWidth, bool light, CGFloat bottom)
 {
+  if (byShare)
+  {
+    if (share < 0.0)
+    {
+      return;
+    }
+    state = (share >= 0.005) ? 1 : 0;
+  }
   if (state < 0)
   {
     return;
   }
   if (bar)
   {
-    if (state > 0)
+    if (byShare)
+    {
+      _render_background(ctx, x, 2.0*tickWidth, color, light, bottom);
+      CGContextSetGrayFillColor(ctx, light ? 0.0 : 1.0, 0.9);
+      CGContextFillRect(ctx, CGRectMake(x, bottom, 2.0*tickWidth, fmin(share, 1.0)*(16-bottom)));
+    }
+    else if (state > 0)
     {
       CGContextSetGrayFillColor(ctx, light ? 0.0 : 1.0, 0.9);
       CGContextFillRect(ctx, CGRectMake(x, bottom, 2.0*tickWidth, 16-bottom));
@@ -685,7 +700,7 @@ void CpuRender(CpuSummaryInfo* cpu_info, CGContextRef ctx, bool light, int granu
   if (gpu)
   {
     _render_neural_engine(ctx, CpuRenderReadingX(bar, tickWidth, tickTotalWidth, gpu, imageWidth, split, cores, extraCount, extra, CPU_RENDER_READING_NEURAL_ENGINE),
-                          readings->neuralEngine, color, bar, tickWidth, light, bottom);
+                          readings->neuralEngine, readings->neuralEngineByShare, readings->neuralEngineBusy, color, bar, tickWidth, light, bottom);
   }
 }
 

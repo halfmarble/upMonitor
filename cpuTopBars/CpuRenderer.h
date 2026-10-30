@@ -126,6 +126,11 @@ struct CpuReadings
   // dashes: on, solid; off, only the bars' background. In Dot style a dot: on, filled; off, a 1-pt ring at the bars'
   // background opacity. Drawn only with gpuShown, never in the ramp's colours
   int neuralEngine;
+  // true: neuralEngineBusy, not neuralEngine, sets the Neural Engine's bar: its background, and over it a fill
+  // neuralEngineBusy (0..1) of its height, in the same colour, whole, without the dashes; in Dot style a dot filled while
+  // the share is 0.005 or more, else the ring. false is the default, so a zeroed struct draws neuralEngine as before
+  bool neuralEngineByShare;
+  double neuralEngineBusy;
   // true: the GPU's bar and the Neural Engine's are drawn after CPU, CPU_RENDER_READINGS_COUNT_GPU readings in all;
   // false is the default, so a zeroed struct draws the five as before. Ignored when the five are not drawn
   bool gpuShown;
