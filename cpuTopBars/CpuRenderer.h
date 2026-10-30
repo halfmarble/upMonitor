@@ -39,11 +39,11 @@ enum Theme
 
 // the readings block at the left of the image, bars drawn as the core graph's but twice as wide (in Dot style dots as the
 // graph's), then a clear gap before the core graph. The block's readings, from the left: the battery (CPU_RENDER_SHOWN_BATTERY:
-// its charge as a number, then a bar), Wi-Fi's signal (CPU_RENDER_SHOWN_WIFI), disk, memory, then a clear gap, then the Neural
+// a bar with its charge written over it), Wi-Fi's signal (CPU_RENDER_SHOWN_WIFI), disk, memory, then a clear gap, then the Neural
 // Engine's and the GPU's bar (CPU_RENDER_SHOWN_GPU, both), CPU, the E-cores' CPU and the P-cores' CPU. Which of the optional
 // ones are drawn is a mask, shown, of CPU_RENDER_SHOWN_* bits, and each reading has a kind, CPU_RENDER_KIND_*; its index is
-// the number of shown readings of earlier kinds (CpuRenderReadingIndex, CpuRenderReadingKind), each index one slot, except the
-// battery's, which is wider by its number (CPU_RENDER_BATTERY_TEXT_WIDTH and 1 pt). The gap after memory is a group gap, 4 pt
+// the number of shown readings of earlier kinds (CpuRenderReadingIndex, CpuRenderReadingKind), each index one slot. The gap
+// after memory is a group gap, 4 pt
 // (5 in Dot style, after the last dot's overhang), and is there only when shown is not 0, so with none of the optional
 // readings the block is as it was before them. When the graph splits into the E-cores' bars and then the P-cores' (efficiencyBars
 // above 0, the count of the graph's bars that are E-cores', CpuRenderEfficiencyBars), the E-cores' and the P-cores' readings
@@ -77,10 +77,14 @@ enum Theme
 #define CPU_RENDER_KIND_CPU (6)
 #define CPU_RENDER_KIND_EFFICIENCY (7)
 #define CPU_RENDER_KIND_PERFORMANCE (8)
-// the width of the battery's number, which is right-aligned in it, in points: the width of "100", the widest the number
-// gets, in the 10-pt system font with monospaced digits that the number is drawn in (CTLineGetTypographicBounds measured
-// 19.248 pt on macOS 27, rounded up), so every number fits and the bar after it does not move
-#define CPU_RENDER_BATTERY_TEXT_WIDTH (20.0)
+// the font the battery's number is drawn in, by its PostScript name: Micro 5 (SIL Open Font License 1.1), a pixel font made
+// for tiny sizes, whose digits are 5 pixels tall. The app registers it from its Resources at launch; without it the number
+// is not drawn. At CPU_RENDER_BATTERY_FONT_SIZE a font pixel is 1 pt (1650 units per em, 150 per pixel, measured with
+// CoreText), so the digits are 5 pt tall and 3 pt wide ("1" 2 pt)
+#define CPU_RENDER_BATTERY_FONT "Micro5-Regular"
+#define CPU_RENDER_BATTERY_FONT_SIZE (11.0)
+// the Wi-Fi bar's segments, each 2 pt tall
+#define CPU_RENDER_WIFI_SEGMENTS (5)
 #define CPU_RENDER_READINGS_GAP (4.0)
 #define CPU_RENDER_EXTRA_GAP CPU_RENDER_READINGS_GAP
 #define CPU_RENDER_GROUP_GAP CPU_RENDER_EXTRA_GAP
@@ -155,24 +159,31 @@ struct CpuReadings
   // true: the Neural Engine's bar and the GPU's are drawn after the gap that follows memory, before CPU; false is the
   // default, so a zeroed struct draws the five as before. Ignored when the block is not drawn (extraOnly)
   bool gpuShown;
-  // true: the battery's reading, its charge as a number in 10-pt text, right-aligned in CPU_RENDER_BATTERY_TEXT_WIDTH, and
-  // after it a bar as wide as the readings', is drawn first, left of everything; false is the default. Ignored when the
-  // block is not drawn
+  // true: the battery's reading, a bar as wide as the readings' with its charge written over it, is drawn first, left of
+  // everything; false is the default. Ignored when the block is not drawn
   bool batteryShown;
   // the battery's charge, 0..1 (above 1 as 1); below 0, not read: the bar's background only, no number, and in Dot style
   // nothing. In bar style the bar is the Neural Engine's by-share bar: its background and a fill of that share of its
-  // height in the menu bar's text colour at 0.9 opacity, whole, without the dashes; in Dot style a dot filled while the
-  // charge is 0.005 or more. The number is the charge in whole percent. Drawn only with batteryShown
+  // height, whole, without the dashes, and over it the charge in whole percent in CPU_RENDER_BATTERY_FONT (none at 100),
+  // its digits upright and stacked from the top on device pixels, cut out of the fill so that the menu bar shows through
+  // them, and in the menu bar's text colour at 0.9 opacity over the rest of the bar; in Dot style a dot filled while the charge is 0.005 or more, with
+  // no number. Drawn only with batteryShown
   double battery;
-  // true: the battery is charging, and its fill, or in Dot style its dot, is systemGreen at full opacity instead of the text
-  // colour. Drawn only with batteryShown
+  // the power state, which colours the fill, or in Dot style the dot: charging, systemGreen at full opacity; else on the
+  // adapter (batteryOnAC: charged, or held below full, and not charging), the menu bar's text colour at 0.9 opacity, white
+  // on a dark menu bar and black on a light one; else on battery, systemRed at full opacity, as a zeroed struct draws it.
+  // Drawn only with batteryShown
   bool batteryCharging;
+  bool batteryOnAC;
   // true: Wi-Fi's reading, a bar as wide as the readings' (a dot in Dot style), is drawn after the battery's, before disk;
   // false is the default. Ignored when the block is not drawn
   bool wifiShown;
-  // Wi-Fi's signal as a fill, 0..1 (above 1 as 1); below 0, Wi-Fi off, not connected or not readable: the bar's background
-  // only, and in Dot style a 1-pt ring at the bars' background opacity. Drawn as the battery's bar, never in the ramp's
-  // colours, and with a dot filled while the fill is 0.005 or more. Drawn only with wifiShown
+  // Wi-Fi's signal as a fill, 0..1 (above 1 as 1); below 0, Wi-Fi off, not connected or not readable. In bar style
+  // CPU_RENDER_WIFI_SEGMENTS segments from the bar's bottom to its top, whole, without the dashes, evenly spaced with clear
+  // gaps, each segment's foot on a device pixel: ceil(fill * CPU_RENDER_WIFI_SEGMENTS) of them lit from the bottom, at least one while the fill is 0 or more, in
+  // the menu bar's text colour at 0.9 opacity over the bars' background, never in the ramp's colours; the rest, and all of
+  // them below 0, the background alone. In Dot style a dot filled while the fill is 0.005 or more, else a 1-pt ring at the
+  // bars' background opacity. Drawn only with wifiShown
   double wifi;
 } typedef CpuReadings;
 
@@ -205,12 +216,11 @@ CGFloat CpuRenderReadingsWidth(bool bar, CGFloat tickWidth, CGFloat tickTotalWid
 // 0 with none
 CGFloat CpuRenderExtraWidth(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth, int extraCount, const CpuExtraReading* extra);
 // the slot width of reading index in an image with extraCount extra readings: the readings' slot for the block's
-// readings (CpuRenderReadingsCount(shown) of them) but the battery's, which is wider by its number and 1 pt
-// (CPU_RENDER_BATTERY_TEXT_WIDTH + 1), an extra reading's own for the others, which is a full core bar's slot when it is
+// readings (CpuRenderReadingsCount(shown) of them), an extra reading's own for the others, which is a full core bar's slot when it is
 // narrow (extra NULL: none is)
 CGFloat CpuRenderReadingSlot(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth, unsigned shown, int extraCount, const CpuExtraReading* extra, int index);
 // the x step from one of the block's readings, or one extra reading that is not narrow, to the next, a reading's slot
-// (the readings are placed by CpuRenderReadingX: the battery's is wider, and a group gap follows memory when any optional
+// (the readings are placed by CpuRenderReadingX: a group gap follows memory when any optional
 // reading is shown; the extra readings, right of the core graph, the same step apart; a narrow extra reading's step is a
 // full core bar's slot, a group's gap is added where a group starts)
 CGFloat CpuRenderReadingsSlot(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth);

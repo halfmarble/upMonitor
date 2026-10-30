@@ -1790,9 +1790,12 @@ static NSWindow* MakeHelpWindow(void)
   CpuReadings engineOff = withGpu;
   engineOff.neuralEngine = 0;
   engineOff.neuralEngineBusy = 0.0;
-  // the battery's paragraph: charging, and on battery with Wi-Fi off
+  // the battery's paragraph: charging, plugged in and not charging, and on battery with Wi-Fi off
   CpuReadings charging = withGpu;
   charging.batteryCharging = true;
+  charging.batteryOnAC = true;
+  CpuReadings pluggedIn = withGpu;
+  pluggedIn.batteryOnAC = true;
   CpuReadings wifiOff = withGpu;
   wifiOff.wifi = -1.0;
   const double fills[] = {0.0, 0.20, 0.50, 0.70, 1.00};
@@ -1813,9 +1816,10 @@ static NSWindow* MakeHelpWindow(void)
       @[MenuRowsHelpExample(&withGpu, loads, loadCount, MenuRowsExampleReadings, nil, -1, HelpReadingsCaption(&withGpu))],
     ],
     @[
-      @"On a Mac with a battery, the first bar is the battery: its charge as a number, then a bar filled to it, green while it charges. Next is Wi-Fi: its bar fills with the signal, empty at -90 dBm or weaker and full at -30 dBm or stronger; with Wi-Fi off or not connected only its faint column shows. A small gap then sets battery, Wi-Fi, disk and memory apart from the Neural Engine, GPU and CPU. The network's name is not shown, so the app asks for no Location Services permission.",
+      @"On a Mac with a battery, the first bar is the battery: filled to its charge, red on battery, green while it charges, and white (black on a light menu bar) while it is plugged in and not charging, with the charge in percent written down the bar in small digits below 100%. Next is Wi-Fi: its five segments light from the bottom with the signal, one at -78 dBm or weaker, one more for each 12 dB stronger, and all five from -41 dBm; with Wi-Fi off or not connected only its faint segments show. A small gap then sets battery, Wi-Fi, disk and memory apart from the Neural Engine, GPU and CPU. The network's name is not shown, so the app asks for no Location Services permission.",
       @[
         MenuRowsHelpExample(&charging, loads, loadCount, MenuRowsExampleReadings, nil, -1, @"charging"),
+        MenuRowsHelpExample(&pluggedIn, loads, loadCount, MenuRowsExampleReadings, nil, -1, @"plugged in, not charging"),
         MenuRowsHelpExample(&wifiOff, loads, loadCount, MenuRowsExampleReadings, nil, -1, @"on battery, Wi-Fi off"),
       ],
     ],
@@ -3541,11 +3545,12 @@ static SystemInfoWifi HelpWifiSample(void)
 }
 
 // the battery and Wi-Fi hover labels of the help window's examples, as the real ones read: the battery at the example's
-// charge, charging on the adapter as the example draws it, or on battery with 3:12 left; Wi-Fi the sample's
+// charge, charging or not charging on the adapter as the example draws it, or on battery with 3:12 left; Wi-Fi the sample's
 static NSString* HelpBatteryLabel(const CpuReadings* readings)
 {
   bool charging = readings->batteryCharging;
-  SystemInfoBattery battery = {readings->battery, charging, false, charging, charging ? -1 : 192, -1};
+  bool onAC = charging || readings->batteryOnAC;
+  SystemInfoBattery battery = {readings->battery, charging, false, onAC, onAC ? -1 : 192, -1};
   return TipPercents(BatteryTipText(true, &battery));
 }
 
@@ -4163,6 +4168,7 @@ static void WifiRead(SystemInfoWifi* wifi, bool full)
     {
       readings.battery = readingsBatteryState.level;
       readings.batteryCharging = readingsBatteryState.charging;
+      readings.batteryOnAC = readingsBatteryState.onAC;
     }
     readings.wifi = readingsWifi.connected ? SystemInfoWifiFill(readingsWifi.rssi) : -1.0;
     readings.gpu = readingsGpu;
@@ -4841,6 +4847,13 @@ static NSTimeInterval TopDelay(void)
     if ((fontURL == nil) || !CTFontManagerRegisterFontsForURL((__bridge CFURLRef)fontURL, kCTFontManagerScopeProcess, &fontError))
     {
       NSLog(@"the menu font did not load (%@); the system's monospaced font stands in", (fontError != NULL) ? (__bridge_transfer NSError*)fontError : @"not in the app");
+    }
+    // the battery number's font (CPU_RENDER_BATTERY_FONT), the same way; when it does not load, the number is not drawn
+    NSURL* batteryFontURL = [[NSBundle mainBundle] URLForResource:@"Micro5-Regular" withExtension:@"ttf"];
+    CFErrorRef batteryFontError = NULL;
+    if ((batteryFontURL == nil) || !CTFontManagerRegisterFontsForURL((__bridge CFURLRef)batteryFontURL, kCTFontManagerScopeProcess, &batteryFontError))
+    {
+      NSLog(@"the battery number's font did not load (%@); the battery bar is drawn without its number", (batteryFontError != NULL) ? (__bridge_transfer NSError*)batteryFontError : @"not in the app");
     }
 
     CpuRenderInit();

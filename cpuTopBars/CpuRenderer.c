@@ -303,19 +303,12 @@ static CGFloat _extra_slots(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth,
   return sum;
 }
 
-// block reading index's slot: the readings' slot, and for the battery's, its number's width and 1 pt more
-static CGFloat _block_slot(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth, unsigned shown, int index)
-{
-  const CGFloat slot = _readings_slot(bar, tickWidth, tickTotalWidth);
-  return (CpuRenderReadingKind(shown, index) == CPU_RENDER_KIND_BATTERY) ? (slot + CPU_RENDER_BATTERY_TEXT_WIDTH + 1.0) : slot;
-}
-
 CGFloat CpuRenderReadingSlot(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth, unsigned shown, int extraCount, const CpuExtraReading* extra, int index)
 {
   const int base = _readings_count(shown);
   if ((index < base) || (index - base >= _extra_count(extraCount)))
   {
-    return _block_slot(bar, tickWidth, tickTotalWidth, shown, index);
+    return _readings_slot(bar, tickWidth, tickTotalWidth);
   }
   return _extra_slot(bar, tickWidth, tickTotalWidth, extra, index - base);
 }
@@ -341,11 +334,7 @@ static CGFloat _split_gap(bool bar)
 // the readings' slots
 static CGFloat _block_x(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth, unsigned shown, int index)
 {
-  CGFloat x = 0.0;
-  for (int i=0; i<index; i++)
-  {
-    x += _block_slot(bar, tickWidth, tickTotalWidth, shown, i);
-  }
+  const CGFloat x = index*_readings_slot(bar, tickWidth, tickTotalWidth);
   const int memory = CpuRenderReadingIndex(shown, CPU_RENDER_KIND_MEMORY);
   return x + (((shown & SHOWN_MASK) != 0 && (index > memory)) ? _split_gap(bar) : 0.0);
 }
@@ -419,7 +408,7 @@ CGFloat CpuRenderExtraWidth(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth,
 
 CGFloat CpuRenderReadingsWidth(bool bar, CGFloat tickWidth, CGFloat tickTotalWidth, unsigned shown, int efficiencyBars, int extraCount, const CpuExtraReading* extra)
 {
-  // as the core graph's own width: a slot per reading (the battery's wider) and the gap after memory, and 1 pt more for
+  // as the core graph's own width: a slot per reading and the gap after memory, and 1 pt more for
   // dots; the split's gap when the graph splits; then the extra readings' block
   return _block_x(bar, tickWidth, tickTotalWidth, shown, _readings_count(shown)) + (bar ? 0.0 : 1.0) + CPU_RENDER_READINGS_GAP +
     ((efficiencyBars > 0) ? _split_gap(bar) : 0.0) + _extra_width(bar, tickWidth, tickTotalWidth, extraCount, extra);
@@ -673,103 +662,183 @@ static rgb _charging_color(bool light)
   return c;
 }
 
-// the battery's number, the charge in whole percent, in the system font at 10 pt with monospaced digits, in the menu bar's
-// text colour at 0.9 opacity (the Neural Engine's), right-aligned in the CPU_RENDER_BATTERY_TEXT_WIDTH from x and centred
-// vertically on the digits' height. The font is made on the first call: the tests never call CpuRenderInit
-static void _render_battery_number(CGContextRef ctx, CGFloat x, double charge, bool light)
+// systemRed, the colour of a battery's fill on battery: sRGB (1.000, 0.220, 0.235) on a light menu bar and (1.000, 0.259,
+// 0.271) on a dark one (NSColor systemRedColor in each appearance, measured on macOS 27)
+static rgb _discharging_color(bool light)
+{
+  rgb c = light ? (rgb){1.000, 0.220, 0.235} : (rgb){1.000, 0.259, 0.271};
+  return c;
+}
+
+// the context's device pixels per point: 2 where the app draws for a Retina display (its contexts carry the screen's
+// scale in their transform), 1 on a 1x display and in the tests' bitmaps
+static CGFloat _device_scale(CGContextRef ctx)
+{
+  const CGFloat scale = fabs(CGContextConvertSizeToDeviceSpace(ctx, CGSizeMake(1.0, 1.0)).height);
+  return (scale > 0.0) ? scale : 1.0;
+}
+
+// v rounded to the nearest device pixel at scale, so that an edge placed there is drawn sharp
+static CGFloat _snap(CGFloat v, CGFloat scale)
+{
+  return round(v*scale)/scale;
+}
+
+// the battery number's font, CPU_RENDER_BATTERY_FONT at CPU_RENDER_BATTERY_FONT_SIZE, kept from the first call that finds it
+// registered (the tests never call CpuRenderInit, and register it themselves); NULL until then. CTFontCreateWithName gives
+// a stand-in for a name it does not know, so the PostScript name is compared
+static CTFontRef _battery_font(void)
 {
   static CTFontRef font = NULL;
   if (font == NULL)
   {
-    CTFontRef base = CTFontCreateUIFontForLanguage(kCTFontUIFontSystem, 10.0, NULL);
-    if (base == NULL)
+    CTFontRef made = CTFontCreateWithName(CFSTR(CPU_RENDER_BATTERY_FONT), CPU_RENDER_BATTERY_FONT_SIZE, NULL);
+    if (made == NULL)
     {
-      return;
+      return NULL;
     }
-    int type = kNumberSpacingType;
-    int selector = kMonospacedNumbersSelector;
-    CFNumberRef types = CFNumberCreate(NULL, kCFNumberIntType, &type);
-    CFNumberRef selectors = CFNumberCreate(NULL, kCFNumberIntType, &selector);
-    const void* keys[] = {kCTFontFeatureTypeIdentifierKey, kCTFontFeatureSelectorIdentifierKey};
-    const void* values[] = {types, selectors};
-    CFDictionaryRef feature = CFDictionaryCreate(NULL, keys, values, 2, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
-    const void* features[] = {feature};
-    CFArrayRef list = CFArrayCreate(NULL, features, 1, &kCFTypeArrayCallBacks);
-    const void* attributeKeys[] = {kCTFontFeatureSettingsAttribute};
-    const void* attributeValues[] = {list};
-    CFDictionaryRef attributes = CFDictionaryCreate(NULL, attributeKeys, attributeValues, 1, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
-    CTFontDescriptorRef descriptor = CTFontDescriptorCreateWithAttributes(attributes);
-    font = CTFontCreateCopyWithAttributes(base, 10.0, NULL, descriptor);
-    CFRelease(descriptor);
-    CFRelease(attributes);
-    CFRelease(list);
-    CFRelease(feature);
-    CFRelease(selectors);
-    CFRelease(types);
-    CFRelease(base);
-    if (font == NULL)
+    CFStringRef name = CTFontCopyPostScriptName(made);
+    const bool found = (name != NULL) && (CFStringCompare(name, CFSTR(CPU_RENDER_BATTERY_FONT), 0) == kCFCompareEqualTo);
+    if (name != NULL)
     {
-      return;
+      CFRelease(name);
     }
+    if (!found)
+    {
+      CFRelease(made);
+      return NULL;
+    }
+    font = made;
+  }
+  return font;
+}
+
+// the battery's number over its bar at x, width wide: the charge in whole percent, 0 to 99, its digits upright and stacked
+// from the top, 5 pt tall, a device pixel apart (0.5 pt on a Retina display, 1 pt at 1x), each centred across the bar on
+// whole points and the stack centred down the image on device pixels, so the digits' own edges are sharp (the fill's top
+// is not snapped, as no share bar's is, so where a digit crosses it one row blends). A full bar (100) has no
+// number: stacked, it would be 16 pt, taller than the dashed style's 14-pt bar. Where the digits cross the fill (the
+// charge's share of the bar's height from bottom) they are cut out of it, so the menu bar shows through; elsewhere they
+// are in the menu bar's text colour at 0.9 opacity. Nothing without the font
+static void _render_battery_number(CGContextRef ctx, CGFloat x, CGFloat width, double charge, CGFloat bottom, bool light)
+{
+  CTFontRef font = _battery_font();
+  if (font == NULL)
+  {
+    return;
+  }
+  const double share = fmin(fmax(charge, 0.0), 1.0);
+  const long percent = lround(share*100.0);
+  if (percent >= 100)
+  {
+    return;
   }
   char text[8];
-  snprintf(text, sizeof(text), "%d", (int)lround(fmin(fmax(charge, 0.0), 1.0)*100.0));
-  CFStringRef string = CFStringCreateWithCString(NULL, text, kCFStringEncodingASCII);
-  const void* keys[] = {kCTFontAttributeName, kCTForegroundColorFromContextAttributeName};
-  const void* values[] = {font, kCFBooleanTrue};
-  CFDictionaryRef attributes = CFDictionaryCreate(NULL, keys, values, 2, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
-  CFAttributedStringRef attributed = CFAttributedStringCreate(NULL, string, attributes);
-  CTLineRef line = CTLineCreateWithAttributedString(attributed);
-  const double width = CTLineGetTypographicBounds(line, NULL, NULL, NULL);
+  const int count = snprintf(text, sizeof(text), "%ld", percent);
+  if ((count <= 0) || ((size_t)count >= sizeof(text)))
+  {
+    return;
+  }
+  const CGFloat scale = _device_scale(ctx);
+  const CGFloat digit = 5.0;
+  const CGFloat step = ceil((digit + 0.5)*scale)/scale; // a digit and the gap after it
+  const CGFloat lowest = _snap((16.0 - ((count*digit) + ((count-1)*(step - digit))))/2.0, scale); // the last digit's bottom
+  CGMutablePathRef digits = CGPathCreateMutable();
+  for (int i=0; i<count; i++)
+  {
+    UniChar character = (UniChar)text[i];
+    CGGlyph glyph = 0;
+    if (!CTFontGetGlyphsForCharacters(font, &character, &glyph, 1))
+    {
+      continue;
+    }
+    CGPathRef path = CTFontCreatePathForGlyph(font, glyph, NULL);
+    if (path == NULL)
+    {
+      continue;
+    }
+    const CGRect box = CGPathGetPathBoundingBox(path);
+    const CGAffineTransform place = CGAffineTransformMakeTranslation(x + floor((width - box.size.width)/2.0) - box.origin.x,
+                                                                     lowest + ((count-1-i)*step) - box.origin.y);
+    CGPathAddPath(digits, &place, path);
+    CGPathRelease(path);
+  }
+  const CGRect fill = CGRectMake(x, bottom, width, share*(16.0-bottom));
+  CGContextSaveGState(ctx);
+  CGContextClipToRect(ctx, fill);
+  CGContextSetBlendMode(ctx, kCGBlendModeClear);
+  CGContextAddPath(ctx, digits);
+  CGContextFillPath(ctx);
+  CGContextRestoreGState(ctx);
+  CGContextSaveGState(ctx);
+  CGContextAddRect(ctx, CGRectMake(x, 0.0, width, 16.0));
+  CGContextAddRect(ctx, fill);
+  CGContextEOClip(ctx);
   CGContextSetGrayFillColor(ctx, light ? 0.0 : 1.0, 0.9);
-  CGContextSetTextMatrix(ctx, CGAffineTransformIdentity); // the context is y-up
-  CGContextSetTextPosition(ctx, x + CPU_RENDER_BATTERY_TEXT_WIDTH - width, (16.0 - CTFontGetCapHeight(font))/2.0);
-  CTLineDraw(line, ctx);
-  CFRelease(line);
-  CFRelease(attributed);
-  CFRelease(attributes);
-  CFRelease(string);
+  CGContextAddPath(ctx, digits);
+  CGContextFillPath(ctx);
+  CGContextRestoreGState(ctx);
+  CGPathRelease(digits);
 }
 
 // the battery's reading in its slot at x: not read (charge below 0), the bar's background alone in bar style, nothing in Dot
-// style, and no number. Else the number, then, CPU_RENDER_BATTERY_TEXT_WIDTH and 1 pt on, a wide bar as the Neural Engine's by-share
-// bar is (whole, without the dashes): its fill the charge, in the text colour at 0.9 opacity, or systemGreen at full
-// opacity while charging; in Dot style the readings' dot there, filled while the charge is 0.005 or more
-static void _render_battery(CGContextRef ctx, CGFloat x, double charge, bool charging, CGFloat color, bool bar, CGFloat tickWidth, bool light, CGFloat bottom)
+// style. Else a wide bar as the Neural Engine's by-share bar is (whole, without the dashes), its fill the charge, coloured by
+// the power state: charging, systemGreen; on the adapter and not charging (onAC), the text colour at 0.9 opacity; on
+// battery, systemRed; and over it the number (_render_battery_number). In Dot style the readings' dot, in the same colour,
+// filled while the charge is 0.005 or more, with no number
+static void _render_battery(CGContextRef ctx, CGFloat x, double charge, bool charging, bool onAC, CGFloat color, bool bar, CGFloat tickWidth, bool light, CGFloat bottom)
 {
-  const CGFloat barX = x + CPU_RENDER_BATTERY_TEXT_WIDTH + 1.0;
+  const CGFloat width = 2.0*tickWidth;
   if (!(charge >= 0.0))
   {
     if (bar)
     {
-      _render_background(ctx, barX, 2.0*tickWidth, color, light, bottom);
+      _render_background(ctx, x, width, color, light, bottom);
     }
     return;
   }
-  const rgb fill = charging ? _charging_color(light) : _text_color(light);
+  const bool neutral = !charging && onAC;
+  const rgb fill = charging ? _charging_color(light) : (onAC ? _text_color(light) : _discharging_color(light));
   if (bar)
   {
-    _render_share_bar(ctx, barX, 2.0*tickWidth, charge, fill, charging ? 1.0 : 0.9, color, light, bottom);
+    _render_share_bar(ctx, x, width, charge, fill, neutral ? 0.9 : 1.0, color, light, bottom);
+    _render_battery_number(ctx, x, width, charge, bottom, light);
   }
   else
   {
-    _render_dot(ctx, barX, charge >= 0.005, false, fill, color, tickWidth, light);
+    _render_dot(ctx, x, charge >= 0.005, false, fill, color, tickWidth, light);
   }
-  _render_battery_number(ctx, x, charge, light);
 }
 
-// Wi-Fi's reading in its readings slot at x: a wide bar as the battery's, filled to the signal (fill, 0..1) in the text
-// colour at 0.9 opacity; below 0 (off, not connected, not readable) the background alone. In Dot style the readings'
-// dot, filled while the fill is 0.005 or more, else a 1-pt ring
+// Wi-Fi's reading in its readings slot at x. In bar style CPU_RENDER_WIFI_SEGMENTS segments, 2 pt tall, from bottom to the
+// top, whole, without the dashes, the gaps between them clear and equal (1.5 pt over the 16 pt, 1 pt over the dashed
+// style's 14), each segment's foot on a device pixel (at 1x the solid style's gaps are 2 and 1 pt in turn): ceil(fill *
+// segments) lit from the bottom, at least one while the fill is 0 or more, in the text colour at
+// 0.9 opacity over the bars' background; the rest, and all below 0 (off, not connected, not readable), the background
+// alone. In Dot style the readings' dot, filled while the fill is 0.005 or more, else a 1-pt ring
 static void _render_wifi(CGContextRef ctx, CGFloat x, double fill, CGFloat color, bool bar, CGFloat tickWidth, bool light, CGFloat bottom)
 {
-  if (bar)
-  {
-    _render_share_bar(ctx, x, 2.0*tickWidth, fill, _text_color(light), 0.9, color, light, bottom);
-  }
-  else
+  if (!bar)
   {
     _render_dot(ctx, x, fill >= 0.005, true, _text_color(light), color, tickWidth, light);
+    return;
+  }
+  const int segments = CPU_RENDER_WIFI_SEGMENTS;
+  const CGFloat height = 2.0;
+  const CGFloat gap = ((16.0 - bottom) - (segments*height))/(segments - 1);
+  const CGFloat scale = _device_scale(ctx);
+  // the small allowance keeps a share that is a whole number of segments, such as 0.4, from rounding up past it
+  const int lit = (fill < 0.0) ? 0 : (int)fmax(1.0, fmin(ceil((fill*segments) - 1e-9), (double)segments));
+  for (int i=0; i<segments; i++)
+  {
+    const CGRect segment = CGRectMake(x, _snap(bottom + (i*(height + gap)), scale), 2.0*tickWidth, height);
+    CGContextSetGrayFillColor(ctx, color, light ? 0.12 : 0.3);
+    CGContextFillRect(ctx, segment);
+    if (i < lit)
+    {
+      CGContextSetGrayFillColor(ctx, light ? 0.0 : 1.0, 0.9);
+      CGContextFillRect(ctx, segment);
+    }
   }
 }
 
@@ -955,7 +1024,7 @@ void CpuRender(CpuSummaryInfo* cpu_info, CGContextRef ctx, bool light, int granu
   if ((shown & CPU_RENDER_SHOWN_BATTERY) != 0)
   {
     _render_battery(ctx, CpuRenderReadingX(bar, tickWidth, tickTotalWidth, shown, imageWidth, split, cores, extraCount, extra, CpuRenderReadingIndex(shown, CPU_RENDER_KIND_BATTERY)),
-                    readings->battery, readings->batteryCharging, color, bar, tickWidth, light, bottom);
+                    readings->battery, readings->batteryCharging, readings->batteryOnAC, color, bar, tickWidth, light, bottom);
   }
   if ((shown & CPU_RENDER_SHOWN_WIFI) != 0)
   {

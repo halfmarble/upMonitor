@@ -161,35 +161,32 @@ extension FreeTests {
     }
 
     @Test func batteryAndWifiGeometry() {
-      // the battery's slot is its number's width T = CPU_RENDER_BATTERY_TEXT_WIDTH (20) and 1 pt more than a reading's
-      let t = CGFloat(CPU_RENDER_BATTERY_TEXT_WIDTH)
-      #expect(t == 20)
-      #expect(CpuRenderReadingSlot(true, 4, 6, CPU_RENDER_SHOWN_BATTERY, 0, nil, 0) == t + 11)
-      #expect(CpuRenderReadingSlot(false, 4, 6, CPU_RENDER_SHOWN_BATTERY, 0, nil, 0) == t + 7)
+      // the battery's slot is a reading's, its number written over its bar
+      #expect(CpuRenderReadingSlot(true, 4, 6, CPU_RENDER_SHOWN_BATTERY, 0, nil, 0) == 10)
+      #expect(CpuRenderReadingSlot(false, 4, 6, CPU_RENDER_SHOWN_BATTERY, 0, nil, 0) == 6)
       #expect(CpuRenderReadingSlot(true, 4, 6, CPU_RENDER_SHOWN_BATTERY, 0, nil, 1) == 10)
-      // all shown: battery 0, Wi-Fi at T + 11, disk T + 21, memory T + 31, then the gap 4 and the Neural Engine at
-      // T + 45 = 65, the GPU 75, CPU 85, E 95, P 105; the width is P's end 115 + the readings' gap 4
+      // all shown: battery 0, Wi-Fi 10, disk 20, memory 30, then the gap 4 and the Neural Engine at 44, the GPU 54,
+      // CPU 64, E 74, P 84; the width is P's end 94 + the readings' gap 4
       let all = CPU_RENDER_SHOWN_GPU | CPU_RENDER_SHOWN_WIFI | CPU_RENDER_SHOWN_BATTERY
-      let xs: [CGFloat] = [0, t + 11, t + 21, t + 31, t + 45, t + 55, t + 65, t + 75, t + 85]
+      let xs: [CGFloat] = [0, 10, 20, 30, 44, 54, 64, 74, 84]
       for (index, x) in xs.enumerated() {
         #expect(CpuRenderReadingX(true, 4, 6, all, 300, 0, 8, 0, nil, Int32(index)) == x, "index \(index)")
       }
-      #expect(xs[8] == 105)
-      #expect(CpuRenderReadingsWidth(true, 4, 6, all, 0, 0, nil) == 119)
+      #expect(CpuRenderReadingsWidth(true, 4, 6, all, 0, 0, nil) == 98)
       var start: CGFloat = 0, end: CGFloat = 0
       CpuRenderGraphSpan(true, 4, 6, 300, true, all, 0, 0, nil, &start, &end)
-      #expect(start == 119 && end == 300)   // width and the graph's start agree
-      // split after 2 bars: E at 99 (= 91 of slots before it + 4 + 4), P at 99 + 10 + 12 + 4 = 125, the graph from 109,
-      // the width 123
-      #expect(CpuRenderReadingX(true, 4, 6, all, 300, 2, 8, 0, nil, 7) == 99)
-      #expect(CpuRenderReadingX(true, 4, 6, all, 300, 2, 8, 0, nil, 8) == 125)
+      #expect(start == 98 && end == 300)   // width and the graph's start agree
+      // split after 2 bars: E at 78 (= 70 of slots before it + 4 + 4), P at 78 + 10 + 12 + 4 = 104, the graph from 88,
+      // the width 102
+      #expect(CpuRenderReadingX(true, 4, 6, all, 300, 2, 8, 0, nil, 7) == 78)
+      #expect(CpuRenderReadingX(true, 4, 6, all, 300, 2, 8, 0, nil, 8) == 104)
       CpuRenderGraphSpan(true, 4, 6, 300, true, all, 2, 0, nil, &start, &end)
-      #expect(start == 109)
-      #expect(CpuRenderReadingsWidth(true, 4, 6, all, 2, 0, nil) == 123)
-      // the battery alone: disk 31, memory 41, then the gap: CPU 55, E 65, P 75, width 85 + 4
-      #expect(CpuRenderReadingX(true, 4, 6, CPU_RENDER_SHOWN_BATTERY, 300, 0, 8, 0, nil, 1) == 31)
-      #expect(CpuRenderReadingX(true, 4, 6, CPU_RENDER_SHOWN_BATTERY, 300, 0, 8, 0, nil, 3) == 55)
-      #expect(CpuRenderReadingsWidth(true, 4, 6, CPU_RENDER_SHOWN_BATTERY, 0, 0, nil) == 89)
+      #expect(start == 88)
+      #expect(CpuRenderReadingsWidth(true, 4, 6, all, 2, 0, nil) == 102)
+      // the battery alone: disk 10, memory 20, then the gap: CPU 34, E 44, P 54, width 64 + 4
+      #expect(CpuRenderReadingX(true, 4, 6, CPU_RENDER_SHOWN_BATTERY, 300, 0, 8, 0, nil, 1) == 10)
+      #expect(CpuRenderReadingX(true, 4, 6, CPU_RENDER_SHOWN_BATTERY, 300, 0, 8, 0, nil, 3) == 34)
+      #expect(CpuRenderReadingsWidth(true, 4, 6, CPU_RENDER_SHOWN_BATTERY, 0, 0, nil) == 68)
       // Wi-Fi alone: Wi-Fi 0, disk 10, memory 20, CPU 34, width 60 + 4 + 4
       #expect(CpuRenderReadingX(true, 4, 6, CPU_RENDER_SHOWN_WIFI, 300, 0, 8, 0, nil, 3) == 34)
       #expect(CpuRenderReadingsWidth(true, 4, 6, CPU_RENDER_SHOWN_WIFI, 0, 0, nil) == 68)
@@ -212,8 +209,8 @@ extension FreeTests {
       // the split: _efficiency_x = 5*6 + 5 + 1 + 4 = 40; the P-cores' reading 40 + 6 + 2 bars * 6 + (1 + 4) = 63
       #expect(CpuRenderReadingX(false, 4, 6, gpu, 200, 2, 8, 0, nil, 5) == 40)
       #expect(CpuRenderReadingX(false, 4, 6, gpu, 200, 2, 8, 0, nil, 6) == 63)
-      // the battery's slot in Dot style: 6 + 21
-      #expect(CpuRenderReadingX(false, 4, 6, CPU_RENDER_SHOWN_BATTERY, 200, 0, 8, 0, nil, 1) == 27)
+      // the battery's slot in Dot style: a reading's, 6
+      #expect(CpuRenderReadingX(false, 4, 6, CPU_RENDER_SHOWN_BATTERY, 200, 0, 8, 0, nil, 1) == 6)
     }
 
     @Test func efficiencyBars() {

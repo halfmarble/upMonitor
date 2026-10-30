@@ -22,13 +22,15 @@
 
 import Testing
 import CoreGraphics
+import CoreText
+import Foundation
 
 // CpuRender into a bitmap, dark menu bar, no colour, tickWidth 4 and tickTotalWidth 6. Granularity 0 is one core bar on
 // any Mac (CpuSampler.c:130), so the readings block starts the image: the disk bar is at x = 0 to 8 (CpuRenderer.c:295,
 // 2 * tickWidth wide). The bitmap's first memory row is the image's top, so the row at height y is memory row 15 - y.
 private struct Bitmap {
   let width: Int
-  let height = 16
+  var height = 16
   let bytes: [UInt8]
 
   func alpha(x: Int, y: Int) -> UInt8 { bytes[(height - 1 - y) * width * 4 + x * 4 + 3] }
@@ -37,11 +39,13 @@ private struct Bitmap {
   func column(_ x: Int) -> [UInt8] { (0..<height).map { alpha(x: x, y: $0) } }   // index 0 is height 0, the bottom
 }
 
+// scale 2 draws as for a Retina display: a bitmap twice the size, its transform scaled by 2, so a point is 2 pixels
 private func render(bar: Bool, stripped: Bool, width: Int, readings: CpuReadings,
-                    extra: [CpuExtraReading] = [], light: Bool = false) -> Bitmap {
-  let h = 16
-  let ctx = CGContext(data: nil, width: width, height: h, bitsPerComponent: 8, bytesPerRow: width * 4,
+                    extra: [CpuExtraReading] = [], light: Bool = false, scale: Int = 1) -> Bitmap {
+  let h = 16 * scale
+  let ctx = CGContext(data: nil, width: width * scale, height: h, bitsPerComponent: 8, bytesPerRow: width * scale * 4,
                       space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+  ctx.scaleBy(x: CGFloat(scale), y: CGFloat(scale))
   var ticks = Ticks()
   var readings = readings
   withUnsafeMutablePointer(to: &ticks) { t in
@@ -57,7 +61,7 @@ private func render(bar: Bool, stripped: Bool, width: Int, readings: CpuReadings
     }
   }
   let data = ctx.data!.assumingMemoryBound(to: UInt8.self)
-  return Bitmap(width: width, bytes: Array(UnsafeBufferPointer(start: data, count: width * h * 4)))
+  return Bitmap(width: width * scale, height: h, bytes: Array(UnsafeBufferPointer(start: data, count: width * scale * h * 4)))
 }
 
 private func readings(disk: Double) -> CpuReadings {
@@ -170,71 +174,119 @@ extension FreeTests {
       for x in [18, 19, 20, 21, 22, 23, 32, 33] { #expect(image.column(x).allSatisfy { $0 == 0 }, "gap column \(x)") }
     }
 
-    // the battery alone, in a 120-wide image: its number in x = 0 to T (CPU_RENDER_BATTERY_TEXT_WIDTH, 20), then 1 pt clear,
-    // and its bar at x = 21 to 29, a reading's width, drawn last from DASHED_BOTTOM 2 and whole, without the dashes
-    private func batteryReadings(_ charge: Double, charging: Bool = false) -> CpuReadings {
+    // the battery number's font, registered once from the app's sources: the hostless bundle has no app Resources
+    private static let batteryFont: Bool = {
+      let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        .appendingPathComponent("cpuTopBars/Micro5-Regular.ttf")
+      return CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil)
+    }()
+
+    // the battery alone, in a 120-wide image: its bar at x = 0 to 8, a reading's width, drawn last from DASHED_BOTTOM 2 in
+    // the dashed style and whole, without the dashes. Its digits, Micro 5 at 1 pt a pixel, 5 pt tall and 3 wide ("1" 2),
+    // are centred across it on whole points, x = 2 to 5 ("1" 3 to 5), and stacked from the top a device pixel apart: in these
+    // 1x bitmaps 1 pt, so two digits are 11 pt, from height 3 ("87": the 7 at 3 to 8, the 8 at 9 to 14). Columns 0, 1, 6
+    // and 7 never hold a digit
+    private func batteryReadings(_ charge: Double, charging: Bool = false, onAC: Bool = false) -> CpuReadings {
       var r = readings(disk: -1)
       r.batteryShown = true
       r.battery = charge
       r.batteryCharging = charging
+      r.batteryOnAC = onAC
       return r
     }
 
-    @Test func batteryNumberAndFullBar() {
-      let image = render(bar: true, stripped: true, width: 120, readings: batteryReadings(1.0))
-      // "100" is drawn inside [0, T): some pixel there, none from x = T on up to the bar, and the number's pixels span most of
-      // the width (it was measured 19.248 pt wide, right-aligned, so its left edge is within 4 columns of x = 0)
-      let numberColumns = (0..<20).filter { x in image.column(x).contains { $0 > 0 } }
-      #expect(!numberColumns.isEmpty)
-      #expect((numberColumns.first ?? 99) <= 4 && (numberColumns.last ?? 0) >= 17, "columns \(numberColumns)")
-      #expect(image.column(20).allSatisfy { $0 == 0 })
-      // the bar at 100% is filled on every row from 2 up, the dash rows 4, 7, 10 and 13 included, white at 0.9 opacity over the background (about 238)
-      for x in 21..<29 {
+    @Test func batteryFullOnTheAdapterIsWhiteWithNoNumber() {
+      #expect(Self.batteryFont)
+      let image = render(bar: true, stripped: true, width: 120, readings: batteryReadings(1.0, onAC: true))
+      // the fill, white at 0.9 opacity over the background (about 238), on every row from 2 up, the dash rows included;
+      // at 100 no number, so nothing is cut out and nothing stands below the bar
+      for x in 0..<8 {
         let column = image.column(x)
         #expect(column[0] == 0 && column[1] == 0, "below DASHED_BOTTOM, column \(x)")
         for y in 2..<16 { #expect(column[y] > 200, "column \(x), height \(y): \(column[y])") }
+        #expect(image.red(x: x, y: 8) == image.green(x: x, y: 8))
       }
-      for y in [4, 7, 10, 13] { #expect(image.alpha(x: 25, y: y) > 200, "dash row \(y)") }
-      // the readings' gap after the bar: the slot ends at T + 1 + 10 = 31, where disk's background starts
-      for x in 29..<31 { #expect(image.column(x).allSatisfy { $0 == 0 }, "gap column \(x)") }
-      #expect(image.column(31)[2] > 0)
+      // the readings' gap after the bar: the slot ends at 10, where disk's background starts
+      for x in 8..<10 { #expect(image.column(x).allSatisfy { $0 == 0 }, "gap column \(x)") }
+      #expect(image.column(10)[2] > 0)
     }
 
-    @Test func batteryChargingBarIsGreen() {
-      let charging = render(bar: true, stripped: true, width: 120, readings: batteryReadings(1.0, charging: true))
-      let plain = render(bar: true, stripped: true, width: 120, readings: batteryReadings(1.0))
-      // systemGreen (0.188, 0.820, 0.345) at full opacity over the bar's height: green above red; the text colour is white
-      #expect(charging.alpha(x: 25, y: 8) == 255)
-      #expect(charging.green(x: 25, y: 8) > charging.red(x: 25, y: 8))
-      #expect(plain.red(x: 25, y: 8) == plain.green(x: 25, y: 8))
+    @Test func batteryNumberIsCutOutOfTheFill() {
+      #expect(Self.batteryFont)
+      // 87% on the adapter: the fill to 2 + 0.87 * 14 = 14.18, so both digits stand in it and are cut out of it
+      let image = render(bar: true, stripped: true, width: 120, readings: batteryReadings(0.87, onAC: true))
+      let cut = (2..<5).flatMap { x in (3..<14).map { y in image.alpha(x: x, y: y) } }.filter { $0 == 0 }
+      #expect(cut.count >= 12, "cut-out pixels: \(cut.count)")
+      for x in [0, 1, 6, 7] {
+        for y in 2..<14 { #expect(image.alpha(x: x, y: y) > 200, "column \(x), height \(y)") }
+      }
+      for x in 0..<8 { #expect(image.alpha(x: x, y: 0) == 0 && image.alpha(x: x, y: 1) == 0, "below the bar, column \(x)") }
     }
 
-    @Test func batteryNumberIsBlackOnLightMenuBar() {
-      let image = render(bar: true, stripped: false, width: 120, readings: batteryReadings(0.87), light: true)
-      var any = false
-      for x in 0..<20 {
-        for y in 0..<16 where image.alpha(x: x, y: y) > 0 {
-          any = true
-          #expect(image.red(x: x, y: y) == 0 && image.green(x: x, y: y) == 0, "column \(x), height \(y)")
+    @Test func batteryFillColourFollowsThePowerState() {
+      #expect(Self.batteryFont)
+      for light in [false, true] {
+        let battery = render(bar: true, stripped: true, width: 120, readings: batteryReadings(1.0), light: light)
+        let charging = render(bar: true, stripped: true, width: 120, readings: batteryReadings(1.0, charging: true, onAC: true), light: light)
+        let adapter = render(bar: true, stripped: true, width: 120, readings: batteryReadings(1.0, onAC: true), light: light)
+        // on battery systemRed and charging systemGreen, both at full opacity; on the adapter the text colour at 0.9
+        #expect(battery.alpha(x: 0, y: 8) == 255 && battery.red(x: 0, y: 8) > battery.green(x: 0, y: 8), "light \(light)")
+        #expect(charging.alpha(x: 0, y: 8) == 255 && charging.green(x: 0, y: 8) > charging.red(x: 0, y: 8), "light \(light)")
+        #expect(adapter.alpha(x: 0, y: 8) < 255 && adapter.red(x: 0, y: 8) == adapter.green(x: 0, y: 8), "light \(light)")
+        #expect((adapter.red(x: 0, y: 8) > 200) == !light, "white on a dark menu bar, black on a light one")
+      }
+    }
+
+    @Test(arguments: [false, true])
+    func batteryNumberOverTheEmptyBarIsTheTextColour(light: Bool) {
+      #expect(Self.batteryFont)
+      // 20% in the solid style: the fill to height 3.2, "20" stacked from 3, its "2" at heights 9 to 14, over the
+      // background alone
+      let image = render(bar: true, stripped: false, width: 120, readings: batteryReadings(0.2), light: light)
+      let digit = (2..<5).flatMap { x in (9..<14).map { y in (x, y) } }.filter { image.alpha(x: $0.0, y: $0.1) > 200 }
+      #expect(digit.count >= 5, "the 2's pixels: \(digit.count)")
+      for (x, y) in digit { #expect((image.red(x: x, y: y) > 200) == !light, "column \(x), height \(y)") }
+      for x in [0, 1, 6, 7] {
+        for y in 4..<16 { #expect(image.alpha(x: x, y: y) > 0 && image.alpha(x: x, y: y) < 127, "column \(x), height \(y)") }
+      }
+    }
+
+    @Test(arguments: [1, 2])
+    func batteryDigitsAndWifiSegmentsSitOnWholePixels(scale: Int) {
+      #expect(Self.batteryFont)
+      // at 1x and 2x every edge of the digits and of the segments falls on a device pixel, so no pixel of the battery's
+      // or Wi-Fi's bar is a blend: each is clear, the background alone (about 77), the fill over it (about 238) or the
+      // digit's text colour over the background (about 238); a half-covered pixel would read between, here 100 to 200
+      // the charge 0.5 puts the fill's top on a whole point in both styles (8, and 2 + 7 = 9), as the readings' share bars
+      // do not snap theirs
+      var r = batteryReadings(0.5)
+      r.wifiShown = true
+      r.wifi = 0.5
+      for stripped in [false, true] {
+        let image = render(bar: true, stripped: stripped, width: 120, readings: r, scale: scale)
+        for x in 0..<(18 * scale) {
+          for y in 0..<(16 * scale) {
+            let a = image.alpha(x: x, y: y)
+            #expect(a <= 100 || a >= 200, "scale \(scale), stripped \(stripped), pixel \(x), \(y): \(a)")
+          }
         }
       }
-      #expect(any)
     }
 
     @Test func batteryNotReadDrawsOnlyTheBarBackground() {
       let image = render(bar: true, stripped: true, width: 120, readings: batteryReadings(-1))
-      for x in 0..<21 { #expect(image.column(x).allSatisfy { $0 == 0 }, "no number, column \(x)") }
-      for x in 21..<29 {
+      for x in 0..<8 {
         let column = image.column(x)
         #expect(column[0] == 0 && column[1] == 0)
         for y in 2..<16 { #expect(column[y] > 0 && column[y] < 127, "column \(x), height \(y): \(column[y])") }
       }
     }
 
-    @Test(arguments: [(0.5, 7), (1.0, 14), (0.0, 0)])
-    func wifiBarFillsToTheSignal(fill: Double, filled: Int) {
-      // Wi-Fi alone: its bar is the first reading, x = 0 to 8, from DASHED_BOTTOM 2: fill * 14 rows of white at 0.9 opacity
-      // over the background, the rest the background alone
+    @Test(arguments: [(1.0, 5), (0.5, 3), (0.4, 2), (0.0, 1), (-1.0, 0)])
+    func wifiSegmentsLightWithTheSignal(fill: Double, lit: Int) {
+      // Wi-Fi alone: its bar is the first reading, x = 0 to 8. In the dashed style, from DASHED_BOTTOM 2: five segments 2 pt
+      // tall, 1 pt apart, at heights 2, 5, 8, 11 and 14; ceil(fill * 5) lit from the bottom, at least one from fill 0, white
+      // at 0.9 opacity over the background, the rest the background alone; the gaps and the rows below 2 clear
       var r = readings(disk: -1)
       r.wifiShown = true
       r.wifi = fill
@@ -242,23 +294,31 @@ extension FreeTests {
       for x in 0..<8 {
         let column = image.column(x)
         #expect(column[0] == 0 && column[1] == 0)
-        for y in 2..<16 {
-          if y - 2 < filled {
-            #expect(column[y] > 200, "filled, column \(x), height \(y): \(column[y])")
-          } else {
-            #expect(column[y] > 0 && column[y] < 127, "background only, column \(x), height \(y): \(column[y])")
+        for segment in 0..<5 {
+          let y = 2 + (segment * 3)
+          for row in [y, y + 1] {
+            if segment < lit {
+              #expect(column[row] > 200, "lit, column \(x), height \(row): \(column[row])")
+            } else {
+              #expect(column[row] > 0 && column[row] < 127, "background, column \(x), height \(row): \(column[row])")
+            }
           }
+          if segment < 4 { #expect(column[y + 2] == 0, "gap, column \(x), height \(y + 2)") }
         }
       }
     }
 
-    @Test func wifiNotReadDrawsOnlyTheBackground() {
+    @Test func wifiSegmentsInTheSolidStyle() {
+      // the full 16 pt: segments at heights 0, 3.5, 7, 10.5 and 14, 1.5 pt apart, each foot on a device pixel: in this 1x
+      // bitmap at 0, 4, 7, 11 and 14, so rows 2, 3, 6, 9, 10 and 13 are gaps
       var r = readings(disk: -1)
       r.wifiShown = true
-      r.wifi = -1
-      let image = render(bar: true, stripped: true, width: 100, readings: r)
+      r.wifi = 1.0
+      let image = render(bar: true, stripped: false, width: 100, readings: r)
       for x in 0..<8 {
-        for y in 2..<16 { #expect(image.alpha(x: x, y: y) > 0 && image.alpha(x: x, y: y) < 127, "column \(x), height \(y)") }
+        let column = image.column(x)
+        for y in [0, 1, 4, 5, 7, 8, 11, 12, 14, 15] { #expect(column[y] > 200, "column \(x), height \(y): \(column[y])") }
+        for y in [2, 3, 6, 9, 10, 13] { #expect(column[y] == 0, "gap, column \(x), height \(y): \(column[y])") }
       }
     }
 
