@@ -684,7 +684,7 @@ static CGFloat _snap(CGFloat v, CGFloat scale)
   return round(v*scale)/scale;
 }
 
-// the battery number's font, CPU_RENDER_BATTERY_FONT at CPU_RENDER_BATTERY_FONT_SIZE, kept from the first call that finds it
+// the battery number's and the block letters' font, CPU_RENDER_BATTERY_FONT at CPU_RENDER_BATTERY_FONT_SIZE, kept from the first call that finds it
 // registered (the tests never call CpuRenderInit, and register it themselves); NULL until then. CTFontCreateWithName gives
 // a stand-in for a name it does not know, so the PostScript name is compared
 static CTFontRef _battery_font(void)
@@ -842,9 +842,76 @@ static void _render_wifi(CGContextRef ctx, CGFloat x, double fill, CGFloat color
   }
 }
 
+// whether the block's letters are drawn: asked for, in bar style, with the block drawn
+static bool _letters(bool bar, const CpuReadings* readings)
+{
+  return bar && (readings != NULL) && !readings->extraOnly && readings->letters;
+}
+
+// how far up the bars are drawn over the letters: the band, less the bars' own clear foot (DASHED_BOTTOM in the dashed
+// style), so the lowest bar or dash stands 1 pt above the letters in either style
+static CGFloat _letters_lift(bool stripped)
+{
+  return CPU_RENDER_LETTERS_HEIGHT - (stripped ? DASHED_BOTTOM : 0.0);
+}
+
+CGFloat CpuRenderImageHeight(bool bar, bool stripped, const CpuReadings* readings)
+{
+  return _letters(bar, readings) ? (16.0 + _letters_lift(stripped)) : 16.0;
+}
+
+// the block's letters (CpuReadings letters) in the band at the image's bottom, one under each of the block's wide bars, by
+// its kind (CPU_RENDER_KIND_*, in the order of BWDRAGCEP): CPU_RENDER_BATTERY_FONT's capital, 5 pt tall from the image's
+// bottom, centred across the bar on device pixels (on a Retina display exactly, so W, 5 pt wide, passes a 4-pt bar by
+// 0.5 pt on each side; at 1x half a point to the left), in the menu bar's text colour at 0.9 opacity. Nothing without the
+// font
+static void _render_letters(CGContextRef ctx, bool light, CGFloat tickWidth, CGFloat tickTotalWidth, unsigned shown, CGFloat imageWidth, int split, natural_t cores, int extraCount, const CpuExtraReading* extra)
+{
+  CTFontRef font = _battery_font();
+  if (font == NULL)
+  {
+    return;
+  }
+  static const char letters[] = "BWDRAGCEP";
+  const CGFloat scale = _device_scale(ctx);
+  const CGFloat width = 2.0*tickWidth;
+  CGMutablePathRef paths = CGPathCreateMutable();
+  for (int i=0; i<_readings_count(shown); i++)
+  {
+    const int kind = CpuRenderReadingKind(shown, i);
+    if ((kind < 0) || (kind >= (int)(sizeof(letters) - 1)))
+    {
+      continue;
+    }
+    UniChar character = (UniChar)letters[kind];
+    CGGlyph glyph = 0;
+    if (!CTFontGetGlyphsForCharacters(font, &character, &glyph, 1))
+    {
+      continue;
+    }
+    CGPathRef path = CTFontCreatePathForGlyph(font, glyph, NULL);
+    if (path == NULL)
+    {
+      continue;
+    }
+    const CGRect box = CGPathGetPathBoundingBox(path);
+    const CGFloat x = CpuRenderReadingX(true, tickWidth, tickTotalWidth, shown, imageWidth, split, cores, extraCount, extra, i);
+    const CGFloat left = floor((x + ((width - box.size.width)/2.0))*scale)/scale;
+    const CGAffineTransform place = CGAffineTransformMakeTranslation(left - box.origin.x, -box.origin.y);
+    CGPathAddPath(paths, &place, path);
+    CGPathRelease(path);
+  }
+  CGContextSaveGState(ctx);
+  CGContextSetGrayFillColor(ctx, light ? 0.0 : 1.0, 0.9);
+  CGContextAddPath(ctx, paths);
+  CGContextFillPath(ctx);
+  CGContextRestoreGState(ctx);
+  CGPathRelease(paths);
+}
+
 void CpuRender(CpuSummaryInfo* cpu_info, CGContextRef ctx, bool light, int granularity, bool bar, bool stripped, bool colored, CGFloat tickWidth, CGFloat tickTotalWidth, CGFloat imageWidth, int theme, const CpuReadings* readings)
 {
-  CGContextClearRect(ctx, CGRectMake(0, 0, imageWidth, 16));
+  CGContextClearRect(ctx, CGRectMake(0, 0, imageWidth, CpuRenderImageHeight(bar, stripped, readings)));
   
   CGFloat color = 0.8;
   if (light)
@@ -870,6 +937,15 @@ void CpuRender(CpuSummaryInfo* cpu_info, CGContextRef ctx, bool light, int granu
   const int base = _readings_count(shown);
   const natural_t cores = CpuSamplerGetCount(granularity); // at least 1
   CpuRenderGraphSpan(bar, tickWidth, tickTotalWidth, imageWidth, block, shown, split, extraCount, extra, &offset, &end);
+  // with the block's letters, they fill the band at the bottom and everything else is drawn above it, on the 16-pt scale
+  // as without them, lifted so that the bars' foot stands 1 pt above the letters
+  const bool letters = _letters(bar, readings);
+  if (letters)
+  {
+    _render_letters(ctx, light, tickWidth, tickTotalWidth, shown, imageWidth, split, cores, extraCount, extra);
+    CGContextSaveGState(ctx);
+    CGContextTranslateCTM(ctx, 0.0, _letters_lift(stripped));
+  }
   if (readings)
   {
     const int count = base + extraCount;
@@ -1030,6 +1106,10 @@ void CpuRender(CpuSummaryInfo* cpu_info, CGContextRef ctx, bool light, int granu
   {
     _render_wifi(ctx, CpuRenderReadingX(bar, tickWidth, tickTotalWidth, shown, imageWidth, split, cores, extraCount, extra, CpuRenderReadingIndex(shown, CPU_RENDER_KIND_WIFI)),
                  readings->wifi, color, bar, tickWidth, light, bottom);
+  }
+  if (letters)
+  {
+    CGContextRestoreGState(ctx);
   }
 }
 

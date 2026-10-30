@@ -3010,25 +3010,35 @@ NSView* MenuRowsHelpExample(const CpuReadings* readings, const double* coreLoads
 - (void)renderMenubarWithLight:(BOOL)light readings:(const CpuReadings*)readings
 {
   CpuSamplerUpdate(&cpu_info);
+  // the menu bar's image has the block's letters under its bars, and is then taller (CpuRenderImageHeight); the Settings
+  // previews and the help's examples draw without them
+  CpuReadings lettered = {};
+  if (readings != NULL)
+  {
+    lettered = *readings;
+    lettered.letters = true;
+  }
+  const CpuReadings* drawn = (readings != NULL) ? &lettered : NULL;
+  const CGFloat imageHeight = CpuRenderImageHeight(bar, stripped, drawn);
   static NSImage* image = nil;
   {
     image = self.statusItem.button.image;
     if (image == nil)
     {
-      image = [[NSImage alloc] initWithSize:NSMakeSize(imageWidth, tickHeight)];
+      image = [[NSImage alloc] initWithSize:NSMakeSize(imageWidth, imageHeight)];
     }
     else
     {
-      if ([image size].width != imageWidth)
+      if (([image size].width != imageWidth) || ([image size].height != imageHeight))
       {
-        image = [[NSImage alloc] initWithSize:NSMakeSize(imageWidth, tickHeight)];
+        image = [[NSImage alloc] initWithSize:NSMakeSize(imageWidth, imageHeight)];
       }
     }
     
     [image lockFocus];
     {
       CGContextRef ctx = [[NSGraphicsContext currentContext] CGContext];
-      CpuRender(&cpu_info, ctx, light, granularity, bar, stripped, colored, drawWidth, tickTotalWidth, imageWidth, theme, readings);
+      CpuRender(&cpu_info, ctx, light, granularity, bar, stripped, colored, drawWidth, tickTotalWidth, imageWidth, theme, drawn);
     }
     [image unlockFocus];
   }
@@ -4848,12 +4858,13 @@ static NSTimeInterval TopDelay(void)
     {
       NSLog(@"the menu font did not load (%@); the system's monospaced font stands in", (fontError != NULL) ? (__bridge_transfer NSError*)fontError : @"not in the app");
     }
-    // the battery number's font (CPU_RENDER_BATTERY_FONT), the same way; when it does not load, the number is not drawn
+    // the battery number's and the bars' letters' font (CPU_RENDER_BATTERY_FONT), the same way; when it does not load,
+    // neither is drawn
     NSURL* batteryFontURL = [[NSBundle mainBundle] URLForResource:@"Micro5-Regular" withExtension:@"ttf"];
     CFErrorRef batteryFontError = NULL;
     if ((batteryFontURL == nil) || !CTFontManagerRegisterFontsForURL((__bridge CFURLRef)batteryFontURL, kCTFontManagerScopeProcess, &batteryFontError))
     {
-      NSLog(@"the battery number's font did not load (%@); the battery bar is drawn without its number", (batteryFontError != NULL) ? (__bridge_transfer NSError*)batteryFontError : @"not in the app");
+      NSLog(@"the battery number's font did not load (%@); the battery bar is drawn without its number and the bars without their letters", (batteryFontError != NULL) ? (__bridge_transfer NSError*)batteryFontError : @"not in the app");
     }
 
     CpuRenderInit();
