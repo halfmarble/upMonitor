@@ -213,17 +213,41 @@ extension FreeTests {
       #expect(image.column(10)[2] > 0)
     }
 
-    @Test func batteryNumberIsCutOutOfTheFill() {
+    // the device rows of a two-digit number at scale: the lower digit's, the upper digit's, and the rows beside them that
+    // hold no digit (the row below the stack, the gap, the row above it). At 1x the centred 2.5 snaps to 3 and the raise
+    // adds 1: the stack is 4 to 15, rows 4 to 8, the gap row 9, rows 10 to 14. At 2x _snap keeps 2.5: 3.5 to 14.5 pt,
+    // rows 7 to 16, the gap rows 17 and 18, rows 19 to 28. Before the 1-pt raise and gap the digits were at rows 3 to 7
+    // and 9 to 13 at 1x, and at 2x, where the stack's 2.75 snapped to 3, at rows 6 to 15 and 17 to 26, the gap row 16
+    private func batteryDigitRows(scale: Int) -> (lower: Range<Int>, upper: Range<Int>, clear: [Int]) {
+      scale == 1 ? (4..<9, 10..<15, [3, 9, 15]) : (7..<17, 19..<29, [6, 17, 18, 29])
+    }
+
+    @Test(arguments: [1, 2])
+    func batteryNumberIsCutOutOfTheFill(scale: Int) {
       #expect(Self.batteryFont)
       // 87% on the adapter: the fill to 2 + 0.87 * 14 = 14.18, so the 7 and all but the 8's top row stand in it and are
-      // cut out of it
-      let image = render(bar: true, stripped: true, width: 120, readings: batteryReadings(0.87, onAC: true))
-      let cut = (2..<5).flatMap { x in (4..<14).map { y in image.alpha(x: x, y: y) } }.filter { $0 == 0 }
-      #expect(cut.count >= 12, "cut-out pixels: \(cut.count)")
-      for x in [0, 1, 6, 7] {
-        for y in 2..<14 { #expect(image.alpha(x: x, y: y) > 200, "column \(x), height \(y)") }
+      // cut out of it. Below the fill's top, which crosses row 14 at 1x and 28 at 2x, each digit row holds a cut-out
+      // pixel in the digits' columns, 2 to 4, and each clear row none; and those digit rows hold at least 12 cut-out
+      // points, 12 pixels at 1x and 48 at 2x
+      let image = render(bar: true, stripped: true, width: 120, readings: batteryReadings(0.87, onAC: true), scale: scale)
+      let rows = batteryDigitRows(scale: scale)
+      let top = 14 * scale
+      let columns = (2 * scale)..<(5 * scale)
+      var cut = 0
+      for y in Array(rows.lower) + Array(rows.upper) where y < top {
+        #expect(columns.contains { image.alpha(x: $0, y: y) == 0 }, "scale \(scale), digit row \(y)")
+        cut += columns.filter { image.alpha(x: $0, y: y) == 0 }.count
       }
-      for x in 0..<8 { #expect(image.alpha(x: x, y: 0) == 0 && image.alpha(x: x, y: 1) == 0, "below the bar, column \(x)") }
+      #expect(cut >= 12 * scale * scale, "scale \(scale), cut-out pixels: \(cut)")
+      for y in rows.clear where y < top {
+        #expect(columns.allSatisfy { image.alpha(x: $0, y: y) > 200 }, "scale \(scale), clear row \(y)")
+      }
+      for x in [0, 1, 6, 7].flatMap({ ($0 * scale)..<(($0 + 1) * scale) }) {
+        for y in (2 * scale)..<top { #expect(image.alpha(x: x, y: y) > 200, "scale \(scale), column \(x), height \(y)") }
+      }
+      for x in 0..<(8 * scale) {
+        for y in 0..<(2 * scale) { #expect(image.alpha(x: x, y: y) == 0, "below the bar, scale \(scale), \(x), \(y)") }
+      }
     }
 
     @Test func batteryFillColourFollowsThePowerState() {
@@ -240,17 +264,28 @@ extension FreeTests {
       }
     }
 
-    @Test(arguments: [false, true])
-    func batteryNumberOverTheEmptyBarIsTheTextColour(light: Bool) {
+    @Test(arguments: [false, true], [1, 2])
+    func batteryNumberOverTheEmptyBarIsTheTextColour(light: Bool, scale: Int) {
       #expect(Self.batteryFont)
-      // 20% in the solid style: the fill to height 3.2, "20" stacked from 4, its "2" at heights 10 to 15, over the
-      // background alone
-      let image = render(bar: true, stripped: false, width: 120, readings: batteryReadings(0.2), light: light)
-      let digit = (2..<5).flatMap { x in (10..<15).map { y in (x, y) } }.filter { image.alpha(x: $0.0, y: $0.1) > 200 }
-      #expect(digit.count >= 5, "the 2's pixels: \(digit.count)")
-      for (x, y) in digit { #expect((image.red(x: x, y: y) > 200) == !light, "column \(x), height \(y)") }
-      for x in [0, 1, 6, 7] {
-        for y in 4..<16 { #expect(image.alpha(x: x, y: y) > 0 && image.alpha(x: x, y: y) < 127, "column \(x), height \(y)") }
+      // 20% in the solid style: the fill to height 3.2, below the stack, so "20" stands over the background alone. Each
+      // digit row holds a digit pixel (above 200) in the digits' columns, 2 to 4, in the text colour, and each clear row
+      // none: the background (about 77), or the fill's blended top (row 3 at 1x, 6 at 2x), which can stay at or under 200
+      // with a digit's row in it, so the cut-out test is the one that checks those two rows
+      let image = render(bar: true, stripped: false, width: 120, readings: batteryReadings(0.2), light: light, scale: scale)
+      let rows = batteryDigitRows(scale: scale)
+      let columns = (2 * scale)..<(5 * scale)
+      for y in Array(rows.lower) + Array(rows.upper) {
+        let digit = columns.filter { image.alpha(x: $0, y: y) > 200 }
+        #expect(!digit.isEmpty, "scale \(scale), digit row \(y)")
+        for x in digit { #expect((image.red(x: x, y: y) > 200) == !light, "scale \(scale), column \(x), height \(y)") }
+      }
+      for y in rows.clear {
+        #expect(columns.allSatisfy { image.alpha(x: $0, y: y) <= 200 }, "scale \(scale), clear row \(y)")
+      }
+      for x in [0, 1, 6, 7].flatMap({ ($0 * scale)..<(($0 + 1) * scale) }) {
+        for y in (4 * scale)..<(16 * scale) {
+          #expect(image.alpha(x: x, y: y) > 0 && image.alpha(x: x, y: y) < 127, "scale \(scale), column \(x), height \(y)")
+        }
       }
     }
 
