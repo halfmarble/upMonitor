@@ -2789,7 +2789,13 @@ static NSString* OthersRowText(int count)
   {
     NSMenuItem* item = [menu addItemWithTitle:@" " action:nil keyEquivalent:@""];
     [item setAttributedTitle:[[NSAttributedString alloc] initWithString:[item title] attributes:attributesThin]];
+    // the unsandboxed variant ranks other users' processes too while /usr/bin/top runs (menu open, sorted by CPU); the
+    // sandboxed one ranks only the user's own
+#if !CPUTOPBARS_SANDBOXED
+    item = [menu addItemWithTitle:@"TOP PROCESSES BY CPU" action:nil keyEquivalent:@""];
+#else
     item = [menu addItemWithTitle:@"YOUR TOP PROCESSES BY CPU" action:nil keyEquivalent:@""];
+#endif
     [item setAttributedTitle:[[NSAttributedString alloc] initWithString:[item title] attributes:attributesStandardCenter]];
     for (int i=0; i<TOP_COUNT; i++)
     {
