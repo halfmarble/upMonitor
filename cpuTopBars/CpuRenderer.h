@@ -83,8 +83,8 @@ enum Theme
 // CoreText), so the digits are 5 pt tall and 3 pt wide ("1" 2 pt)
 #define CPU_RENDER_BATTERY_FONT "Micro5-Regular"
 #define CPU_RENDER_BATTERY_FONT_SIZE (11.0)
-// the band under the bars that holds the block's letters (CpuReadings letters): the letters, 5 pt tall in
-// CPU_RENDER_BATTERY_FONT, and a 1-pt gap above them, up to the bars' foot (in the dashed style the bars' clear 2-pt foot
+// the band under the bars that holds the block's letters (CpuReadings letters): the letters, 5 x 5-pt pixel bitmaps in
+// the style of CPU_RENDER_BATTERY_FONT, and a 1-pt gap above them, up to the bars' foot (in the dashed style the bars' clear 2-pt foot
 // is taken off, so the gap stays 1 pt); the image is then taller (CpuRenderImageHeight)
 #define CPU_RENDER_LETTERS_HEIGHT (6.0)
 // the Wi-Fi bar's segments, each 2 pt tall

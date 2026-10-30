@@ -3019,12 +3019,13 @@ NSView* MenuRowsHelpExample(const CpuReadings* readings, const double* coreLoads
 {
   CpuSamplerUpdate(&cpu_info);
   // the menu bar's image has the block's letters under its bars while Settings' "Show letters under the bars" is on, and is
-  // then taller (CpuRenderImageHeight); the Settings previews and the help's examples draw without them
+  // then taller (CpuRenderImageHeight); not at the Thin width, whose 5-pt slots leave no room between the 5-pt letters; the
+  // Settings previews and the help's examples draw without them
   CpuReadings lettered = {};
   if (readings != NULL)
   {
     lettered = *readings;
-    lettered.letters = showBarLetters;
+    lettered.letters = showBarLetters && (tickWidth != 1.0);
   }
   const CpuReadings* drawn = (readings != NULL) ? &lettered : NULL;
   const CGFloat imageHeight = CpuRenderImageHeight(bar, stripped, drawn);
@@ -4883,13 +4884,12 @@ static NSTimeInterval TopDelay(void)
     {
       NSLog(@"the menu font did not load (%@); the system's monospaced font stands in", (fontError != NULL) ? (__bridge_transfer NSError*)fontError : @"not in the app");
     }
-    // the battery number's and the bars' letters' font (CPU_RENDER_BATTERY_FONT), the same way; when it does not load,
-    // neither is drawn
+    // the battery number's font (CPU_RENDER_BATTERY_FONT), the same way; when it does not load, the number is not drawn
     NSURL* batteryFontURL = [[NSBundle mainBundle] URLForResource:@"Micro5-Regular" withExtension:@"ttf"];
     CFErrorRef batteryFontError = NULL;
     if ((batteryFontURL == nil) || !CTFontManagerRegisterFontsForURL((__bridge CFURLRef)batteryFontURL, kCTFontManagerScopeProcess, &batteryFontError))
     {
-      NSLog(@"the battery number's font did not load (%@); the battery bar is drawn without its number and the bars without their letters", (batteryFontError != NULL) ? (__bridge_transfer NSError*)batteryFontError : @"not in the app");
+      NSLog(@"the battery number's font did not load (%@); the battery bar is drawn without its number", (batteryFontError != NULL) ? (__bridge_transfer NSError*)batteryFontError : @"not in the app");
     }
 
     CpuRenderInit();

@@ -394,10 +394,9 @@ extension FreeTests {
 
     @Test(arguments: [false, true])
     func lettersSitOnePointUnderTheDashedBars(light: Bool) {
-      #expect(Self.batteryFont)
       // the dashed style the app draws: a 20-pt image, the bars lifted 4 pt, so the disk bar's dashes (from DASHED_BOTTOM 2
       // on its 16-pt scale) stand at heights 6, 7, 9, 10, 12, 13, 15, 16, 18 and 19, with the cleared rows 8, 11, 14 and 17
-      // between them; height 5 is the 1-pt gap; D at heights 0 to 4, x = 2 to 5, in the text colour (black on a light
+      // between them; height 5 is the 1-pt gap; D at heights 0 to 4, x = 1 to 5, in the text colour (black on a light
       // menu bar, white on a dark one)
       var r = readings(disk: 1.0)
       r.letters = true
@@ -407,17 +406,16 @@ extension FreeTests {
         for y in [6, 7, 9, 10, 12, 13, 15, 16, 18, 19] { #expect(column[y] > 200, "dash, column \(x), height \(y): \(column[y])") }
         for y in [5, 8, 11, 14, 17] { #expect(column[y] == 0, "clear, column \(x), height \(y)") }
         let lit = (0..<5).filter { image.alpha(x: x, y: $0) > 200 }
-        #expect(lit.isEmpty == !(2..<5).contains(x), "D's columns, column \(x): \(lit)")
+        #expect(lit.isEmpty == !(1..<6).contains(x), "D's columns, column \(x): \(lit)")
         for y in lit { #expect((image.red(x: x, y: y) > 200) == !light, "text colour, column \(x), height \(y)") }
       }
     }
 
     @Test func lettersUnderTheBlockBars() {
-      #expect(Self.batteryFont)
       // the five readings, D R C E P, at x = 0, 10, 20, 30 and 40, each 8 wide; every bar full, so each fills heights 6 to
       // 21 above the band. The letters, white at 0.9 opacity, stand at heights 0 to 4, centred on whole points in this 1x
-      // bitmap: the 3-pt ones at x + 2 to x + 5 ("x + 2.5" rounded down), C (2 pt) at x + 3 to x + 5; height 5, the gap, is
-      // clear, and so is the band under the core bar
+      // bitmap: each 5 pt wide at x + 1 to x + 5 ("x + 1.5" rounded down); height 5, the gap, is clear, and so is the band
+      // under the core bar
       var r = readings(disk: 1.0)
       r.memory = 1.0; r.cpu = 1.0; r.efficiency = 1.0; r.performance = 1.0
       r.letters = true
@@ -425,7 +423,7 @@ extension FreeTests {
       let core = Int(CpuRenderReadingsWidth(true, 4, 6, 0, 0, 0, nil))
       for (i, letter) in ["D", "R", "C", "E", "P"].enumerated() {
         let x = 10 * i
-        let (from, to) = (letter == "C") ? (x + 3, x + 5) : (x + 2, x + 5)
+        let (from, to) = (x + 1, x + 6)
         for bx in x..<(x + 8) {
           for y in 6..<22 { #expect(image.alpha(x: bx, y: y) > 200, "\(letter) bar, column \(bx), height \(y)") }
           #expect(image.alpha(x: bx, y: 5) == 0, "gap, column \(bx)")
@@ -439,21 +437,20 @@ extension FreeTests {
         }
       }
       // the letters differ: D's pixels are not R's
-      let d: [Bool] = (2..<5).flatMap { x -> [Bool] in (0..<5).map { y in image.alpha(x: x, y: y) > 200 } }
-      let rr: [Bool] = (12..<15).flatMap { x -> [Bool] in (0..<5).map { y in image.alpha(x: x, y: y) > 200 } }
+      let d: [Bool] = (1..<6).flatMap { x -> [Bool] in (0..<5).map { y in image.alpha(x: x, y: y) > 200 } }
+      let rr: [Bool] = (11..<16).flatMap { x -> [Bool] in (0..<5).map { y in image.alpha(x: x, y: y) > 200 } }
       #expect(d != rr)
       for x in core..<60 {
         for y in 0..<6 { #expect(image.alpha(x: x, y: y) == 0, "under the core bar, column \(x), height \(y)") }
       }
     }
 
-    @Test func wPassesAThinBarByHalfAPointEachSide() {
-      #expect(Self.batteryFont)
-      // Thin: tickWidth 2 and tickTotalWidth 3, so each reading's bar is 4 pt wide in a 5-pt slot: the battery's (not read:
-      // its background, and its B) at 0 to 4 pt, Wi-Fi's at 5 to 9, disk's at 10 to 14. On a Retina display each letter is
-      // centred exactly: B (3 pt) at 0.5 to 3.5, device pixels 1 to 6; W (5 pt) at 4.5 to 9.5, pixels 9 to 18, half a
-      // point past its bar on each side; D at 10.5 to 13.5, pixels 21 to 26. So pixels 7, 8, 19 and 20 hold no letter, and
-      // the gap, heights 5 to 6 pt (rows 10 and 11), none at all
+    @Test func lettersFitAStandardBarAtTwoX() {
+      // Standard: tickWidth 3 and tickTotalWidth 4, so each reading's bar is 6 pt wide in a 7-pt slot: the battery's (not
+      // read: its background, and its B) at 0 to 6 pt, Wi-Fi's at 7 to 13, disk's at 14 to 20. On a Retina display each
+      // 5-pt letter is centred exactly, 0.5 pt inside its bar: B at 0.5 to 5.5, device pixels 1 to 10; W at 7.5 to 12.5,
+      // pixels 15 to 24; D at 14.5 to 19.5, pixels 29 to 38. So pixels 0, 11 to 14 and 25 to 28 hold no letter, and the
+      // gap, heights 5 to 6 pt (rows 10 and 11), none at all. (The app asks for no letters at the Thin width.)
       var r = readings(disk: -1)
       r.batteryShown = true
       r.battery = -1
@@ -461,11 +458,47 @@ extension FreeTests {
       r.wifi = 1.0
       r.letters = true
       let image = render(bar: true, stripped: false, width: 60, readings: r, scale: 2, height: 22,
-                         tickWidth: 2, tickTotalWidth: 3)
+                         tickWidth: 3, tickTotalWidth: 4)
       let lit = { (x: Int) in (0..<10).contains { image.alpha(x: x, y: $0) > 200 } }
-      for x in [1, 6, 9, 18, 21, 26] { #expect(lit(x), "device column \(x)") }
-      for x in [0, 7, 8, 19, 20, 27] { #expect(!lit(x), "device column \(x)") }
-      for x in 0..<30 { #expect(image.alpha(x: x, y: 10) == 0 && image.alpha(x: x, y: 11) == 0, "gap, device column \(x)") }
+      for x in [1, 10, 15, 24, 29, 38] { #expect(lit(x), "device column \(x)") }
+      for x in [0, 11, 14, 25, 28, 39] { #expect(!lit(x), "device column \(x)") }
+      for x in 0..<40 { #expect(image.alpha(x: x, y: 10) == 0 && image.alpha(x: x, y: 11) == 0, "gap, device column \(x)") }
+    }
+
+    @Test func everyLetterIsItsFiveByFiveBitmap() {
+      // all nine readings shown, each bar 8 pt wide (tickWidth 4, tickTotalWidth 6) at 1x: each letter's 5 x 5 pixels at
+      // heights 0 to 4 from x + 1, read top row first, are its bitmap; N has its diagonal, unlike Micro 5's 3-wide N
+      let letters: [(String, [String])] = [
+        ("B", ["####.", "#...#", "####.", "#...#", "####."]),
+        ("W", ["#.#.#", "#.#.#", "#.#.#", "#.#.#", ".#.#."]),
+        ("D", ["####.", "#...#", "#...#", "#...#", "####."]),
+        ("R", ["####.", "#...#", "####.", "#..#.", "#...#"]),
+        ("N", ["#...#", "##..#", "#.#.#", "#..##", "#...#"]),
+        ("G", [".####", "#....", "#..##", "#...#", ".###."]),
+        ("C", [".####", "#....", "#....", "#....", ".####"]),
+        ("E", ["#####", "#....", "####.", "#....", "#####"]),
+        ("P", ["####.", "#...#", "####.", "#....", "#...."]),
+      ]
+      var r = readings(disk: 1.0)
+      r.memory = 1.0; r.cpu = 1.0; r.efficiency = 1.0; r.performance = 1.0
+      r.batteryShown = true; r.battery = 1.0
+      r.wifiShown = true; r.wifi = 1.0
+      r.gpuShown = true; r.gpu = 1.0; r.neuralEngine = 1
+      r.letters = true
+      let image = render(bar: true, stripped: false, width: 140, readings: r, height: 22)
+      let shown = CpuRenderReadingsShown(&r)
+      for i in 0..<9 {
+        let kind = Int(CpuRenderReadingKind(shown, Int32(i)))
+        let (name, rows) = letters[kind]
+        let x = Int(CpuRenderReadingX(true, 4, 6, shown, 140, 0, 0, 0, nil, Int32(i))) + 1
+        let drawn = (0..<5).map { row in
+          String((0..<5).map { column in image.alpha(x: x + column, y: 4 - row) > 200 ? "#" : "." })
+        }
+        #expect(drawn == rows, "\(name) at x \(x): \(drawn)")
+        for y in 0..<5 {
+          #expect(image.alpha(x: x - 1, y: y) == 0 && image.alpha(x: x + 5, y: y) == 0, "\(name): clear beside it, height \(y)")
+        }
+      }
     }
   }
 }

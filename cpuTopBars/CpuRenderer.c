@@ -23,6 +23,7 @@
 #include "CpuRenderer.h"
 
 #include <math.h>
+#include <stdint.h>
 #include <CoreText/CoreText.h>
 
 // red, green and blue, each 0..1
@@ -684,7 +685,7 @@ static CGFloat _snap(CGFloat v, CGFloat scale)
   return round(v*scale)/scale;
 }
 
-// the battery number's and the block letters' font, CPU_RENDER_BATTERY_FONT at CPU_RENDER_BATTERY_FONT_SIZE, kept from the first call that finds it
+// the battery number's font, CPU_RENDER_BATTERY_FONT at CPU_RENDER_BATTERY_FONT_SIZE, kept from the first call that finds it
 // registered (the tests never call CpuRenderInit, and register it themselves); NULL until then. CTFontCreateWithName gives
 // a stand-in for a name it does not know, so the PostScript name is compared
 static CTFontRef _battery_font(void)
@@ -860,53 +861,53 @@ CGFloat CpuRenderImageHeight(bool bar, bool stripped, const CpuReadings* reading
   return _letters(bar, readings) ? (16.0 + _letters_lift(stripped)) : 16.0;
 }
 
+// the block's letters, B W D R N G C E P by kind (CPU_RENDER_KIND_*), each 5 x 5 pixels, row 0 the top, bit 4 the left
+// column; most of Micro 5's own capitals are 3 pixels wide (C 2, W 5), too narrow for N, which then reads as n
+static const uint8_t _letter_bits[9][5] =
+{
+  { 0x1E, 0x11, 0x1E, 0x11, 0x1E }, // B
+  { 0x15, 0x15, 0x15, 0x15, 0x0A }, // W
+  { 0x1E, 0x11, 0x11, 0x11, 0x1E }, // D
+  { 0x1E, 0x11, 0x1E, 0x12, 0x11 }, // R
+  { 0x11, 0x19, 0x15, 0x13, 0x11 }, // N
+  { 0x0F, 0x10, 0x13, 0x11, 0x0E }, // G
+  { 0x0F, 0x10, 0x10, 0x10, 0x0F }, // C
+  { 0x1F, 0x10, 0x1E, 0x10, 0x1F }, // E
+  { 0x1E, 0x11, 0x1E, 0x10, 0x10 }, // P
+};
+
 // the block's letters (CpuReadings letters) in the band at the image's bottom, one under each of the block's wide bars, by
-// its kind (CPU_RENDER_KIND_*, in the order of BWDRNGCEP): CPU_RENDER_BATTERY_FONT's capital, 5 pt tall from the image's
-// bottom, centred across the bar on device pixels (on a Retina display exactly, so W, 5 pt wide, passes a 4-pt bar by
-// 0.5 pt on each side; at 1x half a point to the left), in the menu bar's text colour at 0.9 opacity. Nothing without the
-// font
+// its kind: _letter_bits at 1 pt a pixel, 5 x 5 pt from the image's bottom, centred across the bar on device pixels (on a
+// Retina display exactly, 0.5 pt inside each edge of a Standard 6-pt bar and 1.5 pt inside a Thick 8-pt one; at 1x half a
+// point to the left), in the menu bar's text colour at 0.9 opacity. The app asks for none at the Thin width
 static void _render_letters(CGContextRef ctx, bool light, CGFloat tickWidth, CGFloat tickTotalWidth, unsigned shown, CGFloat imageWidth, int split, natural_t cores, int extraCount, const CpuExtraReading* extra)
 {
-  CTFontRef font = _battery_font();
-  if (font == NULL)
-  {
-    return;
-  }
-  static const char letters[] = "BWDRNGCEP";
   const CGFloat scale = _device_scale(ctx);
   const CGFloat width = 2.0*tickWidth;
-  CGMutablePathRef paths = CGPathCreateMutable();
+  CGContextSaveGState(ctx);
+  CGContextSetGrayFillColor(ctx, light ? 0.0 : 1.0, 0.9);
   for (int i=0; i<_readings_count(shown); i++)
   {
     const int kind = CpuRenderReadingKind(shown, i);
-    if ((kind < 0) || (kind >= (int)(sizeof(letters) - 1)))
+    if ((kind < 0) || (kind >= (int)(sizeof(_letter_bits)/sizeof(_letter_bits[0]))))
     {
       continue;
     }
-    UniChar character = (UniChar)letters[kind];
-    CGGlyph glyph = 0;
-    if (!CTFontGetGlyphsForCharacters(font, &character, &glyph, 1))
-    {
-      continue;
-    }
-    CGPathRef path = CTFontCreatePathForGlyph(font, glyph, NULL);
-    if (path == NULL)
-    {
-      continue;
-    }
-    const CGRect box = CGPathGetPathBoundingBox(path);
     const CGFloat x = CpuRenderReadingX(true, tickWidth, tickTotalWidth, shown, imageWidth, split, cores, extraCount, extra, i);
-    const CGFloat left = floor((x + ((width - box.size.width)/2.0))*scale)/scale;
-    const CGAffineTransform place = CGAffineTransformMakeTranslation(left - box.origin.x, -box.origin.y);
-    CGPathAddPath(paths, &place, path);
-    CGPathRelease(path);
+    const CGFloat left = floor((x + ((width - 5.0)/2.0))*scale)/scale;
+    for (int row=0; row<5; row++)
+    {
+      for (int column=0; column<5; column++)
+      {
+        if (_letter_bits[kind][row] & (0x10 >> column))
+        {
+          CGContextAddRect(ctx, CGRectMake(left + column, 4 - row, 1.0, 1.0));
+        }
+      }
+    }
   }
-  CGContextSaveGState(ctx);
-  CGContextSetGrayFillColor(ctx, light ? 0.0 : 1.0, 0.9);
-  CGContextAddPath(ctx, paths);
   CGContextFillPath(ctx);
   CGContextRestoreGState(ctx);
-  CGPathRelease(paths);
 }
 
 void CpuRender(CpuSummaryInfo* cpu_info, CGContextRef ctx, bool light, int granularity, bool bar, bool stripped, bool colored, CGFloat tickWidth, CGFloat tickTotalWidth, CGFloat imageWidth, int theme, const CpuReadings* readings)
