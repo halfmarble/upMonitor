@@ -31,6 +31,7 @@
 		D540B2C023FB0C7100752C7F /* CpuSampler.c in Sources */ = {isa = PBXBuildFile; fileRef = D540B2BE23FB0C7100752C7F /* CpuSampler.c */; };
 		D5BBD70D242A3E3700D0D53A /* ServiceManagement.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D5BBD70C242A3E3700D0D53A /* ServiceManagement.framework */; };
 		0A95BBC14B4938CEF70C3760 /* UniformTypeIdentifiers.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = EE1958CC2E405B265729211C /* UniformTypeIdentifiers.framework */; };
+		A07E570000000000000000F6 /* CoreWLAN.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A07E570000000000000000F7 /* CoreWLAN.framework */; };
 		D5E340DF2415258A00BD045D /* Top.c in Sources */ = {isa = PBXBuildFile; fileRef = D5E340DE2415258A00BD045D /* Top.c */; };
 		E6C299EE59A48123388B7F6F /* SystemInfo.c in Sources */ = {isa = PBXBuildFile; fileRef = B942C7661FE2A67926626466 /* SystemInfo.c */; };
 /* End PBXBuildFile section */
@@ -63,6 +64,7 @@
 		D540B2BF23FB0C7100752C7F /* CpuSampler.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = CpuSampler.h; sourceTree = "<group>"; };
 		D5BBD70C242A3E3700D0D53A /* ServiceManagement.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ServiceManagement.framework; path = System/Library/Frameworks/ServiceManagement.framework; sourceTree = SDKROOT; };
 		EE1958CC2E405B265729211C /* UniformTypeIdentifiers.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UniformTypeIdentifiers.framework; path = System/Library/Frameworks/UniformTypeIdentifiers.framework; sourceTree = SDKROOT; };
+		A07E570000000000000000F7 /* CoreWLAN.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreWLAN.framework; path = System/Library/Frameworks/CoreWLAN.framework; sourceTree = SDKROOT; };
 		D5E340DC241490B400BD045D /* rb.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = rb.h; sourceTree = "<group>"; };
 		D5E340DD2415258A00BD045D /* Top.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = Top.h; sourceTree = "<group>"; };
 		D5A7C3E1F20B4D6A8E9C1F02 /* MenuRows.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MenuRows.h; sourceTree = "<group>"; };
@@ -88,6 +90,7 @@
 			files = (
 				D5BBD70D242A3E3700D0D53A /* ServiceManagement.framework in Frameworks */,
 				0A95BBC14B4938CEF70C3760 /* UniformTypeIdentifiers.framework in Frameworks */,
+				A07E570000000000000000F6 /* CoreWLAN.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -163,6 +166,7 @@
 				D5BBD70C242A3E3700D0D53A /* ServiceManagement.framework */,
 				A07E57000000000000000027 /* IOKit.framework */,
 				EE1958CC2E405B265729211C /* UniformTypeIdentifiers.framework */,
+				A07E570000000000000000F7 /* CoreWLAN.framework */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";

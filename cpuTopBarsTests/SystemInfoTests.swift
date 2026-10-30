@@ -23,7 +23,12 @@
 import Testing
 import Foundation
 
-// SystemInfo.c: the CPU window, memory, swap and uptime.
+// A C string buffer up to its NUL, as String(cString:) on an array is deprecated
+private func bufferString(_ buffer: [CChar]) -> String {
+  String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
+}
+
+// SystemInfo.c: the CPU window, memory, swap and uptime, and the battery and Wi-Fi helpers.
 extension FreeTests {
   @Suite struct SystemInfoTests {
     @Test func noSamplesGiveNoReading() {
@@ -66,6 +71,87 @@ extension FreeTests {
       let busy = SystemInfoCpuBusy(&span, nil, nil)
       #expect(busy >= 0 && busy <= 1, "busy \(busy) after \(spin) loops")
       #expect(span >= 1.0)
+    }
+
+    // the power source keys' literal values, from IOPSKeys.h
+    private func powerSource(_ extra: [String: Any]) -> CFDictionary {
+      var d: [String: Any] = ["Type": "InternalBattery", "Is Present": true, "Current Capacity": 87, "Max Capacity": 100]
+      for (k, v) in extra { d[k] = v }
+      return d as NSDictionary as CFDictionary
+    }
+
+    private func batteryText(_ b: SystemInfoBattery) -> String {
+      var text = [CChar](repeating: 0, count: 64)
+      var b = b
+      SystemInfoBatteryStateText(&b, &text, text.count)
+      return bufferString(text)
+    }
+
+    private func parse(_ extra: [String: Any]) -> SystemInfoBattery? {
+      var b = SystemInfoBattery()
+      return SystemInfoBatteryFromDescription(powerSource(extra), &b) ? b : nil
+    }
+
+    @Test func batteryParserReadsTheInternalBattery() throws {
+      let b = try #require(parse(["Is Charging": true, "Power Source State": "AC Power"]))
+      #expect(abs(b.level - 0.87) < 1e-9)
+      #expect(b.charging && !b.charged && b.onAC)
+      #expect(batteryText(b) == "charging")
+    }
+
+    @Test func batteryParserRefusesOtherSourcesAndBadCapacity() {
+      #expect(parse(["Type": "UPS"]) == nil)
+      #expect(parse(["Is Present": false]) == nil)
+      #expect(parse(["Max Capacity": 0]) == nil)
+      #expect(SystemInfoBatteryFromDescription(nil, nil) == false)
+    }
+
+    @Test func batteryStateTexts() throws {
+      let ac = try #require(parse(["Power Source State": "AC Power", "Is Charging": false, "Is Charged": false]))
+      #expect(batteryText(ac) == "not charging")
+      let full = try #require(parse(["Power Source State": "AC Power", "Is Charged": true]))
+      #expect(batteryText(full) == "charged")
+      let timed = try #require(parse(["Power Source State": "Battery Power", "Time to Empty": 192]))
+      #expect(timed.minutesToEmpty == 192 && !timed.onAC)
+      #expect(batteryText(timed) == "on battery, 3:12 left")
+      let unknown = try #require(parse(["Power Source State": "Battery Power", "Time to Empty": -1]))
+      #expect(unknown.minutesToEmpty == -1)
+      #expect(batteryText(unknown) == "on battery")
+    }
+
+    @Test func wifiFill() {
+      #expect(SystemInfoWifiFill(-90) == 0)
+      #expect(SystemInfoWifiFill(-100) == 0)
+      #expect(SystemInfoWifiFill(-60) == 0.5)
+      #expect(SystemInfoWifiFill(-30) == 1)
+      #expect(SystemInfoWifiFill(-20) == 1)
+      #expect(SystemInfoWifiFill(0) == -1)
+    }
+
+    private func name(_ p: UnsafePointer<CChar>?) -> String? {
+      p.map { String(cString: $0) }
+    }
+
+    @Test func wifiNames() {
+      #expect(name(SystemInfoWifiSecurityName(4)) == "WPA2 Personal")
+      #expect(name(SystemInfoWifiSecurityName(11)) == "WPA3 Personal")
+      #expect(name(SystemInfoWifiSecurityName(0)) == "None")
+      #expect(name(SystemInfoWifiSecurityName(99)) == nil)
+      #expect(name(SystemInfoWifiPhyName(6)) == "802.11ax")
+      #expect(name(SystemInfoWifiPhyName(7)) == "802.11be")
+      #expect(name(SystemInfoWifiPhyName(99)) == nil)
+    }
+
+    @Test func wifiChannelText() {
+      func text(_ n: Int, _ band: Int, _ width: Int) -> String {
+        var t = [CChar](repeating: 0, count: 64)
+        SystemInfoWifiChannelText(n, band, width, &t, t.count)
+        return bufferString(t)
+      }
+      #expect(text(48, 2, 3) == "48 (5 GHz, 80 MHz)")
+      #expect(text(6, 1, 1) == "6 (2.4 GHz, 20 MHz)")
+      #expect(text(37, 3, 4) == "37 (6 GHz, 160 MHz)")
+      #expect(text(11, 0, 0) == "11")
     }
   }
 }

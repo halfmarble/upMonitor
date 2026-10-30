@@ -31,6 +31,7 @@
 #import <stdlib.h>
 #import <vector>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
+#import <CoreWLAN/CoreWLAN.h>
 
 #import "AppDelegate.h"
 
@@ -97,6 +98,7 @@ static NSString* AppearanceKey = @"AppearanceKey";
 static NSString* ThemeKey = @"ThemeKey";
 static NSString* ShowBarsKey = @"ShowBarsKey";
 static NSString* ShowGpuNeuralEngineKey = @"ShowGpuNeuralEngine";
+static NSString* ShowBatteryWifiKey = @"ShowBatteryWifi";
 static NSString* TopRowsKey = @"TopRowsKey";
 
 #pragma mark - C APIs
@@ -326,6 +328,7 @@ static NSWindow* OpenMenuWindow(NSMenu* menu, NSMenuItem* item, NSRect* row)
 #define DISK_REFRESH                (10.0)  // s between disk reads while the menu stays open
 #define MENUBAR_DISK_REFRESH        (60.0)  // s between disk reads for the menu bar's disk bar
 #define READINGS_TICKS              (2.0)   // Refresh intervals between reads of overall CPU and memory, for the bars and the panel
+#define BATTERY_WIFI_REFRESH        (5.0)   // s between reads of the battery and Wi-Fi, for their bars and the panel
 #define INFO_RETRY_DELAY            (0.1)   // s before a second look for the menu's window
 #define INFO_ROW_HEIGHT             (22.0)  // pt, 2 pt shorter than a native row (a menu grows 24 pt with one, measured)
 #define INFO_INSET                  (14.0)  // pt left and right, as a title-only row
@@ -1266,6 +1269,9 @@ static void SetTipText(NSPanel* panel, NSTextField* label, NSString* text, CGFlo
 static void HelpCoreReadings(const double* coreLoads, int coreLoadCount, CpuReadings* readings);
 static NSString* HelpDiskLabel(const CpuReadings* readings);
 static NSString* HelpGpuLabel(const CpuReadings* readings);
+static SystemInfoWifi HelpWifiSample(void);
+static NSString* HelpBatteryLabel(const CpuReadings* readings);
+static NSString* HelpWifiLabel(void);
 static NSArray<NSView*>* HelpCoresExamples(const CpuReadings* readings, const double* coreLoads, int coreLoadCount);
 static NSString* HelpReadingsCaption(const CpuReadings* readings);
 
@@ -1366,13 +1372,13 @@ typedef struct HelpExampleStyle
   {
     _readings.efficiencyBars = five ? style.coreSplit : 0;
   }
-  // the GPU's bar and the Neural Engine's go with the five readings
-  bool gpuShown = five && _readings.gpuShown;
+  // the optional readings (the battery's, Wi-Fi's, the Neural Engine's and the GPU's) go with the five readings
+  unsigned shown = _hasReadings ? CpuRenderReadingsShown(&_readings) : 0;
   int extraCount = _hasReadings ? _readings.extraCount : 0;
   _imageWidth = style.graphWidth;
   if (five)
   {
-    _imageWidth += CpuRenderReadingsWidth(style.bar, style.drawWidth, style.tickTotalWidth, gpuShown, _readings.efficiencyBars, extraCount, _extra);
+    _imageWidth += CpuRenderReadingsWidth(style.bar, style.drawWidth, style.tickTotalWidth, shown, _readings.efficiencyBars, extraCount, _extra);
   }
   else if (_hasReadings)
   {
@@ -1385,13 +1391,13 @@ typedef struct HelpExampleStyle
   {
     // up to the last reading before the core graph: when the graph splits, the one before the E-cores', which heads
     // their bars
-    int last = ((split > 0) ? CpuRenderReadingEfficiency(gpuShown) : CpuRenderReadingsCount(gpuShown)) - 1;
-    _cropWidth = CpuRenderReadingX(style.bar, style.drawWidth, style.tickTotalWidth, gpuShown, _imageWidth, split, CpuSamplerGetCount(style.granularity), extraCount, _extra, last) +
-      CpuRenderReadingSlot(style.bar, style.drawWidth, style.tickTotalWidth, gpuShown, extraCount, _extra, last);
+    int last = ((split > 0) ? CpuRenderReadingEfficiency(shown) : CpuRenderReadingsCount(shown)) - 1;
+    _cropWidth = CpuRenderReadingX(style.bar, style.drawWidth, style.tickTotalWidth, shown, _imageWidth, split, CpuSamplerGetCount(style.granularity), extraCount, _extra, last) +
+      CpuRenderReadingSlot(style.bar, style.drawWidth, style.tickTotalWidth, shown, extraCount, _extra, last);
   }
   else if ((part == MenuRowsExampleExtra) && (extraCount > 0))
   {
-    _cropX = CpuRenderReadingX(style.bar, style.drawWidth, style.tickTotalWidth, gpuShown, _imageWidth, split, CpuSamplerGetCount(style.granularity), extraCount, _extra, CpuRenderReadingsCount(gpuShown));
+    _cropX = CpuRenderReadingX(style.bar, style.drawWidth, style.tickTotalWidth, shown, _imageWidth, split, CpuSamplerGetCount(style.granularity), extraCount, _extra, CpuRenderReadingsCount(shown));
     _cropWidth = _imageWidth - _cropX;
   }
   _cropWidth = MAX(_cropWidth, 1.0);
@@ -1455,13 +1461,13 @@ typedef struct HelpExampleStyle
     {
       CGFloat start = 0.0;
       CGFloat end = 0.0;
-      CpuRenderGraphSpan(style.bar, style.drawWidth, style.tickTotalWidth, _imageWidth, five, gpuShown, split, extraCount, _extra, &start, &end);
+      CpuRenderGraphSpan(style.bar, style.drawWidth, style.tickTotalWidth, _imageWidth, five, shown, split, extraCount, _extra, &start, &end);
       readingMid = (start + end) / 2.0;
     }
     else
     {
-      readingMid = CpuRenderReadingX(style.bar, style.drawWidth, style.tickTotalWidth, gpuShown, _imageWidth, split, CpuSamplerGetCount(style.granularity), extraCount, _extra, labelReading) +
-        CpuRenderReadingSlot(style.bar, style.drawWidth, style.tickTotalWidth, gpuShown, extraCount, _extra, labelReading) / 2.0;
+      readingMid = CpuRenderReadingX(style.bar, style.drawWidth, style.tickTotalWidth, shown, _imageWidth, split, CpuSamplerGetCount(style.granularity), extraCount, _extra, labelReading) +
+        CpuRenderReadingSlot(style.bar, style.drawWidth, style.tickTotalWidth, shown, extraCount, _extra, labelReading) / 2.0;
     }
     CGFloat x = NSMinX(_strip) + HELP_EXAMPLE_PADDING + (readingMid - _cropX)*_zoom - boxSize.width/2.0;
     x = MIN(MAX(x, 0.0), width - boxSize.width);
@@ -1717,9 +1723,9 @@ static NSView* HelpExtraExample(const double* values, int count, NSString* capti
 
 // the help's sentences on the Neural Engine's bar, as this variant draws it
 #if CPUTOPBARS_SANDBOXED
-static NSString* const NeuralEngineHelp = @" The bar right after the GPU bar is the Neural Engine's: solid while it is powered on, empty while it is off. It turns on when an app gives it work and goes off a few seconds after the work ends, and may come on again for a few seconds about ten seconds later while that app stays open, so it shows that the Neural Engine was powered recently, not how hard it works.";
+static NSString* const NeuralEngineHelp = @" The bar right before the GPU bar is the Neural Engine's: solid while it is powered on, empty while it is off. It turns on when an app gives it work and goes off a few seconds after the work ends, and may come on again for a few seconds about ten seconds later while that app stays open, so it shows that the Neural Engine was powered recently, not how hard it works.";
 #else
-static NSString* const NeuralEngineHelp = @" The bar right after the GPU bar is the Neural Engine's: it fills to the share of time it was busy, read from the Mac's own counters of the Neural Engine's memory traffic. On a Mac whose counters cannot be read it shows instead whether the Neural Engine is powered: solid while it is on, empty while it is off.";
+static NSString* const NeuralEngineHelp = @" The bar right before the GPU bar is the Neural Engine's: it fills to the share of time it was busy, read from the Mac's own counters of the Neural Engine's memory traffic. On a Mac whose counters cannot be read it shows instead whether the Neural Engine is powered: solid while it is on, empty while it is off.";
 #endif
 
 // the help window: the "Menu bar" section, then each MenuRows class's section in registration order, under its
@@ -1760,6 +1766,13 @@ static NSWindow* MakeHelpWindow(void)
   CpuReadings shared = {};
   shared.memory = 0.48;
   shared.disk = 0.62;
+  // the battery's bar and Wi-Fi's, as the menu bar draws them by default on a Mac that has them: on battery at 87%, and
+  // the Wi-Fi sample's signal
+  const SystemInfoWifi wifiSample = HelpWifiSample();
+  shared.batteryShown = true;
+  shared.battery = 0.87;
+  shared.wifiShown = true;
+  shared.wifi = SystemInfoWifiFill(wifiSample.rssi);
   CpuReadings barsOff = shared;
   barsOff.extraOnly = true;
   // the same with the GPU's bar and the Neural Engine's, as the menu bar draws them by default, the Neural Engine on:
@@ -1777,22 +1790,37 @@ static NSWindow* MakeHelpWindow(void)
   CpuReadings engineOff = withGpu;
   engineOff.neuralEngine = 0;
   engineOff.neuralEngineBusy = 0.0;
+  // the battery's paragraph: charging, and on battery with Wi-Fi off
+  CpuReadings charging = withGpu;
+  charging.batteryCharging = true;
+  CpuReadings wifiOff = withGpu;
+  wifiOff.wifi = -1.0;
   const double fills[] = {0.0, 0.20, 0.50, 0.70, 1.00};
   const double colours[] = {0.10, 0.30, 0.50, 0.75, 1.00};
 
-  // the hover labels, worded as the real ones are (HelpDiskLabel, HelpCoresExamples)
+  // the hover labels, worded as the real ones are (HelpDiskLabel, HelpCoresExamples), each under its own reading
+  const unsigned engineOffShown = CpuRenderReadingsShown(&engineOff);
   NSMutableArray<NSView*>* hoverExamples = [NSMutableArray arrayWithObject:
-    MenuRowsHelpExample(&engineOff, loads, loadCount, MenuRowsExampleWhole, HelpDiskLabel(&engineOff), 0, @"a bar")];
-  [hoverExamples addObject:MenuRowsHelpExample(&engineOff, loads, loadCount, MenuRowsExampleWhole, HelpGpuLabel(&engineOff), CPU_RENDER_READING_GPU, @"the GPU bar")];
+    MenuRowsHelpExample(&engineOff, loads, loadCount, MenuRowsExampleWhole, HelpDiskLabel(&engineOff), CpuRenderReadingIndex(engineOffShown, CPU_RENDER_KIND_DISK), @"a bar")];
+  [hoverExamples addObject:MenuRowsHelpExample(&engineOff, loads, loadCount, MenuRowsExampleWhole, HelpBatteryLabel(&engineOff), CpuRenderReadingIndex(engineOffShown, CPU_RENDER_KIND_BATTERY), @"the battery bar")];
+  [hoverExamples addObject:MenuRowsHelpExample(&engineOff, loads, loadCount, MenuRowsExampleWhole, HelpWifiLabel(), CpuRenderReadingIndex(engineOffShown, CPU_RENDER_KIND_WIFI), @"the Wi-Fi bar")];
+  [hoverExamples addObject:MenuRowsHelpExample(&engineOff, loads, loadCount, MenuRowsExampleWhole, HelpGpuLabel(&engineOff), CpuRenderReadingIndex(engineOffShown, CPU_RENDER_KIND_GPU), @"the GPU bar")];
   [hoverExamples addObjectsFromArray:HelpCoresExamples(&engineOff, loads, loadCount)];
 
   section(@"Menu bar", @[
     @[
-      [@"Wide bars show the startup volume's used space (disk), the memory in use, the CPU's load, overall and for the efficiency cores (E) and the performance cores (P), and the GPU's. Disk, memory, CPU and GPU come first, on the left; the E and P bars are shown with the cores, below." stringByAppendingString:NeuralEngineHelp],
+      [@"Wide bars show the battery's charge, the Wi-Fi signal, the startup volume's used space (disk), the memory in use, the GPU's load, and the CPU's, overall and for the efficiency cores (E) and the performance cores (P). Battery, Wi-Fi, disk, memory, Neural Engine, GPU and CPU come first, on the left, in that order; the E and P bars are shown with the cores, below." stringByAppendingString:NeuralEngineHelp],
       @[MenuRowsHelpExample(&withGpu, loads, loadCount, MenuRowsExampleReadings, nil, -1, HelpReadingsCaption(&withGpu))],
     ],
     @[
-      @"Each narrow bar is one CPU core. When the Mac lists its efficiency cores first, the E bar stands at the head of the efficiency cores' bars and the P bar at the head of the performance cores' bars, each group after a small gap; otherwise the E and P bars follow the Neural Engine bar, or the CPU bar while the GPU and Neural Engine bars are switched off.",
+      @"On a Mac with a battery, the first bar is the battery: its charge as a number, then a bar filled to it, green while it charges. Next is Wi-Fi: its bar fills with the signal, empty at -90 dBm or weaker and full at -30 dBm or stronger; with Wi-Fi off or not connected only its faint column shows. A small gap then sets battery, Wi-Fi, disk and memory apart from the Neural Engine, GPU and CPU. The network's name is not shown, so the app asks for no Location Services permission.",
+      @[
+        MenuRowsHelpExample(&charging, loads, loadCount, MenuRowsExampleReadings, nil, -1, @"charging"),
+        MenuRowsHelpExample(&wifiOff, loads, loadCount, MenuRowsExampleReadings, nil, -1, @"on battery, Wi-Fi off"),
+      ],
+    ],
+    @[
+      @"Each narrow bar is one CPU core. When the Mac lists its efficiency cores first, the E bar stands at the head of the efficiency cores' bars and the P bar at the head of the performance cores' bars, each group after a small gap; otherwise the E and P bars follow the CPU bar.",
       @[MenuRowsHelpExample(&engineOff, loads, loadCount, MenuRowsExampleWhole, nil, -1, @"this Mac's cores")],
     ],
     @[
@@ -1808,7 +1836,7 @@ static NSWindow* MakeHelpWindow(void)
       hoverExamples,
     ],
     @[
-      @"In Settings, \"Show Disk, RAM, CPU, E-core, P-core bars\" turns the wide bars and the Neural Engine bar off and leaves the core bars, \"Show GPU and Neural Engine bars\" turns those two off, and \"Refresh\" sets how often the bars move.",
+      @"In Settings, \"Show Disk, RAM, CPU, E-core, P-core bars\" turns the wide bars off and leaves the core bars, \"Show battery and Wi-Fi bars\" turns those two off, \"Show GPU and Neural Engine bars\" those two, and \"Refresh\" sets how often the bars move.",
       @[
         MenuRowsHelpExample(&engineOff, loads, loadCount, MenuRowsExampleWhole, nil, -1, @"bars on"),
         MenuRowsHelpExample(&barsOff, loads, loadCount, MenuRowsExampleWhole, nil, -1, @"bars off"),
@@ -1954,6 +1982,16 @@ static uint64_t readingsMemoryUsed = 0;
 static uint64_t readingsMemoryTotal = 0;
 static bool readingsSwap = false;           // swap could be read, as these bytes, read with memory
 static uint64_t readingsSwapUsed = 0;
+// the battery and Wi-Fi, read every BATTERY_WIFI_REFRESH s while their bars are shown (readBatteryWifi:), dropped while not
+static NSTimeInterval lastBatteryWifi = 0.0; // when they were last read, system uptime; 0: read at the next tick
+static bool readingsBattery = false;        // this Mac's internal battery was read, as readingsBatteryState
+static SystemInfoBattery readingsBatteryState = {};
+static SystemInfoWifi readingsWifi = {};    // Wi-Fi as last read (WifiRead); present false: no Wi-Fi interface, or not read
+// while the menu is open and Wi-Fi connected: the interface's IPv4 and MAC addresses and its router, read in full reads
+// only; empty: not read. Shown in the panel, never logged
+static char readingsWifiIp[64] = "";
+static char readingsWifiMac[64] = "";
+static char readingsWifiRouter[64] = "";
 
 #define BAR_WIDTH_EXTRA             (1.0)   // pt each bar is drawn wider than its width setting
 
@@ -1977,10 +2015,29 @@ static int theme = THEME_YELLOW;
 
 static bool showBars = true;         // the disk, memory, CPU, E-cores' and P-cores' bars left of the graph
 static bool showGpuNeuralEngine = true; // with them, the GPU's bar and the Neural Engine's
+static bool showBatteryWifi = true;  // with them, the battery's bar and Wi-Fi's
 // whether the GPU's bar and the Neural Engine's are drawn, read and listed: only with the bars they belong to
 static bool GpuShown(void)
 {
   return showBars && showGpuNeuralEngine;
+}
+// whether the battery and Wi-Fi are read, and their bars drawn and rows listed on a Mac that has them: the same
+static bool BatteryWifiShown(void)
+{
+  return showBars && showBatteryWifi;
+}
+// the optional readings drawn (CPU_RENDER_SHOWN_*): the GPU's and the Neural Engine's with GpuShown, the battery's and
+// Wi-Fi's with BatteryWifiShown, each only while this Mac has it as last read (no internal battery, no Wi-Fi interface:
+// no slot). One mask for the image's width, the readings drawn, the hover labels and the panel
+static unsigned ReadingsShown(void)
+{
+  unsigned shown = GpuShown() ? CPU_RENDER_SHOWN_GPU : 0;
+  if (BatteryWifiShown())
+  {
+    shown |= readingsWifi.present ? CPU_RENDER_SHOWN_WIFI : 0;
+    shown |= readingsBattery ? CPU_RENDER_SHOWN_BATTERY : 0;
+  }
+  return shown;
 }
 // the bars MenuRows classes add right of the graph, read each tick (collectExtraBars): cleared and filled again at each
 // one, so a pointer into extraBars is good only until the next; each one's value, mark, tint, alert and group
@@ -1995,6 +2052,7 @@ static NSSegmentedControl* refreshChoice = nil;  // Refresh: 10, 5 or 2 times a 
 static NSSegmentedControl* topRowsChoice = nil;  // Top processes: its segments' counts are topRowsChoices
 static NSSwitch* showBarsSwitch = nil;           // Show Disk, RAM, CPU, E-core, P-core bars
 static NSSwitch* showGpuSwitch = nil;            // Show GPU and Neural Engine bars
+static NSSwitch* showBatteryWifiSwitch = nil;    // Show battery and Wi-Fi bars
 static NSSwitch* loginSwitch = nil;              // Launch at login
 static const int topRowsChoices[] = {3, 5, 10, TOP_COUNT};
 #define TOP_ROWS_CHOICES (sizeof(topRowsChoices)/sizeof(topRowsChoices[0]))
@@ -2148,7 +2206,7 @@ static NSMutableSet<NSTask*>* runningTasks = nil;
   coreSplit = CpuRenderEfficiencyBars(granularity, cpu_info.countLogical, cpuKinds);
   if (showBars)
   {
-    imageWidth += CpuRenderReadingsWidth(bar, drawWidth, tickTotalWidth, GpuShown(), coreSplit, (int)extraBars.size(), extraBars.data());
+    imageWidth += CpuRenderReadingsWidth(bar, drawWidth, tickTotalWidth, ReadingsShown(), coreSplit, (int)extraBars.size(), extraBars.data());
   }
   else
   {
@@ -2183,6 +2241,8 @@ static NSMutableSet<NSTask*>* runningTasks = nil;
   showBarsSwitch.state = showBars ? NSControlStateValueOn : NSControlStateValueOff;
   showGpuSwitch.state = showGpuNeuralEngine ? NSControlStateValueOn : NSControlStateValueOff;
   showGpuSwitch.enabled = showBars;
+  showBatteryWifiSwitch.state = showBatteryWifi ? NSControlStateValueOn : NSControlStateValueOff;
+  showBatteryWifiSwitch.enabled = showBars;
   topRowsChoice.selectedSegment = TopRowsChoiceIndex();
     
   if (granularity == 0)
@@ -2650,9 +2710,12 @@ static NSString* OthersRowText(int count)
   showBarsSwitch = MenuRowsSettingsSwitch(showBars, @selector(showBarsButtonClicked:), self);
   showGpuSwitch = MenuRowsSettingsSwitch(showGpuNeuralEngine, @selector(showGpuButtonClicked:), self);
   showGpuSwitch.enabled = showBars;
+  showBatteryWifiSwitch = MenuRowsSettingsSwitch(showBatteryWifi, @selector(showBatteryWifiButtonClicked:), self);
+  showBatteryWifiSwitch.enabled = showBars;
   place(SettingsGroup(@[@[@"Refresh", refreshChoice],
                         @[@"Top processes", topRowsChoice],
                         @[@"Show Disk, RAM, CPU, E-core, P-core bars", showBarsSwitch],
+                        @[@"Show battery and Wi-Fi bars", showBatteryWifiSwitch],
                         @[@"Show GPU and Neural Engine bars", showGpuSwitch]]), 0.0, SETTINGS_SECTION_GAP);
 
   // each class's group, with at least one valid row
@@ -2981,13 +3044,14 @@ NSView* MenuRowsHelpExample(const CpuReadings* readings, const double* coreLoads
 // it is on the item, since no exit was delivered either, and a reading under it arms the label (BAR_TIP_DELAY)
 static NSRect barTipLayout = {{-1.0, -1.0}, {-1.0, -1.0}}; // x: the image's left in the button, width: the readings' slot; none: -1
 static bool barTipThree = false;            // the five readings (disk, memory, CPU, E-cores, P-cores) are drawn
-static bool barTipGpu = false;              // with them, the GPU's bar and the Neural Engine's too (CpuReadings gpuShown)
+static unsigned barTipMask = 0;             // with them, the optional readings drawn (CpuRenderReadingsShown: battery, Wi-Fi, GPU and Neural Engine)
 static int barTipSplit = 0;                 // with them, the core graph's split as drawn (CpuReadings efficiencyBars); 0: none
 static std::vector<CpuExtraReading> barTipBars; // the extra bars drawn right of the core graph, as drawn (a copy: extraBars is refilled each tick)
-static NSInteger barTipIndex = -1;          // the reading under the pointer, armed or shown: 0 disk, 1 memory, 2 CPU, 3 E-cores,
-                                            // 4 P-cores, 5 on the extra bars (with barTipGpu: 3 GPU, 4 Neural Engine, 5 E-cores,
-                                            // 6 P-cores, 7 on the extra bars), BAR_TIP_CORES the core graph (split:
-                                            // BAR_TIP_CORES_E or BAR_TIP_CORES_P, the bars of one kind), -1 none
+static NSInteger barTipIndex = -1;          // the reading under the pointer, armed or shown: a reading's index with barTipMask
+                                            // (CpuRenderReadingIndex; 0 disk, 1 memory, 2 CPU, 3 E-cores, 4 P-cores with none of
+                                            // the optional ones), the extra bars' from CpuRenderReadingsCount(barTipMask) on,
+                                            // BAR_TIP_CORES the core graph (split: BAR_TIP_CORES_E or BAR_TIP_CORES_P, the bars of
+                                            // one kind), -1 none
 static NSPanel* barTip = nil;
 static NSTextField* barTipText = nil;
 static NSString* barTipShown = nil;         // the whole text last laid out in barTip: barTipText holds only its first part
@@ -3010,7 +3074,7 @@ static bool BarTipIsCores(NSInteger index)
     [button addTrackingArea:tracking];
   }
   bool three = (readings != NULL) && !readings->extraOnly;
-  bool gpu = three && readings->gpuShown;
+  unsigned mask = CpuRenderReadingsShown(readings);
   int split = (three && (readings->efficiencyBars > 0)) ? readings->efficiencyBars : 0;
   std::vector<CpuExtraReading> bars;
   if ((readings != NULL) && (readings->extra != NULL) && (readings->extraCount > 0))
@@ -3025,11 +3089,11 @@ static bool BarTipIsCores(NSInteger index)
   }
   NSRect bounds = button.bounds;
   NSRect layout = NSMakeRect(round(NSMidX(bounds) - imageWidth/2.0), NSMinY(bounds), CpuRenderReadingsSlot(bar, drawWidth, tickTotalWidth), NSHeight(bounds));
-  if (!NSEqualRects(layout, barTipLayout) || (three != barTipThree) || (gpu != barTipGpu) || (split != barTipSplit) || !sameBars)
+  if (!NSEqualRects(layout, barTipLayout) || (three != barTipThree) || (mask != barTipMask) || (split != barTipSplit) || !sameBars)
   {
     barTipLayout = layout;
     barTipThree = three;
-    barTipGpu = gpu;
+    barTipMask = mask;
     barTipSplit = split;
     barTipBars = bars;
     [self hideBarTip];
@@ -3040,13 +3104,12 @@ static bool BarTipIsCores(NSInteger index)
 // besides the graph)
 - (void)graphTipStart:(CGFloat*)start end:(CGFloat*)end
 {
-  CpuRenderGraphSpan(bar, drawWidth, tickTotalWidth, imageWidth, barTipThree, barTipGpu, barTipSplit, (int)barTipBars.size(), barTipBars.data(), start, end);
+  CpuRenderGraphSpan(bar, drawWidth, tickTotalWidth, imageWidth, barTipThree, barTipMask, barTipSplit, (int)barTipBars.size(), barTipBars.data(), start, end);
 }
 
-// the reading at x, measured from the image's left: 0 disk, 1 memory, 2 CPU, 3 E-cores, 4 P-cores (when drawn), 5 on
-// the extra bars (with the GPU's readings, barTipGpu: 3 GPU, 4 Neural Engine, 5 E-cores, 6 P-cores, 7 on the extra
-// bars), BAR_TIP_CORES on the core graph (split: BAR_TIP_CORES_E on the E-cores' reading and bars, BAR_TIP_CORES_P on
-// the P-cores', in place of 3 and 4, with barTipGpu 5 and 6); in bar style, in the first BAR_TIP_GAP_REACH pt of clear
+// the reading at x, measured from the image's left: a reading's index with barTipMask (barTipIndex), the extra bars'
+// after them, BAR_TIP_CORES on the core graph (split: BAR_TIP_CORES_E on the E-cores' reading and bars, BAR_TIP_CORES_P
+// on the P-cores', in place of their indices); in bar style, in the first BAR_TIP_GAP_REACH pt of clear
 // space right of a block, the image's right edge included, the reading or graph left of it; -1 on none of them (the
 // rest of a gap, or past that)
 - (NSInteger)barTipIndexAtX:(CGFloat)x
@@ -3067,17 +3130,17 @@ static bool BarTipIsCores(NSInteger index)
   // a reading's slot starts where the renderer draws it, the extra bars' after the core graph; a gap is on none of them,
   // the split's gap inside the graph included (the P-cores' reading beside it is found first, by its slot)
   // split, the E-cores' and the P-cores' readings head their own bars, and each reading and its bars hover as one
-  const NSInteger readingsCount = CpuRenderReadingsCount(barTipGpu);
+  const NSInteger readingsCount = CpuRenderReadingsCount(barTipMask);
   for (NSInteger index=(barTipThree ? 0 : readingsCount); index<(readingsCount + (NSInteger)barTipBars.size()); index++)
   {
-    CGFloat start = CpuRenderReadingX(bar, drawWidth, tickTotalWidth, barTipGpu, imageWidth, barTipSplit, CpuSamplerGetCount(granularity), (int)barTipBars.size(), barTipBars.data(), (int)index);
-    if ((x >= start) && (x < (start + CpuRenderReadingSlot(bar, drawWidth, tickTotalWidth, barTipGpu, (int)barTipBars.size(), barTipBars.data(), (int)index))))
+    CGFloat start = CpuRenderReadingX(bar, drawWidth, tickTotalWidth, barTipMask, imageWidth, barTipSplit, CpuSamplerGetCount(granularity), (int)barTipBars.size(), barTipBars.data(), (int)index);
+    if ((x >= start) && (x < (start + CpuRenderReadingSlot(bar, drawWidth, tickTotalWidth, barTipMask, (int)barTipBars.size(), barTipBars.data(), (int)index))))
     {
-      if ((barTipSplit > 0) && (index == CpuRenderReadingEfficiency(barTipGpu)))
+      if ((barTipSplit > 0) && (index == CpuRenderReadingEfficiency(barTipMask)))
       {
         return BAR_TIP_CORES_E;
       }
-      if ((barTipSplit > 0) && (index == CpuRenderReadingPerformance(barTipGpu)))
+      if ((barTipSplit > 0) && (index == CpuRenderReadingPerformance(barTipMask)))
       {
         return BAR_TIP_CORES_P;
       }
@@ -3102,8 +3165,8 @@ static bool BarTipIsCores(NSInteger index)
 // whether readings a and b are both extra bars of one group (no group starts after the lower one, up to the higher one)
 - (BOOL)barTipSameGroup:(NSInteger)a and:(NSInteger)b
 {
-  NSInteger low = MIN(a, b) - CpuRenderReadingsCount(barTipGpu);
-  NSInteger high = MAX(a, b) - CpuRenderReadingsCount(barTipGpu);
+  NSInteger low = MIN(a, b) - CpuRenderReadingsCount(barTipMask);
+  NSInteger high = MAX(a, b) - CpuRenderReadingsCount(barTipMask);
   if ((low < 0) || (high >= (NSInteger)barTipBars.size()))
   {
     return NO;
@@ -3131,15 +3194,15 @@ static bool BarTipIsCores(NSInteger index)
     {
       const natural_t cores = CpuSamplerGetCount(granularity);
       graphEnd = CpuRenderCoreX(bar, drawWidth, tickTotalWidth, graphStart, barTipSplit, (int)cores, barTipSplit - 1) + CpuRenderCoreSlot(bar, drawWidth, tickTotalWidth, cores);
-      graphStart = CpuRenderReadingX(bar, drawWidth, tickTotalWidth, barTipGpu, imageWidth, barTipSplit, CpuSamplerGetCount(granularity), (int)barTipBars.size(), barTipBars.data(), CpuRenderReadingEfficiency(barTipGpu));
+      graphStart = CpuRenderReadingX(bar, drawWidth, tickTotalWidth, barTipMask, imageWidth, barTipSplit, CpuSamplerGetCount(granularity), (int)barTipBars.size(), barTipBars.data(), CpuRenderReadingEfficiency(barTipMask));
     }
     else if ((index == BAR_TIP_CORES_P) && (barTipSplit > 0))
     {
-      graphStart = CpuRenderReadingX(bar, drawWidth, tickTotalWidth, barTipGpu, imageWidth, barTipSplit, CpuSamplerGetCount(granularity), (int)barTipBars.size(), barTipBars.data(), CpuRenderReadingPerformance(barTipGpu));
+      graphStart = CpuRenderReadingX(bar, drawWidth, tickTotalWidth, barTipMask, imageWidth, barTipSplit, CpuSamplerGetCount(granularity), (int)barTipBars.size(), barTipBars.data(), CpuRenderReadingPerformance(barTipMask));
     }
     return NSMakeRect(graphStart, barTipLayout.origin.y, graphEnd - graphStart, barTipLayout.size.height);
   }
-  return NSMakeRect(CpuRenderReadingX(bar, drawWidth, tickTotalWidth, barTipGpu, imageWidth, barTipSplit, CpuSamplerGetCount(granularity), (int)barTipBars.size(), barTipBars.data(), (int)index), barTipLayout.origin.y, CpuRenderReadingSlot(bar, drawWidth, tickTotalWidth, barTipGpu, (int)barTipBars.size(), barTipBars.data(), (int)index), barTipLayout.size.height);
+  return NSMakeRect(CpuRenderReadingX(bar, drawWidth, tickTotalWidth, barTipMask, imageWidth, barTipSplit, CpuSamplerGetCount(granularity), (int)barTipBars.size(), barTipBars.data(), (int)index), barTipLayout.origin.y, CpuRenderReadingSlot(bar, drawWidth, tickTotalWidth, barTipMask, (int)barTipBars.size(), barTipBars.data(), (int)index), barTipLayout.size.height);
 }
 
 // the pointer's x, measured from the image's left; NO off the item, or nothing rendered yet
@@ -3351,10 +3414,145 @@ static NSString* NeuralEngineTipText(int state, double busy)
   return (state > 0) ? @"Neural Engine: ON" : @"Neural Engine: OFF";
 }
 
+// the battery's value, as its panel row and its hover label show it: its charge and its state, "87% (charging)"
+// (SystemInfoBatteryStateText); "—" when it was not read
+static NSString* BatteryValueText(bool read, const SystemInfoBattery* battery)
+{
+  if (!read)
+  {
+    return @"—";
+  }
+  char state[64];
+  SystemInfoBatteryStateText(battery, state, sizeof(state));
+  return [[NSString alloc] initWithFormat:@"%ld%% (%@)" locale:[NSLocale currentLocale], lround(fmin(fmax(battery->level, 0.0), 1.0) * 100.0), @(state)];
+}
+
+// the battery's hover label, "Battery: 87% (charging)"; unpadded, as barTipTextAt: pads it
+static NSString* BatteryTipText(bool read, const SystemInfoBattery* battery)
+{
+  return [@"Battery: " stringByAppendingString:BatteryValueText(read, battery)];
+}
+
+// Wi-Fi's state in words, its panel row's value: "connected", "on, not connected" or "off"; "—" with no interface read
+static NSString* WifiStateText(const SystemInfoWifi* wifi)
+{
+  if (!wifi->present)
+  {
+    return @"—";
+  }
+  if (!wifi->powerOn)
+  {
+    return @"off";
+  }
+  return wifi->connected ? @"connected" : @"on, not connected";
+}
+
+// "48 (5 GHz, 80 MHz)" (SystemInfoWifiChannelText)
+static NSString* WifiChannelText(const SystemInfoWifi* wifi)
+{
+  char text[64];
+  SystemInfoWifiChannelText(wifi->channel, wifi->band, wifi->width, text, sizeof(text));
+  return @(text);
+}
+
+// Wi-Fi's hover label: connected, its signal and then a line each for the noise, the transmit rate and the channel,
+// "Wi-Fi: -50 dBm\nNoise: -94 dBm\nTx Rate: 720 Mbps\nChannel: 48 (5 GHz, 80 MHz)"; else "Wi-Fi: off" or "Wi-Fi: not
+// connected"
+static NSString* WifiTipText(const SystemInfoWifi* wifi)
+{
+  if (!wifi->present)
+  {
+    return @"Wi-Fi: cannot be read on this Mac";
+  }
+  if (!wifi->powerOn)
+  {
+    return @"Wi-Fi: off";
+  }
+  if (!wifi->connected)
+  {
+    return @"Wi-Fi: not connected";
+  }
+  return [NSString stringWithFormat:@"Wi-Fi: %d dBm\nNoise: %d dBm\nTx Rate: %.0f Mbps\nChannel: %@", wifi->rssi, wifi->noise, wifi->txRate, WifiChannelText(wifi)];
+}
+
+// Wi-Fi's panel rows: "Wi-Fi:" and its state, then while connected the details the macOS Wi-Fi menu lists with Option
+// held, but those that need Location Services (the network's name, its BSSID, the country code) and the MCS index and
+// NSS, which CoreWLAN does not give; a detail that was not read, or that has no name, has no row. The addresses are
+// those of the last full read (readBatteryWifi:)
+static NSArray<NSArray<NSString*>*>* WifiRows(const SystemInfoWifi* wifi)
+{
+  NSMutableArray<NSArray<NSString*>*>* rows = [NSMutableArray arrayWithObject:@[@"Wi-Fi:", WifiStateText(wifi)]];
+  if (!wifi->connected)
+  {
+    return rows;
+  }
+  if (readingsWifiIp[0] != 0)
+  {
+    [rows addObject:@[@"IP Address:", @(readingsWifiIp)]];
+  }
+  if (readingsWifiRouter[0] != 0)
+  {
+    [rows addObject:@[@"Router:", @(readingsWifiRouter)]];
+  }
+  if (readingsWifiMac[0] != 0)
+  {
+    [rows addObject:@[@"MAC Address:", @(readingsWifiMac)]];
+  }
+  const char* security = SystemInfoWifiSecurityName(wifi->security);
+  if (security != NULL)
+  {
+    [rows addObject:@[@"Security:", @(security)]];
+  }
+  [rows addObject:@[@"Channel:", WifiChannelText(wifi)]];
+  [rows addObject:@[@"RSSI:", [NSString stringWithFormat:@"%d dBm", wifi->rssi]]];
+  [rows addObject:@[@"Noise:", [NSString stringWithFormat:@"%d dBm", wifi->noise]]];
+  [rows addObject:@[@"Tx Rate:", [NSString stringWithFormat:@"%.0f Mbps", wifi->txRate]]];
+  const char* phy = SystemInfoWifiPhyName(wifi->phy);
+  if (phy != NULL)
+  {
+    [rows addObject:@[@"PHY Mode:", @(phy)]];
+  }
+  return rows;
+}
+
 // the GPU hover label of the help window's example, as the real one reads, the percentage padded (TipPercents)
 static NSString* HelpGpuLabel(const CpuReadings* readings)
 {
   return TipPercents(GpuTipText(readings->gpu));
+}
+
+// the help window's Wi-Fi example, a connection as this app reads one: -50 dBm, WPA2 Personal, 802.11ax, channel 48
+// (5 GHz, 80 MHz)
+static SystemInfoWifi HelpWifiSample(void)
+{
+  SystemInfoWifi wifi = {};
+  wifi.present = true;
+  wifi.powerOn = true;
+  wifi.connected = true;
+  wifi.rssi = -50;
+  wifi.noise = -94;
+  wifi.txRate = 720.0;
+  wifi.security = 4;
+  wifi.phy = 6;
+  wifi.channel = 48;
+  wifi.band = 2;
+  wifi.width = 3;
+  return wifi;
+}
+
+// the battery and Wi-Fi hover labels of the help window's examples, as the real ones read: the battery at the example's
+// charge, charging on the adapter as the example draws it, or on battery with 3:12 left; Wi-Fi the sample's
+static NSString* HelpBatteryLabel(const CpuReadings* readings)
+{
+  bool charging = readings->batteryCharging;
+  SystemInfoBattery battery = {readings->battery, charging, false, charging, charging ? -1 : 192, -1};
+  return TipPercents(BatteryTipText(true, &battery));
+}
+
+static NSString* HelpWifiLabel(void)
+{
+  SystemInfoWifi wifi = HelpWifiSample();
+  return WifiTipText(&wifi);
 }
 
 // the disk hover label of the help window's example, as the real one reads: 1 TB, readings->disk of it used, its
@@ -3374,8 +3572,26 @@ static NSString* HelpDiskLabel(const CpuReadings* readings)
 // the P-cores' when the graph splits (coreSplit), as they head their own bars
 static NSString* HelpReadingsCaption(const CpuReadings* readings)
 {
-  NSString* caption = readings->gpuShown ? @"disk, memory, CPU, GPU, Neural Engine" : @"disk, memory, CPU";
-  return (coreSplit > 0) ? caption : [caption stringByAppendingString:@", E, P"];
+  NSMutableArray<NSString*>* names = [NSMutableArray array];
+  if (readings->batteryShown)
+  {
+    [names addObject:@"battery"];
+  }
+  if (readings->wifiShown)
+  {
+    [names addObject:@"Wi-Fi"];
+  }
+  [names addObjectsFromArray:@[@"disk", @"memory"]];
+  if (readings->gpuShown)
+  {
+    [names addObjectsFromArray:@[@"Neural Engine", @"GPU"]];
+  }
+  [names addObject:@"CPU"];
+  if (coreSplit <= 0)
+  {
+    [names addObjectsFromArray:@[@"E", @"P"]];
+  }
+  return [names componentsJoinedByString:@", "];
 }
 
 // the help window's core graph hover labels, from the example's loads cycled over this Mac's CPUs, as barTipTextAt:
@@ -3411,7 +3627,7 @@ static NSArray<NSView*>* HelpCoresExamples(const CpuReadings* readings, const do
       cores = [CoreKindReadingText(efficiency, efficiency ? read.efficiency : read.performance, locale) stringByAppendingString:[cores substringFromIndex:title.location]];
     }
     [examples addObject:MenuRowsHelpExample(readings, coreLoads, coreLoadCount, MenuRowsExampleWhole, TipPercents(cores),
-                                            efficiency ? CpuRenderReadingEfficiency(readings->gpuShown) : CpuRenderReadingPerformance(readings->gpuShown),
+                                            efficiency ? CpuRenderReadingEfficiency(CpuRenderReadingsShown(readings)) : CpuRenderReadingPerformance(CpuRenderReadingsShown(readings)),
                                             efficiency ? @"efficiency cores" : @"performance cores")];
   }
   return examples;
@@ -3423,7 +3639,7 @@ static NSArray<NSView*>* HelpCoresExamples(const CpuReadings* readings, const do
   return TipPercents([self barTipTextUnpaddedAt:index]);
 }
 
-// a reading's text, as its panel row with its figures padded (readingRowsPadded:): "995GB Disk usage: 72% (free 279 GB,
+// a reading's text, as its panel row with its figures padded (diskRowPadded:, memoryRowPadded:): "995GB Disk usage: 72% (free 279 GB,
 // used 716 GB)"; an extra bar's, its class's barLabels entry; the core graph's, coresTipText, one kind's (split) with
 // that kind's reading, "Efficiency cores: 22%", in place of its section's title; empty when there is none
 - (NSString*)barTipTextUnpaddedAt:(NSInteger)index
@@ -3434,7 +3650,7 @@ static NSArray<NSView*>* HelpCoresExamples(const CpuReadings* readings, const do
     if ((index == BAR_TIP_CORES_E) || (index == BAR_TIP_CORES_P))
     {
       NSRange title = [cores rangeOfString:@"\n"];
-      NSInteger reading = (index == BAR_TIP_CORES_E) ? CpuRenderReadingEfficiency(barTipGpu) : CpuRenderReadingPerformance(barTipGpu);
+      NSInteger reading = (index == BAR_TIP_CORES_E) ? CpuRenderReadingEfficiency(barTipMask) : CpuRenderReadingPerformance(barTipMask);
       if (title.location != NSNotFound)
       {
         cores = [[self barTipTextUnpaddedAt:reading] stringByAppendingString:[cores substringFromIndex:title.location]];
@@ -3442,7 +3658,7 @@ static NSArray<NSView*>* HelpCoresExamples(const CpuReadings* readings, const do
     }
     return cores;
   }
-  const NSInteger readingsCount = CpuRenderReadingsCount(barTipGpu);
+  const NSInteger readingsCount = CpuRenderReadingsCount(barTipMask);
   if (index >= readingsCount)
   {
     NSInteger extra = index - readingsCount;
@@ -3455,25 +3671,37 @@ static NSArray<NSView*>* HelpCoresExamples(const CpuReadings* readings, const do
     NSString* label = (extraBarItem[extra] < labels.count) ? labels[extraBarItem[extra]] : nil;
     return [label isKindOfClass:[NSString class]] ? label : @"";
   }
-  if (barTipGpu && (index == CPU_RENDER_READING_GPU))
+  NSArray<NSString*>* row = nil;
+  switch (CpuRenderReadingKind(barTipMask, (int)index))
   {
-    return GpuTipText(readingsGpu);
+    case CPU_RENDER_KIND_BATTERY:
+      return BatteryTipText(readingsBattery, &readingsBatteryState);
+    case CPU_RENDER_KIND_WIFI:
+      return WifiTipText(&readingsWifi);
+    case CPU_RENDER_KIND_NEURAL_ENGINE:
+      return NeuralEngineTipText(readingsNeuralEngine, readingsNeuralEngineBusy);
+    case CPU_RENDER_KIND_GPU:
+      return GpuTipText(readingsGpu);
+    case CPU_RENDER_KIND_EFFICIENCY:
+    case CPU_RENDER_KIND_PERFORMANCE:
+    {
+      bool efficiency = (index == CpuRenderReadingEfficiency(barTipMask));
+      return CoreKindReadingText(efficiency, efficiency ? readingsCpuEfficiency : readingsCpuPerformance, [NSLocale currentLocale]);
+    }
+    // disk's, memory's and CPU's, as their panel rows, the disk's and memory's figures padded
+    case CPU_RENDER_KIND_DISK:
+      row = [self diskRowPadded:true];
+      break;
+    case CPU_RENDER_KIND_MEMORY:
+      row = [self memoryRowPadded:true];
+      break;
+    case CPU_RENDER_KIND_CPU:
+      row = [self cpuRow];
+      break;
+    default:
+      return @"";
   }
-  if (barTipGpu && (index == CPU_RENDER_READING_NEURAL_ENGINE))
-  {
-    return NeuralEngineTipText(readingsNeuralEngine, readingsNeuralEngineBusy);
-  }
-  if ((index == CpuRenderReadingEfficiency(barTipGpu)) || (index == CpuRenderReadingPerformance(barTipGpu)))
-  {
-    bool efficiency = (index == CpuRenderReadingEfficiency(barTipGpu));
-    return CoreKindReadingText(efficiency, efficiency ? readingsCpuEfficiency : readingsCpuPerformance, [NSLocale currentLocale]);
-  }
-  NSArray<NSArray<NSString*>*>* rows = [self readingRowsPadded:true];
-  if ((index < 0) || (index >= (NSInteger)rows.count))
-  {
-    return @"";
-  }
-  return [NSString stringWithFormat:@"%@ %@", rows[index][0], rows[index][1]];
+  return [NSString stringWithFormat:@"%@ %@", row[0], row[1]];
 }
 
 // follows the pointer: off the item (or the menu open), everything stops; on it, the watch runs; another reading, or
@@ -3492,7 +3720,7 @@ static NSArray<NSView*>* HelpCoresExamples(const CpuReadings* readings, const do
     barTipWatch = [NSTimer timerWithTimeInterval:BAR_TIP_WATCH target:self selector:@selector(watchBarTip:) userInfo:nil repeats:YES];
     [[NSRunLoop currentRunLoop] addTimer:barTipWatch forMode:NSRunLoopCommonModes];
   }
-  if ((index != barTipIndex) && (index >= CpuRenderReadingsCount(barTipGpu)) && (barTipIndex >= CpuRenderReadingsCount(barTipGpu)) && barTip.isVisible && [self barTipSameGroup:barTipIndex and:index])
+  if ((index != barTipIndex) && (index >= CpuRenderReadingsCount(barTipMask)) && (barTipIndex >= CpuRenderReadingsCount(barTipMask)) && barTip.isVisible && [self barTipSameGroup:barTipIndex and:index])
   {
     [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(showBarTip) object:nil];
     barTipIndex = index;
@@ -3555,7 +3783,7 @@ static NSArray<NSView*>* HelpCoresExamples(const CpuReadings* readings, const do
   }
   // a label with line breaks is laid out by whoever wrote it, so its lines are not wrapped; nor is a reading's, one
   // line as its panel row
-  bool unwrapped = (barTipIndex < CpuRenderReadingsCount(barTipGpu)) || ([text rangeOfString:@"\n"].location != NSNotFound);
+  bool unwrapped = (barTipIndex < CpuRenderReadingsCount(barTipMask)) || ([text rangeOfString:@"\n"].location != NSNotFound);
   SetTipText(barTip, barTipText, text, unwrapped ? CGFLOAT_MAX : ROW_TIP_MAX_WIDTH);
   barTipShown = text;
   NSRect slot = [self barTipSlotFor:barTipIndex];
@@ -3744,6 +3972,95 @@ static NSArray<NSView*>* HelpCoresExamples(const CpuReadings* readings, const do
   }
 }
 
+// Wi-Fi from CoreWLAN into *wifi: whether this Mac has a Wi-Fi interface, its power, whether it is connected (on, with a
+// channel and a signal below 0 dBm), and then its signal, noise, transmit rate and channel; with full also its security
+// and PHY mode, which the panel alone shows. rssiValue and security cost 2 to 3.3 ms a call, the others under 0.3 ms
+// (measured on an M3 MacBook Pro, in and out of the sandbox), so a read that is not full leaves security out. Never the
+// network's name, its BSSID or the country code, which need Location Services: this app asks for no permission. The
+// interface is asked for again while there is none
+static void WifiRead(SystemInfoWifi* wifi, bool full)
+{
+  static CWInterface* interface = nil;
+  if (interface == nil)
+  {
+    interface = [CWWiFiClient sharedWiFiClient].interface;
+  }
+  long security = wifi->security;
+  long phy = wifi->phy;
+  *wifi = SystemInfoWifi();
+  if (interface == nil)
+  {
+    return;
+  }
+  wifi->present = true;
+  snprintf(wifi->ifname, sizeof(wifi->ifname), "%s", interface.interfaceName.UTF8String ?: "");
+  wifi->powerOn = interface.powerOn;
+  if (!wifi->powerOn)
+  {
+    return;
+  }
+  CWChannel* channel = interface.wlanChannel;
+  wifi->rssi = (int)interface.rssiValue;
+  wifi->connected = (channel != nil) && (wifi->rssi < 0);
+  if (!wifi->connected)
+  {
+    return;
+  }
+  wifi->noise = (int)interface.noiseMeasurement;
+  wifi->txRate = interface.transmitRate;
+  wifi->channel = channel.channelNumber;
+  wifi->band = channel.channelBand;
+  wifi->width = channel.channelWidth;
+  // a read that is not full keeps the last full read's security and PHY mode, which only the panel shows (it reads in
+  // full while the menu is open)
+  wifi->security = full ? (long)interface.security : security;
+  wifi->phy = full ? (long)interface.activePHYMode : phy;
+}
+
+// the battery and Wi-Fi, for their bars, hover labels and panel rows: every BATTERY_WIFI_REFRESH s (half a tick early,
+// as the other readings), or now; Wi-Fi in full, with the interface's addresses and router, while the menu is open. While
+// their bars are not shown nothing is read and the old values are dropped, so a Mac's slots follow what the last read found
+- (void)readBatteryWifi:(bool)now
+{
+  if (!BatteryWifiShown())
+  {
+    lastBatteryWifi = 0.0;
+    readingsBattery = false;
+    readingsWifi = SystemInfoWifi();
+    readingsWifiIp[0] = readingsWifiMac[0] = readingsWifiRouter[0] = 0;
+    return;
+  }
+  NSTimeInterval uptime = [[NSProcessInfo processInfo] systemUptime];
+  if (!now && (lastBatteryWifi > 0.0) && ((uptime - lastBatteryWifi) < (BATTERY_WIFI_REFRESH - 0.5*RefreshInterval())))
+  {
+    return;
+  }
+  lastBatteryWifi = uptime;
+  readingsBattery = SystemInfoBatteryRead(&readingsBatteryState);
+  WifiRead(&readingsWifi, menuIsOpen);
+  if (menuIsOpen)
+  {
+    readingsWifiIp[0] = readingsWifiMac[0] = readingsWifiRouter[0] = 0;
+    if (readingsWifi.connected)
+    {
+      SystemInfoInterfaceAddresses(readingsWifi.ifname, readingsWifiIp, sizeof(readingsWifiIp), readingsWifiMac, sizeof(readingsWifiMac));
+      SystemInfoDefaultRouter(readingsWifi.ifname, readingsWifiRouter, sizeof(readingsWifiRouter));
+    }
+  }
+  static bool batteryLogged = false;
+  if (!readingsBattery && !batteryLogged)
+  {
+    batteryLogged = true;
+    NSLog(@"no internal battery was found: the battery bar and row are left out");
+  }
+  static bool wifiLogged = false;
+  if (!readingsWifi.present && !wifiLogged)
+  {
+    wifiLogged = true;
+    NSLog(@"no Wi-Fi interface was found: the Wi-Fi bar and rows are left out");
+  }
+}
+
 - (void)updateCPU:(id)sender
 {
   // overall CPU, menu open or not, so that its window is full the moment the menu opens
@@ -3820,6 +4137,8 @@ static NSArray<NSView*>* HelpCoresExamples(const CpuReadings* readings, const do
     }
   }
 
+  // before the image's width is worked out, which follows whether this Mac has a battery and Wi-Fi
+  [self readBatteryWifi:false];
   [self collectExtraBars];
   [self updateRendererParameters];
 
@@ -3831,9 +4150,21 @@ static NSArray<NSView*>* HelpCoresExamples(const CpuReadings* readings, const do
   readings.extra = extraBars.data();
   readings.extraOnly = !showBars;
   readings.efficiencyBars = coreSplit;
-  readings.gpuShown = GpuShown();
+  // one mask (ReadingsShown) for the width worked out above and what is drawn
+  const unsigned mask = ReadingsShown();
+  readings.gpuShown = ((mask & CPU_RENDER_SHOWN_GPU) != 0);
+  readings.batteryShown = ((mask & CPU_RENDER_SHOWN_BATTERY) != 0);
+  readings.wifiShown = ((mask & CPU_RENDER_SHOWN_WIFI) != 0);
+  readings.battery = -1.0;
+  readings.wifi = -1.0;
   if (showBars)
   {
+    if (readingsBattery)
+    {
+      readings.battery = readingsBatteryState.level;
+      readings.batteryCharging = readingsBatteryState.charging;
+    }
+    readings.wifi = readingsWifi.connected ? SystemInfoWifiFill(readingsWifi.rssi) : -1.0;
     readings.gpu = readingsGpu;
     readings.neuralEngine = readingsNeuralEngine;
     readings.neuralEngineByShare = (readingsNeuralEngineBusy >= 0.0);
@@ -4155,6 +4486,7 @@ static double TopInterval(void)
   [[NSUserDefaults standardUserDefaults] registerDefaults:@{RefreshKey:@0.2}];
   [[NSUserDefaults standardUserDefaults] registerDefaults:@{ShowBarsKey:@YES}];
   [[NSUserDefaults standardUserDefaults] registerDefaults:@{ShowGpuNeuralEngineKey:@YES}];
+  [[NSUserDefaults standardUserDefaults] registerDefaults:@{ShowBatteryWifiKey:@YES}];
   [[NSUserDefaults standardUserDefaults] registerDefaults:@{TopRowsKey:@5}];
 
   // Settings no longer offers granularity, style, line, width, appearance or theme: each takes its old default,
@@ -4168,6 +4500,7 @@ static double TopInterval(void)
   theme = THEME_BLUE;
   showBars = [[NSUserDefaults standardUserDefaults] boolForKey:ShowBarsKey];
   showGpuNeuralEngine = [[NSUserDefaults standardUserDefaults] boolForKey:ShowGpuNeuralEngineKey];
+  showBatteryWifi = [[NSUserDefaults standardUserDefaults] boolForKey:ShowBatteryWifiKey];
   topShown = TopRows();
 
   [self updateRendererParameters];
@@ -5052,6 +5385,16 @@ static NSTimeInterval TopDelay(void)
   [self updateUI];
 }
 
+- (IBAction)showBatteryWifiButtonClicked:(id)sender
+{
+  showBatteryWifi = (showBatteryWifiSwitch.state == NSControlStateValueOn);
+  [[NSUserDefaults standardUserDefaults] setBool:showBatteryWifi forKey:ShowBatteryWifiKey];
+  // on: read at once, so the slots are there at the next render; off: the values are dropped
+  [self readBatteryWifi:true];
+  [self updateRendererParameters];
+  [self updateUI];
+}
+
 // Refresh: 10, 5 or 2 times a second, by the segment chosen
 - (IBAction)refreshChoiceChanged:(id)sender
 {
@@ -5278,6 +5621,8 @@ static NSTimeInterval TopDelay(void)
   infoWidth = 0.0;
   [self performSelector:@selector(showInfoPanel) withObject:nil afterDelay:0 inModes:@[NSRunLoopCommonModes]];
   [self readDisk];
+  // Wi-Fi in full, with its addresses, for the panel's first values
+  [self readBatteryWifi:true];
   [infoTimer invalidate];
   infoTimer = [NSTimer timerWithTimeInterval:INFO_REFRESH target:self selector:@selector(updateInfoPanel:) userInfo:nil repeats:YES];
   infoTimer.tolerance = 0.1 * INFO_REFRESH;
@@ -5628,29 +5973,33 @@ static void SetTipText(NSPanel* panel, NSTextField* label, NSString* text, CGFlo
   [self applyInfoValues];
 }
 
-// the readings as shown, each its title and value: disk, memory, CPU, and GPU and Neural Engine while the GPU's bar is
-// shown (GpuShown); CPU, memory, GPU and Neural Engine are their last reading (updateCPU:), the disk row the last
-// reading of readDisk
+// the readings as shown, each its title and value, in the bars' order: disk, memory, and the Neural Engine and the GPU
+// while their bars are shown (GpuShown), then CPU; CPU, memory, GPU and Neural Engine are their last reading
+// (updateCPU:), the disk row the last reading of readDisk
 - (NSArray<NSArray<NSString*>*>*)readingRows
 {
-  return [self readingRowsPadded:false];
+  NSMutableArray<NSArray<NSString*>*>* rows = [NSMutableArray arrayWithObjects:[self diskRowPadded:false], [self memoryRowPadded:false], nil];
+  if (GpuShown())
+  {
+    [rows addObject:[self neuralEngineRow]];
+    [rows addObject:[self gpuRow]];
+  }
+  [rows addObject:[self cpuRow]];
+  return rows;
 }
 
-// padded: the disk's and memory's figures in parentheses led by figure spaces to one width, as the hover labels show
-// them, so that a label keeps its width as its values change
-- (NSArray<NSArray<NSString*>*>*)readingRowsPadded:(bool)padded
+// padded: the disk's figures in parentheses led by figure spaces to one width, as the hover labels show them, so that
+// a label keeps its width as its values change
+- (NSArray<NSString*>*)diskRowPadded:(bool)padded
+{
+  NSString* disk = (padded ? diskTipText : diskText) ?: @"—";
+  return @[diskTitle ?: @"Disk usage:", disk];
+}
+
+// padded: the memory's figures padded, as the disk's
+- (NSArray<NSString*>*)memoryRowPadded:(bool)padded
 {
   NSLocale* locale = [NSLocale currentLocale];
-
-  double busy = readingsCpu;
-  NSString* cpu = (busy < 0.0) ? @"—" : [[NSString alloc] initWithFormat:@"%ld%%" locale:locale, lround(busy * 100.0)];
-  // each kind's share beside it, "21% (Efficiency cores: 30%, Performance cores: 12%)", when both were read; the hover
-  // label pads these percentages too (TipPercents)
-  if ((busy >= 0.0) && (readingsCpuEfficiency >= 0.0) && (readingsCpuPerformance >= 0.0))
-  {
-    cpu = [[NSString alloc] initWithFormat:@"%@ (Efficiency cores: %ld%%, Performance cores: %ld%%)" locale:locale, cpu, lround(readingsCpuEfficiency * 100.0), lround(readingsCpuPerformance * 100.0)];
-  }
-
   NSString* memoryTitle = @"Memory usage:";
   NSString* memoryUsed = @"—";
   if (readingsMemory)
@@ -5666,35 +6015,71 @@ static void SetTipText(NSPanel* panel, NSTextField* label, NSString* text, CGFlo
       memoryUsed = [NSString stringWithFormat:@"%@ (free %@, used %@%@)", memoryUsed, FigurePadded(GiBText(readingsMemoryTotal - used, locale), width), FigurePadded(GiBText(used, locale), width), swapped];
     }
   }
-
-  NSString* disk = (padded ? diskTipText : diskText) ?: @"—";
-  NSMutableArray<NSArray<NSString*>*>* rows = [NSMutableArray arrayWithObjects:@[diskTitle ?: @"Disk usage:", disk], @[memoryTitle, memoryUsed], @[@"CPU:", cpu], nil];
-  if (GpuShown())
-  {
-    NSString* gpu = (readingsGpu < 0.0) ? @"—" : [[NSString alloc] initWithFormat:@"%ld%%" locale:locale, lround(fmin(readingsGpu, 1.0) * 100.0)];
-    // its power beside it, "12%  0.08 W", when IOReport gives it (the unsandboxed variant)
-    if ((readingsGpu >= 0.0) && (readingsGpuWatts >= 0.0))
-    {
-      gpu = [[NSString alloc] initWithFormat:@"%@  %.2f W" locale:locale, gpu, readingsGpuWatts];
-    }
-    NSString* neuralEngine = (readingsNeuralEngine < 0) ? @"—" : ((readingsNeuralEngine > 0) ? @"ON" : @"OFF");
-    if (readingsNeuralEngineBusy >= 0.0)
-    {
-      neuralEngine = [[NSString alloc] initWithFormat:@"%ld%%" locale:locale, lround(readingsNeuralEngineBusy * 100.0)];
-    }
-    [rows addObject:@[@"GPU:", gpu]];
-    [rows addObject:@[@"Neural Engine:", neuralEngine]];
-  }
-  return rows;
+  return @[memoryTitle, memoryUsed];
 }
 
-// the panel's rows as shown: uptime, read now, then the readings as a section, then each MenuRows' panel rows as a
+- (NSArray<NSString*>*)cpuRow
+{
+  NSLocale* locale = [NSLocale currentLocale];
+  double busy = readingsCpu;
+  NSString* cpu = (busy < 0.0) ? @"—" : [[NSString alloc] initWithFormat:@"%ld%%" locale:locale, lround(busy * 100.0)];
+  // each kind's share beside it, "21% (Efficiency cores: 30%, Performance cores: 12%)", when both were read; the hover
+  // label pads these percentages too (TipPercents)
+  if ((busy >= 0.0) && (readingsCpuEfficiency >= 0.0) && (readingsCpuPerformance >= 0.0))
+  {
+    cpu = [[NSString alloc] initWithFormat:@"%@ (Efficiency cores: %ld%%, Performance cores: %ld%%)" locale:locale, cpu, lround(readingsCpuEfficiency * 100.0), lround(readingsCpuPerformance * 100.0)];
+  }
+  return @[@"CPU:", cpu];
+}
+
+- (NSArray<NSString*>*)gpuRow
+{
+  NSLocale* locale = [NSLocale currentLocale];
+  NSString* gpu = (readingsGpu < 0.0) ? @"—" : [[NSString alloc] initWithFormat:@"%ld%%" locale:locale, lround(fmin(readingsGpu, 1.0) * 100.0)];
+  // its power beside it, "12%  0.08 W", when IOReport gives it (the unsandboxed variant)
+  if ((readingsGpu >= 0.0) && (readingsGpuWatts >= 0.0))
+  {
+    gpu = [[NSString alloc] initWithFormat:@"%@  %.2f W" locale:locale, gpu, readingsGpuWatts];
+  }
+  return @[@"GPU:", gpu];
+}
+
+- (NSArray<NSString*>*)neuralEngineRow
+{
+  NSString* neuralEngine = (readingsNeuralEngine < 0) ? @"—" : ((readingsNeuralEngine > 0) ? @"ON" : @"OFF");
+  if (readingsNeuralEngineBusy >= 0.0)
+  {
+    neuralEngine = [[NSString alloc] initWithFormat:@"%ld%%" locale:[NSLocale currentLocale], lround(readingsNeuralEngineBusy * 100.0)];
+  }
+  return @[@"Neural Engine:", neuralEngine];
+}
+
+// the panel's rows as shown: uptime, read now, then the readings in the bars' order, the battery's row, Wi-Fi's rows and
+// the rest (readingRows), each of the three that is shown a section of its own, then each MenuRows' panel rows as a
 // section of their own; starts, when given, gets the first row of each section after uptime, and headings, when given,
 // gets the rows a build marks as headings
 - (NSArray<NSArray<NSString*>*>*)infoRowsWithStarts:(NSMutableIndexSet*)starts headings:(NSMutableIndexSet*)headings
 {
   NSMutableArray<NSArray<NSString*>*>* rows = [NSMutableArray arrayWithObject:@[@"Uptime:", UptimeText(SystemInfoUptimeSeconds())]];
-  [starts addIndex:rows.count];
+  const NSUInteger readingsFirst = rows.count;
+  [starts addIndex:readingsFirst];
+  const unsigned shown = ReadingsShown();
+  if ((shown & CPU_RENDER_SHOWN_BATTERY) != 0)
+  {
+    [rows addObject:@[@"Battery:", BatteryValueText(readingsBattery, &readingsBatteryState)]];
+  }
+  if ((shown & CPU_RENDER_SHOWN_WIFI) != 0)
+  {
+    if (rows.count > readingsFirst)
+    {
+      [starts addIndex:rows.count];
+    }
+    [rows addObjectsFromArray:WifiRows(&readingsWifi)];
+  }
+  if (rows.count > readingsFirst)
+  {
+    [starts addIndex:rows.count];
+  }
   [rows addObjectsFromArray:[self readingRows]];
   for (id<MenuRows> menuRow in menuRows)
   {

@@ -24,10 +24,20 @@
 
 #include <CoreFoundation/CoreFoundation.h>
 #include <IOKit/IOKitLib.h>
+#include <IOKit/ps/IOPowerSources.h>
+#include <IOKit/ps/IOPSKeys.h>
+#include <arpa/inet.h>
+#include <ifaddrs.h>
 #include <mach/mach.h>
 #include <mach/mach_time.h>
+#include <net/if.h>
+#include <net/if_dl.h>
+#include <net/route.h>
+#include <netinet/in.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/socket.h>
 #include <sys/sysctl.h>
 #include <time.h>
 
@@ -397,4 +407,315 @@ int SystemInfoNeuralEngine(void)
   }
   CFRelease(power);
   return (state < 0) ? -1 : ((state > 0) ? 1 : 0);
+}
+
+#pragma mark - Battery
+
+// one number of a power source's description, or -1 when the key is missing or not a number
+static int BatteryNumber(CFDictionaryRef description, CFStringRef key)
+{
+  CFTypeRef value = CFDictionaryGetValue(description, key);
+  int number = -1;
+  if ((value == NULL) || (CFGetTypeID(value) != CFNumberGetTypeID()) || !CFNumberGetValue((CFNumberRef)value, kCFNumberIntType, &number))
+  {
+    return -1;
+  }
+  return number;
+}
+
+static bool BatteryFlag(CFDictionaryRef description, CFStringRef key)
+{
+  CFTypeRef value = CFDictionaryGetValue(description, key);
+  return (value != NULL) && (CFGetTypeID(value) == CFBooleanGetTypeID()) && CFBooleanGetValue((CFBooleanRef)value);
+}
+
+static bool BatteryString(CFDictionaryRef description, CFStringRef key, const char* expected)
+{
+  CFTypeRef value = CFDictionaryGetValue(description, key);
+  if ((value == NULL) || (CFGetTypeID(value) != CFStringGetTypeID()))
+  {
+    return false;
+  }
+  CFStringRef wanted = CFStringCreateWithCString(kCFAllocatorDefault, expected, kCFStringEncodingUTF8);
+  if (wanted == NULL)
+  {
+    return false;
+  }
+  bool same = (CFStringCompare((CFStringRef)value, wanted, 0) == kCFCompareEqualTo);
+  CFRelease(wanted);
+  return same;
+}
+
+bool SystemInfoBatteryFromDescription(CFDictionaryRef description, SystemInfoBattery* battery)
+{
+  if ((description == NULL) || (battery == NULL))
+  {
+    return false;
+  }
+  if (!BatteryString(description, CFSTR(kIOPSTypeKey), kIOPSInternalBatteryType) || !BatteryFlag(description, CFSTR(kIOPSIsPresentKey)))
+  {
+    return false;
+  }
+  int current = BatteryNumber(description, CFSTR(kIOPSCurrentCapacityKey));
+  int max = BatteryNumber(description, CFSTR(kIOPSMaxCapacityKey));
+  if ((current < 0) || (max <= 0))
+  {
+    return false;
+  }
+  double level = (double)current / (double)max;
+  battery->level = (level > 1.0) ? 1.0 : level;
+  battery->charging = BatteryFlag(description, CFSTR(kIOPSIsChargingKey));
+  battery->charged = BatteryFlag(description, CFSTR(kIOPSIsChargedKey));
+  battery->onAC = BatteryString(description, CFSTR(kIOPSPowerSourceStateKey), kIOPSACPowerValue);
+  int toEmpty = BatteryNumber(description, CFSTR(kIOPSTimeToEmptyKey));
+  int toFull = BatteryNumber(description, CFSTR(kIOPSTimeToFullChargeKey));
+  battery->minutesToEmpty = (toEmpty > 0) ? toEmpty : -1;
+  battery->minutesToFull = (toFull > 0) ? toFull : -1;
+  return true;
+}
+
+bool SystemInfoBatteryRead(SystemInfoBattery* battery)
+{
+  CFTypeRef info = IOPSCopyPowerSourcesInfo();
+  if (info == NULL)
+  {
+    return false;
+  }
+  bool found = false;
+  CFArrayRef list = IOPSCopyPowerSourcesList(info);
+  if (list != NULL)
+  {
+    for (CFIndex i=0; (i<CFArrayGetCount(list)) && !found; i++)
+    {
+      // the description is not ours to release (the Get rule)
+      CFDictionaryRef description = IOPSGetPowerSourceDescription(info, CFArrayGetValueAtIndex(list, i));
+      found = SystemInfoBatteryFromDescription(description, battery);
+    }
+    CFRelease(list);
+  }
+  CFRelease(info);
+  return found;
+}
+
+void SystemInfoBatteryStateText(const SystemInfoBattery* battery, char* text, size_t size)
+{
+  if ((text == NULL) || (size == 0))
+  {
+    return;
+  }
+  if (battery == NULL)
+  {
+    text[0] = 0;
+  }
+  else if (battery->charged)
+  {
+    snprintf(text, size, "charged");
+  }
+  else if (battery->charging)
+  {
+    snprintf(text, size, "charging");
+  }
+  else if (battery->onAC)
+  {
+    snprintf(text, size, "not charging");
+  }
+  else if (battery->minutesToEmpty > 0)
+  {
+    snprintf(text, size, "on battery, %d:%02d left", battery->minutesToEmpty / 60, battery->minutesToEmpty % 60);
+  }
+  else
+  {
+    snprintf(text, size, "on battery");
+  }
+}
+
+#pragma mark - Wi-Fi
+
+double SystemInfoWifiFill(int rssi)
+{
+  if (rssi >= 0)
+  {
+    return -1;
+  }
+  double fill = (rssi + 90) / 60.0;
+  return (fill < 0.0) ? 0.0 : ((fill > 1.0) ? 1.0 : fill);
+}
+
+// CoreWLAN's CWSecurity values (CoreWLANTypes.h); the unknown value, NSIntegerMax, and any other is NULL
+const char* SystemInfoWifiSecurityName(long security)
+{
+  switch (security)
+  {
+    case 0:  return "None";
+    case 1:  return "WEP";
+    case 2:  return "WPA Personal";
+    case 3:  return "WPA/WPA2 Personal";
+    case 4:  return "WPA2 Personal";
+    case 5:  return "Personal";
+    case 6:  return "Dynamic WEP";
+    case 7:  return "WPA Enterprise";
+    case 8:  return "WPA/WPA2 Enterprise";
+    case 9:  return "WPA2 Enterprise";
+    case 10: return "Enterprise";
+    case 11: return "WPA3 Personal";
+    case 12: return "WPA3 Enterprise";
+    case 13: return "WPA2/WPA3 Personal";
+    case 14: return "OWE";
+    case 15: return "OWE Transition";
+    default: return NULL;
+  }
+}
+
+// CoreWLAN's CWPHYMode values; 0, none, and any other is NULL
+const char* SystemInfoWifiPhyName(long phy)
+{
+  switch (phy)
+  {
+    case 1:  return "802.11a";
+    case 2:  return "802.11b";
+    case 3:  return "802.11g";
+    case 4:  return "802.11n";
+    case 5:  return "802.11ac";
+    case 6:  return "802.11ax";
+    case 7:  return "802.11be";
+    default: return NULL;
+  }
+}
+
+void SystemInfoWifiChannelText(long number, long band, long width, char* text, size_t size)
+{
+  if ((text == NULL) || (size == 0))
+  {
+    return;
+  }
+  static const char* const bands[] = {NULL, "2.4 GHz", "5 GHz", "6 GHz"};
+  static const char* const widths[] = {NULL, "20 MHz", "40 MHz", "80 MHz", "160 MHz"};
+  const char* bandName = ((band > 0) && (band < 4)) ? bands[band] : NULL;
+  const char* widthName = ((width > 0) && (width < 5)) ? widths[width] : NULL;
+  if ((bandName != NULL) && (widthName != NULL))
+  {
+    snprintf(text, size, "%ld (%s, %s)", number, bandName, widthName);
+  }
+  else if ((bandName != NULL) || (widthName != NULL))
+  {
+    snprintf(text, size, "%ld (%s)", number, (bandName != NULL) ? bandName : widthName);
+  }
+  else
+  {
+    snprintf(text, size, "%ld", number);
+  }
+}
+
+bool SystemInfoInterfaceAddresses(const char* ifname, char* ip, size_t ipSize, char* mac, size_t macSize)
+{
+  if (ifname == NULL)
+  {
+    return false;
+  }
+  struct ifaddrs* list = NULL;
+  if (getifaddrs(&list) != 0)
+  {
+    return false;
+  }
+  bool haveIp = false;
+  if ((ip != NULL) && (ipSize > 0))
+  {
+    ip[0] = 0;
+  }
+  if ((mac != NULL) && (macSize > 0))
+  {
+    mac[0] = 0;
+  }
+  for (struct ifaddrs* a=list; a!=NULL; a=a->ifa_next)
+  {
+    if ((a->ifa_name == NULL) || (a->ifa_addr == NULL) || (strcmp(a->ifa_name, ifname) != 0))
+    {
+      continue;
+    }
+    if ((a->ifa_addr->sa_family == AF_INET) && !haveIp)
+    {
+      const struct sockaddr_in* in = (const struct sockaddr_in*)(const void*)a->ifa_addr;
+      if ((ip == NULL) || (ipSize == 0))
+      {
+        haveIp = true;
+      }
+      else if (inet_ntop(AF_INET, &in->sin_addr, ip, (socklen_t)ipSize) != NULL)
+      {
+        haveIp = true;
+      }
+    }
+    else if ((a->ifa_addr->sa_family == AF_LINK) && (mac != NULL) && (macSize > 0))
+    {
+      const struct sockaddr_dl* link = (const struct sockaddr_dl*)(const void*)a->ifa_addr;
+      if (link->sdl_alen == 6)
+      {
+        const unsigned char* b = (const unsigned char*)LLADDR(link);
+        snprintf(mac, macSize, "%02x:%02x:%02x:%02x:%02x:%02x", b[0], b[1], b[2], b[3], b[4], b[5]);
+      }
+    }
+  }
+  freeifaddrs(list);
+  return haveIp;
+}
+
+// a routing message's socket addresses are packed after its header, each padded to 4 bytes
+#define ROUTE_ALIGN(len)  (((len) > 0) ? (1 + (((len) - 1) | (sizeof(uint32_t) - 1))) : sizeof(uint32_t))
+
+bool SystemInfoDefaultRouter(const char* ifname, char* text, size_t size)
+{
+  if ((ifname == NULL) || (text == NULL) || (size == 0))
+  {
+    return false;
+  }
+  unsigned index = if_nametoindex(ifname);
+  if (index == 0)
+  {
+    return false;
+  }
+  int mib[6] = {CTL_NET, PF_ROUTE, 0, AF_INET, NET_RT_FLAGS, RTF_GATEWAY};
+  size_t length = 0;
+  if ((sysctl(mib, 6, NULL, &length, NULL, 0) != 0) || (length == 0))
+  {
+    return false;
+  }
+  char* table = (char*)malloc(length);
+  if (table == NULL)
+  {
+    return false;
+  }
+  bool found = false;
+  if (sysctl(mib, 6, table, &length, NULL, 0) == 0)
+  {
+    for (char* p=table; !found && ((size_t)(p - table) + sizeof(struct rt_msghdr) <= length); )
+    {
+      const struct rt_msghdr* message = (const struct rt_msghdr*)(const void*)p;
+      if (message->rtm_msglen == 0)
+      {
+        break;
+      }
+      const char* end = p + message->rtm_msglen;
+      if ((message->rtm_index == index) && ((message->rtm_addrs & (RTA_DST | RTA_GATEWAY)) == (RTA_DST | RTA_GATEWAY)))
+      {
+        // RTA_DST is the first address, RTA_GATEWAY the second
+        const char* address = p + sizeof(struct rt_msghdr);
+        const struct sockaddr* destination = (const struct sockaddr*)(const void*)address;
+        if ((address + sizeof(struct sockaddr) <= end) && (destination->sa_family == AF_INET))
+        {
+          const struct sockaddr_in* dst = (const struct sockaddr_in*)(const void*)destination;
+          const char* next = address + ROUTE_ALIGN(destination->sa_len);
+          if ((dst->sin_addr.s_addr == 0) && (next + sizeof(struct sockaddr_in) <= end))
+          {
+            const struct sockaddr_in* gateway = (const struct sockaddr_in*)(const void*)next;
+            if ((gateway->sin_family == AF_INET) && (inet_ntop(AF_INET, &gateway->sin_addr, text, (socklen_t)size) != NULL))
+            {
+              found = true;
+            }
+          }
+        }
+      }
+      p = (char*)end;
+    }
+  }
+  free(table);
+  return found;
 }

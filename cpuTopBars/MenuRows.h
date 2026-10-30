@@ -161,8 +161,8 @@ NSTextField* MenuRowsSettingsHeading(NSString* title);
 NSView* MenuRowsSettingsCard(NSArray<NSView*>* rows);
 
 typedef NS_ENUM(NSInteger, MenuRowsExamplePart) {
-  MenuRowsExampleWhole,     // the menu bar's image: the five readings, or with readings->gpuShown the seven (unless readings->extraOnly), cores, extras
-  MenuRowsExampleReadings,  // only the readings before the core graph: the five (the seven with readings->gpuShown), less
+  MenuRowsExampleWhole,     // the menu bar's image: the five readings and the optional ones readings shows (battery, Wi-Fi, Neural Engine, GPU; none with readings->extraOnly), cores, extras
+  MenuRowsExampleReadings,  // only the readings before the core graph: the five and the optional ones shown, less
                             // the E-cores' and the P-cores' when the graph splits, as they head their own bars
   MenuRowsExampleExtra,     // only the extra readings, from the first to the last
 };
@@ -170,8 +170,8 @@ typedef NS_ENUM(NSInteger, MenuRowsExamplePart) {
 // only) and the core bars' loads, coreLoads[i % coreLoadCount] for core bar i (count 0: all 0), from which the CPU, E
 // and P readings are then read, as the app reads them from the cores (count 0: as given), drawn on a strip in
 // the menu bar's colour for the view's appearance, redrawn when its appearance or backing scale changes; part crops
-// it; label (nil: none) is drawn as a hover label in a box under reading labelReading (CpuRenderReadingX's index, with
-// readings->gpuShown the visual order disk, memory, CPU, GPU, Neural Engine, E, P; -1:
+// it; label (nil: none) is drawn as a hover label in a box under reading labelReading (CpuRenderReadingX's index, in the
+// visual order battery, Wi-Fi, disk, memory, Neural Engine, GPU, CPU, E, P of those shown: CpuRenderReadingIndex; -1:
 // the core graph's middle); caption (nil: none) in small secondary text under it. The extras are copied
 NSView* MenuRowsHelpExample(const CpuReadings* _Nullable readings, const double* _Nullable coreLoads,
                             int coreLoadCount, MenuRowsExamplePart part, NSString* _Nullable label,
