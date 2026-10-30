@@ -2741,9 +2741,9 @@ static NSString* OthersRowText(int count)
     ShowMenuItemImage(item);
   }
 
-#ifndef UPMONITOR_NO_FUNDRAISER
+#ifndef CPUTOPBARS_NO_FUNDRAISER
   {
-    // a build that defines UPMONITOR_NO_FUNDRAISER leaves this row out
+    // a build that defines CPUTOPBARS_NO_FUNDRAISER leaves this row out
     NSMenuItem* item = [menu addItemWithTitle:@"Support Team Fox..." action:@selector(openFundraiser:) keyEquivalent:@""];
     [item setAttributedTitle:[[NSAttributedString alloc] initWithString:[item title] attributes:attributesStandard]];
     NSImage* heartIcon = [NSImage imageWithSystemSymbolName:@"heart" accessibilityDescription:nil];
@@ -4129,7 +4129,7 @@ static NSTimeInterval TopDelay(void)
   [NSApp orderFrontStandardAboutPanel:sender];
 }
 
-#ifndef UPMONITOR_NO_FUNDRAISER
+#ifndef CPUTOPBARS_NO_FUNDRAISER
 - (IBAction)openFundraiser:(id)sender
 {
   [[NSWorkspace sharedWorkspace] openURL:[NSURL URLWithString:@"https://give.michaeljfox.org/halfmarble"]];

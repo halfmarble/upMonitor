@@ -15,9 +15,9 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "A07E57000000000000000001"
-               BuildableName = "upMonitorTests.xctest"
-               BlueprintName = "upMonitorTests"
-               ReferencedContainer = "container:upMonitor.xcodeproj">
+               BuildableName = "cpuTopBarsTests.xctest"
+               BlueprintName = "cpuTopBarsTests"
+               ReferencedContainer = "container:cpuTopBars.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
       </BuildActionEntries>
@@ -33,9 +33,9 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "A07E57000000000000000001"
-               BuildableName = "upMonitorTests.xctest"
-               BlueprintName = "upMonitorTests"
-               ReferencedContainer = "container:upMonitor.xcodeproj">
+               BuildableName = "cpuTopBarsTests.xctest"
+               BlueprintName = "cpuTopBarsTests"
+               ReferencedContainer = "container:cpuTopBars.xcodeproj">
             </BuildableReference>
          </TestableReference>
       </Testables>

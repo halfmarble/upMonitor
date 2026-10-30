@@ -16,8 +16,8 @@
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "D540B2A523FA2F5400752C7F"
                BuildableName = "cpuTopBars.app"
-               BlueprintName = "upMonitor"
-               ReferencedContainer = "container:upMonitor.xcodeproj">
+               BlueprintName = "cpuTopBars"
+               ReferencedContainer = "container:cpuTopBars.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
       </BuildActionEntries>
@@ -47,8 +47,8 @@
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "D540B2A523FA2F5400752C7F"
             BuildableName = "cpuTopBars.app"
-            BlueprintName = "upMonitor"
-            ReferencedContainer = "container:upMonitor.xcodeproj">
+            BlueprintName = "cpuTopBars"
+            ReferencedContainer = "container:cpuTopBars.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
       <AdditionalOptions>
@@ -76,8 +76,8 @@
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "D540B2A523FA2F5400752C7F"
             BuildableName = "cpuTopBars.app"
-            BlueprintName = "upMonitor"
-            ReferencedContainer = "container:upMonitor.xcodeproj">
+            BlueprintName = "cpuTopBars"
+            ReferencedContainer = "container:cpuTopBars.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </ProfileAction>

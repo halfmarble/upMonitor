@@ -66,7 +66,7 @@ Rest the pointer on a bar for a second and its reading shows below the menu bar.
 
 A Mac App Store release is coming. Until then, build it from source:
 
-1.  Clone this repository and open `upMonitor.xcodeproj` in Xcode.
+1.  Clone this repository and open `cpuTopBars.xcodeproj` in Xcode.
 2.  Choose **Product > Run**.
 3.  Look for the activity graph in your menu bar!
 

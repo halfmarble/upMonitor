@@ -34,14 +34,14 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		A07E57000000000000000002 /* upMonitorTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = upMonitorTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		A07E57000000000000000002 /* cpuTopBarsTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = cpuTopBarsTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		A07E57000000000000000020 /* FreeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FreeTests.swift; sourceTree = "<group>"; };
 		A07E57000000000000000021 /* RendererGeometryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RendererGeometryTests.swift; sourceTree = "<group>"; };
 		A07E57000000000000000022 /* RendererDrawingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RendererDrawingTests.swift; sourceTree = "<group>"; };
 		A07E57000000000000000023 /* SamplerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SamplerTests.swift; sourceTree = "<group>"; };
 		A07E57000000000000000024 /* SystemInfoTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemInfoTests.swift; sourceTree = "<group>"; };
 		A07E57000000000000000025 /* TopTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TopTests.swift; sourceTree = "<group>"; };
-		A07E57000000000000000026 /* upMonitorTests-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "upMonitorTests-Bridging-Header.h"; sourceTree = "<group>"; };
+		A07E57000000000000000026 /* cpuTopBarsTests-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "cpuTopBarsTests-Bridging-Header.h"; sourceTree = "<group>"; };
 		A07E57000000000000000027 /* IOKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = IOKit.framework; path = System/Library/Frameworks/IOKit.framework; sourceTree = SDKROOT; };
 		D540B2A623FA2F5400752C7F /* cpuTopBars.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = cpuTopBars.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		D540B2A923FA2F5400752C7F /* AppDelegate.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = AppDelegate.h; sourceTree = "<group>"; };
@@ -50,7 +50,7 @@
 		D540B2AF23FA2F5800752C7F /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.xib; name = Base; path = Base.lproj/MainMenu.xib; sourceTree = "<group>"; };
 		D540B2B123FA2F5800752C7F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		D540B2B223FA2F5800752C7F /* main.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = main.m; sourceTree = "<group>"; };
-		D540B2B423FA2F5800752C7F /* upMonitor.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = upMonitor.entitlements; sourceTree = "<group>"; };
+		D540B2B423FA2F5800752C7F /* cpuTopBars.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = cpuTopBars.entitlements; sourceTree = "<group>"; };
 		D5C7ED175E1A4B2C9F3A0B11 /* Credits.rtf */ = {isa = PBXFileReference; lastKnownFileType = text.rtf; path = Credits.rtf; sourceTree = "<group>"; };
 		D5F0A1B2C3D4E5F607182931 /* IBMPlexMono-Regular.otf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "IBMPlexMono-Regular.otf"; sourceTree = "<group>"; };
 		D5F0A1B2C3D4E5F607182933 /* IBMPlexMono-LICENSE.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "IBMPlexMono-LICENSE.txt"; sourceTree = "<group>"; };
@@ -92,14 +92,14 @@
 		D540B29D23FA2F5400752C7F = {
 			isa = PBXGroup;
 			children = (
-				D540B2A823FA2F5400752C7F /* upMonitor */,
-				A07E57000000000000000005 /* upMonitorTests */,
+				D540B2A823FA2F5400752C7F /* cpuTopBars */,
+				A07E57000000000000000005 /* cpuTopBarsTests */,
 				D540B2A723FA2F5400752C7F /* Products */,
 				D5BBD70B242A3E3700D0D53A /* Frameworks */,
 			);
 			sourceTree = "<group>";
 		};
-		A07E57000000000000000005 /* upMonitorTests */ = {
+		A07E57000000000000000005 /* cpuTopBarsTests */ = {
 			isa = PBXGroup;
 			children = (
 				A07E57000000000000000020 /* FreeTests.swift */,
@@ -108,21 +108,21 @@
 				A07E57000000000000000023 /* SamplerTests.swift */,
 				A07E57000000000000000024 /* SystemInfoTests.swift */,
 				A07E57000000000000000025 /* TopTests.swift */,
-				A07E57000000000000000026 /* upMonitorTests-Bridging-Header.h */,
+				A07E57000000000000000026 /* cpuTopBarsTests-Bridging-Header.h */,
 			);
-			path = upMonitorTests;
+			path = cpuTopBarsTests;
 			sourceTree = "<group>";
 		};
 		D540B2A723FA2F5400752C7F /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				A07E57000000000000000002 /* upMonitorTests.xctest */,
+				A07E57000000000000000002 /* cpuTopBarsTests.xctest */,
 				D540B2A623FA2F5400752C7F /* cpuTopBars.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
 		};
-		D540B2A823FA2F5400752C7F /* upMonitor */ = {
+		D540B2A823FA2F5400752C7F /* cpuTopBars */ = {
 			isa = PBXGroup;
 			children = (
 				D540B2BF23FB0C7100752C7F /* CpuSampler.h */,
@@ -144,9 +144,9 @@
 				D5F0A1B2C3D4E5F607182933 /* IBMPlexMono-LICENSE.txt */,
 				D540B2B123FA2F5800752C7F /* Info.plist */,
 				D540B2B223FA2F5800752C7F /* main.m */,
-				D540B2B423FA2F5800752C7F /* upMonitor.entitlements */,
+				D540B2B423FA2F5800752C7F /* cpuTopBars.entitlements */,
 			);
-			path = upMonitor;
+			path = cpuTopBars;
 			sourceTree = "<group>";
 		};
 		D5BBD70B242A3E3700D0D53A /* Frameworks */ = {
@@ -162,9 +162,9 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		A07E57000000000000000001 /* upMonitorTests */ = {
+		A07E57000000000000000001 /* cpuTopBarsTests */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = A07E57000000000000000006 /* Build configuration list for PBXNativeTarget "upMonitorTests" */;
+			buildConfigurationList = A07E57000000000000000006 /* Build configuration list for PBXNativeTarget "cpuTopBarsTests" */;
 			buildPhases = (
 				A07E57000000000000000003 /* Sources */,
 				A07E57000000000000000004 /* Frameworks */,
@@ -173,14 +173,14 @@
 			);
 			dependencies = (
 			);
-			name = upMonitorTests;
-			productName = upMonitorTests;
-			productReference = A07E57000000000000000002 /* upMonitorTests.xctest */;
+			name = cpuTopBarsTests;
+			productName = cpuTopBarsTests;
+			productReference = A07E57000000000000000002 /* cpuTopBarsTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
-		D540B2A523FA2F5400752C7F /* upMonitor */ = {
+		D540B2A523FA2F5400752C7F /* cpuTopBars */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = D540B2B723FA2F5800752C7F /* Build configuration list for PBXNativeTarget "upMonitor" */;
+			buildConfigurationList = D540B2B723FA2F5800752C7F /* Build configuration list for PBXNativeTarget "cpuTopBars" */;
 			buildPhases = (
 				D540B2A223FA2F5400752C7F /* Sources */,
 				D540B2A323FA2F5400752C7F /* Frameworks */,
@@ -191,8 +191,8 @@
 			);
 			dependencies = (
 			);
-			name = upMonitor;
-			productName = upMonitor;
+			name = cpuTopBars;
+			productName = cpuTopBars;
 			productReference = D540B2A623FA2F5400752C7F /* cpuTopBars.app */;
 			productType = "com.apple.product-type.application";
 		};
@@ -210,7 +210,7 @@
 					};
 				};
 			};
-			buildConfigurationList = D540B2A123FA2F5400752C7F /* Build configuration list for PBXProject "upMonitor" */;
+			buildConfigurationList = D540B2A123FA2F5400752C7F /* Build configuration list for PBXProject "cpuTopBars" */;
 			compatibilityVersion = "Xcode 9.3";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
@@ -223,8 +223,8 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				D540B2A523FA2F5400752C7F /* upMonitor */,
-				A07E57000000000000000001 /* upMonitorTests */,
+				D540B2A523FA2F5400752C7F /* cpuTopBars */,
+				A07E57000000000000000001 /* cpuTopBarsTests */,
 			);
 		};
 /* End PBXProject section */
@@ -323,7 +323,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				HEADER_SEARCH_PATHS = (
 					"$(inherited)",
-					"$(SRCROOT)/upMonitor",
+					"$(SRCROOT)/cpuTopBars",
 				);
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -332,7 +332,7 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.example.cputopbars.tests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				SWIFT_OBJC_BRIDGING_HEADER = "upMonitorTests/upMonitorTests-Bridging-Header.h";
+				SWIFT_OBJC_BRIDGING_HEADER = "cpuTopBarsTests/cpuTopBarsTests-Bridging-Header.h";
 				SWIFT_TREAT_WARNINGS_AS_ERRORS = YES;
 				SWIFT_VERSION = 6.0;
 				TEST_HOST = "";
@@ -350,7 +350,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				HEADER_SEARCH_PATHS = (
 					"$(inherited)",
-					"$(SRCROOT)/upMonitor",
+					"$(SRCROOT)/cpuTopBars",
 				);
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -359,7 +359,7 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.example.cputopbars.tests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				SWIFT_OBJC_BRIDGING_HEADER = "upMonitorTests/upMonitorTests-Bridging-Header.h";
+				SWIFT_OBJC_BRIDGING_HEADER = "cpuTopBarsTests/cpuTopBarsTests-Bridging-Header.h";
 				SWIFT_TREAT_WARNINGS_AS_ERRORS = YES;
 				SWIFT_VERSION = 6.0;
 				TEST_HOST = "";
@@ -483,7 +483,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				CODE_SIGN_ENTITLEMENTS = upMonitor/upMonitor.entitlements;
+				CODE_SIGN_ENTITLEMENTS = cpuTopBars/cpuTopBars.entitlements;
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
@@ -492,9 +492,9 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
-					"$(PROJECT_DIR)/upMonitor",
+					"$(PROJECT_DIR)/cpuTopBars",
 				);
-				INFOPLIST_FILE = upMonitor/Info.plist;
+				INFOPLIST_FILE = cpuTopBars/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -509,7 +509,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				CODE_SIGN_ENTITLEMENTS = upMonitor/upMonitor.entitlements;
+				CODE_SIGN_ENTITLEMENTS = cpuTopBars/cpuTopBars.entitlements;
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
@@ -518,9 +518,9 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
-					"$(PROJECT_DIR)/upMonitor",
+					"$(PROJECT_DIR)/cpuTopBars",
 				);
-				INFOPLIST_FILE = upMonitor/Info.plist;
+				INFOPLIST_FILE = cpuTopBars/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -534,7 +534,7 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		A07E57000000000000000006 /* Build configuration list for PBXNativeTarget "upMonitorTests" */ = {
+		A07E57000000000000000006 /* Build configuration list for PBXNativeTarget "cpuTopBarsTests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				A07E57000000000000000007 /* Debug */,
@@ -543,7 +543,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		D540B2A123FA2F5400752C7F /* Build configuration list for PBXProject "upMonitor" */ = {
+		D540B2A123FA2F5400752C7F /* Build configuration list for PBXProject "cpuTopBars" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				D540B2B523FA2F5800752C7F /* Debug */,
@@ -552,7 +552,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		D540B2B723FA2F5800752C7F /* Build configuration list for PBXNativeTarget "upMonitor" */ = {
+		D540B2B723FA2F5800752C7F /* Build configuration list for PBXNativeTarget "cpuTopBars" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				D540B2B823FA2F5800752C7F /* Debug */,
