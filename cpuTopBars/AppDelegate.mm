@@ -3196,7 +3196,7 @@ static void HelpCoreReadings(const double* coreLoads, int coreLoadCount, CpuRead
   readings->performance = (kindCount[1] > 0) ? (kindSum[1] / kindCount[1]) : -1.0;
 }
 
-// the GPU's hover label, "GPU: 12%", and the Neural Engine's, "Neural Engine: on"; unpadded, as barTipTextAt: pads them
+// the GPU's hover label, "GPU: 12%", and the Neural Engine's, "Neural Engine: ON"; unpadded, as barTipTextAt: pads them
 static NSString* GpuTipText(double gpu)
 {
   if (gpu < 0.0)
@@ -3212,7 +3212,7 @@ static NSString* NeuralEngineTipText(int state)
   {
     return @"Neural Engine: cannot be read on this Mac";
   }
-  return (state > 0) ? @"Neural Engine: on" : @"Neural Engine: off";
+  return (state > 0) ? @"Neural Engine: ON" : @"Neural Engine: OFF";
 }
 
 // the GPU hover label of the help window's example, as the real one reads, the percentage padded (TipPercents)
@@ -5083,7 +5083,7 @@ static void SetTipText(NSPanel* panel, NSTextField* label, NSString* text, CGFlo
   if (GpuShown())
   {
     NSString* gpu = (readingsGpu < 0.0) ? @"—" : [[NSString alloc] initWithFormat:@"%ld%%" locale:locale, lround(fmin(readingsGpu, 1.0) * 100.0)];
-    NSString* neuralEngine = (readingsNeuralEngine < 0) ? @"—" : ((readingsNeuralEngine > 0) ? @"on" : @"off");
+    NSString* neuralEngine = (readingsNeuralEngine < 0) ? @"—" : ((readingsNeuralEngine > 0) ? @"ON" : @"OFF");
     [rows addObject:@[@"GPU:", gpu]];
     [rows addObject:@[@"Neural Engine:", neuralEngine]];
   }
