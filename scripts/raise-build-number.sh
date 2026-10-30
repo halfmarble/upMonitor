@@ -29,11 +29,6 @@
 # The last number is kept in this clone's git directory, which its worktrees
 # share and git never commits, so each clone counts on its own, from 2048.
 # Set CPUTOPBARS_BUILD_NUMBER_FILE to keep the count in another file.
-#
-# The count is kept in cputopbars-build-number. While a file under the
-# counter's name before the rename, upmonitor-build-number, still exists beside
-# it, the larger of the two numbers is used and both files are written, so a
-# checkout that still runs the old script goes on from the same number.
 
 plist="${TARGET_BUILD_DIR}/${INFOPLIST_PATH}"
 
@@ -45,7 +40,6 @@ if [ -n "${UPMONITOR_BUILD_NUMBER_FILE}" ]; then
   exit 1
 fi
 
-old=""
 counter="${CPUTOPBARS_BUILD_NUMBER_FILE}"
 if [ -z "${counter}" ]; then
   # Count only in a clone or worktree of this project, not in another git
@@ -58,25 +52,11 @@ if [ -z "${counter}" ]; then
   gitdir=$(git -C "${SRCROOT}" rev-parse --path-format=absolute --git-common-dir)
   counter="${gitdir}/cputopbars-build-number"
 fi
-# The counter's name before the rename, read and kept current while it exists
-# beside the counter, whether the counter was named or found.
-if [ "$(basename "${counter}")" = "cputopbars-build-number" ] && [ -f "$(dirname "${counter}")/upmonitor-build-number" ]; then
-  old="$(dirname "${counter}")/upmonitor-build-number"
-fi
 
 last=$(cat "${counter}" 2>/dev/null)
 case "${last}" in
   ''|0*|*[!0-9]*) last=0 ;;
 esac
-if [ -n "${old}" ]; then
-  last_old=$(cat "${old}" 2>/dev/null)
-  case "${last_old}" in
-    ''|0*|*[!0-9]*) last_old=0 ;;
-  esac
-  if [ "${last_old}" -gt "${last}" ]; then
-    last="${last_old}"
-  fi
-fi
 if [ "${last}" -eq 0 ]; then
   build=2048
 else
@@ -86,12 +66,6 @@ fi
 if ! { echo "${build}" > "${counter}.tmp" && mv -f "${counter}.tmp" "${counter}"; }; then
   echo "error: cannot write the build number to ${counter}"
   exit 1
-fi
-if [ -n "${old}" ]; then
-  if ! { echo "${build}" > "${old}.tmp" && mv -f "${old}.tmp" "${old}"; }; then
-    echo "error: cannot write the build number to ${old}"
-    exit 1
-  fi
 fi
 if ! /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${build}" "${plist}"; then
   echo "error: cannot set CFBundleVersion in ${plist}"
