@@ -861,14 +861,14 @@ CGFloat CpuRenderImageHeight(bool bar, bool stripped, const CpuReadings* reading
   return _letters(bar, readings) ? (16.0 + _letters_lift(stripped) + CPU_RENDER_LETTERS_TOP) : 16.0;
 }
 
-// the block's letters, B W D R N G C E P by kind (CPU_RENDER_KIND_*), each 5 x 5 pixels, row 0 the top, bit 4 the left
+// the block's letters, B W D M N G C E P by kind (CPU_RENDER_KIND_*), each 5 x 5 pixels, row 0 the top, bit 4 the left
 // column; most of Micro 5's own capitals are 3 pixels wide (C 2, W 5), too narrow for N, which then reads as n
 static const uint8_t _letter_bits[9][5] =
 {
   { 0x1E, 0x11, 0x1E, 0x11, 0x1E }, // B
   { 0x15, 0x15, 0x15, 0x15, 0x0A }, // W
   { 0x1E, 0x11, 0x11, 0x11, 0x1E }, // D
-  { 0x1E, 0x11, 0x1E, 0x12, 0x11 }, // R
+  { 0x11, 0x1B, 0x15, 0x11, 0x11 }, // M
   { 0x11, 0x19, 0x15, 0x13, 0x11 }, // N
   { 0x0F, 0x10, 0x13, 0x11, 0x0E }, // G
   { 0x0F, 0x10, 0x10, 0x10, 0x0F }, // C

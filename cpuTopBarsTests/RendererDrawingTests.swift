@@ -421,7 +421,7 @@ extension FreeTests {
       r.letters = true
       let image = render(bar: true, stripped: false, width: 60, readings: r, height: 26)
       let core = Int(CpuRenderReadingsWidth(true, 4, 6, 0, 0, 0, nil))
-      for (i, letter) in ["D", "R", "C", "E", "P"].enumerated() {
+      for (i, letter) in ["D", "M", "C", "E", "P"].enumerated() {
         let x = 10 * i
         let (from, to) = (x + 1, x + 6)
         for bx in x..<(x + 8) {
@@ -437,10 +437,10 @@ extension FreeTests {
           }
         }
       }
-      // the letters differ: D's pixels are not R's
+      // the letters differ: D's pixels are not M's
       let d: [Bool] = (1..<6).flatMap { x -> [Bool] in (0..<5).map { y in image.alpha(x: x, y: y) > 200 } }
-      let rr: [Bool] = (11..<16).flatMap { x -> [Bool] in (0..<5).map { y in image.alpha(x: x, y: y) > 200 } }
-      #expect(d != rr)
+      let m: [Bool] = (11..<16).flatMap { x -> [Bool] in (0..<5).map { y in image.alpha(x: x, y: y) > 200 } }
+      #expect(d != m)
       for x in core..<60 {
         for y in 0..<8 { #expect(image.alpha(x: x, y: y) == 0, "under the core bar, column \(x), height \(y)") }
       }
@@ -473,7 +473,7 @@ extension FreeTests {
         ("B", ["####.", "#...#", "####.", "#...#", "####."]),
         ("W", ["#.#.#", "#.#.#", "#.#.#", "#.#.#", ".#.#."]),
         ("D", ["####.", "#...#", "#...#", "#...#", "####."]),
-        ("R", ["####.", "#...#", "####.", "#..#.", "#...#"]),
+        ("M", ["#...#", "##.##", "#.#.#", "#...#", "#...#"]),
         ("N", ["#...#", "##..#", "#.#.#", "#..##", "#...#"]),
         ("G", [".####", "#....", "#..##", "#...#", ".###."]),
         ("C", [".####", "#....", "#....", "#....", ".####"]),

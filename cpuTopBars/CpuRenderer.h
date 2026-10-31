@@ -192,7 +192,7 @@ struct CpuReadings
   // them below 0, the background alone. In Dot style a dot filled while the fill is 0.005 or more, else a 1-pt ring at the
   // bars' background opacity. Drawn only with wifiShown
   double wifi;
-  // true: in bar style, a letter under each of the block's wide bars, B the battery's, W Wi-Fi's, D disk, R memory, A the
+  // true: in bar style, a letter under each of the block's wide bars, B the battery's, W Wi-Fi's, D disk, M memory, N the
   // Neural Engine's, G the GPU's, C CPU, E the E-cores' and P the P-cores', in the band at the image's bottom
   // (CPU_RENDER_LETTERS_HEIGHT), and everything else drawn above it, the bars 3 pt over the letters in either style; the
   // image must be CpuRenderImageHeight tall. false is the default, so a zeroed struct draws the 16-pt image as before.
