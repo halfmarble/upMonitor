@@ -850,7 +850,7 @@ static bool _letters(bool bar, const CpuReadings* readings)
 }
 
 // how far up the bars are drawn over the letters: the band, less the bars' own clear foot (DASHED_BOTTOM in the dashed
-// style), so the lowest bar or dash stands 1 pt above the letters in either style
+// style), so the lowest bar or dash stands 3 pt above the letters in either style
 static CGFloat _letters_lift(bool stripped)
 {
   return CPU_RENDER_LETTERS_HEIGHT - (stripped ? DASHED_BOTTOM : 0.0);
@@ -858,7 +858,7 @@ static CGFloat _letters_lift(bool stripped)
 
 CGFloat CpuRenderImageHeight(bool bar, bool stripped, const CpuReadings* readings)
 {
-  return _letters(bar, readings) ? (16.0 + _letters_lift(stripped)) : 16.0;
+  return _letters(bar, readings) ? (16.0 + _letters_lift(stripped) + CPU_RENDER_LETTERS_TOP) : 16.0;
 }
 
 // the block's letters, B W D R N G C E P by kind (CPU_RENDER_KIND_*), each 5 x 5 pixels, row 0 the top, bit 4 the left
@@ -939,7 +939,7 @@ void CpuRender(CpuSummaryInfo* cpu_info, CGContextRef ctx, bool light, int granu
   const natural_t cores = CpuSamplerGetCount(granularity); // at least 1
   CpuRenderGraphSpan(bar, tickWidth, tickTotalWidth, imageWidth, block, shown, split, extraCount, extra, &offset, &end);
   // with the block's letters, they fill the band at the bottom and everything else is drawn above it, on the 16-pt scale
-  // as without them, lifted so that the bars' foot stands 1 pt above the letters
+  // as without them, lifted so that the bars' foot stands 3 pt above the letters; CPU_RENDER_LETTERS_TOP stays clear
   const bool letters = _letters(bar, readings);
   if (letters)
   {

@@ -84,9 +84,12 @@ enum Theme
 #define CPU_RENDER_BATTERY_FONT "Micro5-Regular"
 #define CPU_RENDER_BATTERY_FONT_SIZE (11.0)
 // the band under the bars that holds the block's letters (CpuReadings letters): the letters, 5 x 5-pt pixel bitmaps in
-// the style of CPU_RENDER_BATTERY_FONT, and a 1-pt gap above them, up to the bars' foot (in the dashed style the bars' clear 2-pt foot
-// is taken off, so the gap stays 1 pt); the image is then taller (CpuRenderImageHeight)
-#define CPU_RENDER_LETTERS_HEIGHT (6.0)
+// the style of CPU_RENDER_BATTERY_FONT, and a 3-pt gap above them, up to the bars' foot (in the dashed style the bars' clear 2-pt foot
+// is taken off, so the gap stays 3 pt); the image is then taller (CpuRenderImageHeight) by the band and by
+// CPU_RENDER_LETTERS_TOP, clear above the bars, which balances the gap's second and third points so that the status item,
+// which centres the image, draws the bars where a 1-pt gap had them and the letters 2 pt lower
+#define CPU_RENDER_LETTERS_HEIGHT (8.0)
+#define CPU_RENDER_LETTERS_TOP (2.0)
 // the Wi-Fi bar's segments, each 2 pt tall
 #define CPU_RENDER_WIFI_SEGMENTS (5)
 #define CPU_RENDER_READINGS_GAP (4.0)
@@ -191,7 +194,7 @@ struct CpuReadings
   double wifi;
   // true: in bar style, a letter under each of the block's wide bars, B the battery's, W Wi-Fi's, D disk, R memory, A the
   // Neural Engine's, G the GPU's, C CPU, E the E-cores' and P the P-cores', in the band at the image's bottom
-  // (CPU_RENDER_LETTERS_HEIGHT), and everything else drawn above it, the bars 1 pt over the letters in either style; the
+  // (CPU_RENDER_LETTERS_HEIGHT), and everything else drawn above it, the bars 3 pt over the letters in either style; the
   // image must be CpuRenderImageHeight tall. false is the default, so a zeroed struct draws the 16-pt image as before.
   // Ignored when the block is not drawn and in Dot style
   bool letters;
@@ -202,8 +205,8 @@ void CpuRenderInit(void);
 // CPU_RENDER_SHOWN_WIFI if wifiShown and CPU_RENDER_SHOWN_BATTERY if batteryShown
 unsigned CpuRenderReadingsShown(const CpuReadings* readings);
 // the image's height for what readings draws, in bar style or not, dashed (stripped) or solid: 16 pt; with the block's
-// letters (CpuReadings letters) CPU_RENDER_LETTERS_HEIGHT more, less the dashed style's clear 2-pt foot: 22 pt solid, 20
-// dashed
+// letters (CpuReadings letters) CPU_RENDER_LETTERS_HEIGHT and CPU_RENDER_LETTERS_TOP more, less the dashed style's clear
+// 2-pt foot: 26 pt solid, 24 dashed
 CGFloat CpuRenderImageHeight(bool bar, bool stripped, const CpuReadings* readings);
 // the readings block's count with the optional readings shown (a CPU_RENDER_SHOWN_* mask, other bits ignored): 5, plus 2
 // for the GPU's, 1 for Wi-Fi's and 1 for the battery's, at most CPU_RENDER_READINGS_MAX; the first extra reading's index is
