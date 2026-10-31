@@ -1841,7 +1841,7 @@ static NSWindow* MakeHelpWindow(void)
       hoverExamples,
     ],
     @[
-      @"In Settings, \"Show Disk, RAM, CPU, E-core, P-core bars\" turns the wide bars off and leaves the core bars, \"Show battery and Wi-Fi bars\" turns those two off, \"Show GPU and Neural Engine bars\" those two, \"Show letters under the bars\" the letter under each wide bar (B battery, W Wi-Fi, D disk, R memory, N Neural Engine, G GPU, C CPU, E and P the efficiency and performance cores), and \"Refresh\" sets how often the bars move.",
+      @"In Settings, \"Show Disk, RAM, CPU, E-core, P-core bars\" turns the wide bars off and leaves the core bars, \"Show battery and Wi-Fi bars\" turns those two off, \"Show GPU and Neural Engine bars\" those two, \"Show letters under the bars\" the letter under each wide bar (B battery, W Wi-Fi, D disk, M memory, N Neural Engine, G GPU, C CPU, E and P the efficiency and performance cores), and \"Refresh\" sets how often the bars move.",
       @[
         MenuRowsHelpExample(&engineOff, loads, loadCount, MenuRowsExampleWhole, nil, -1, @"bars on"),
         MenuRowsHelpExample(&barsOff, loads, loadCount, MenuRowsExampleWhole, nil, -1, @"bars off"),
