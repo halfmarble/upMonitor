@@ -4,6 +4,8 @@
 
 A lightweight CPU monitoring tool designed specifically for the macOS menu bar. Keep a pulse on your system performance without cluttering your workspace.
 
+If you use the macOS Battery and Wi-Fi menu-bar items mainly to check their status, cpuTopBars can take their place: its battery and Wi-Fi bars and their hover labels show the battery's charge and whether it is charging, and the Wi-Fi signal and connection details, so you can hide those items in System Settings and free up menu-bar space. It does not replace them entirely; among other things, it has none of their controls (it cannot join a network, turn Wi-Fi on or off, or change power settings), and it does not show the network's name.
+
 * **hiding in the menu bar:**
 
 ![cpuTopBars Screenshot](Screenshot-menu.png)
@@ -82,7 +84,25 @@ cpuTopBars requires macOS 27 or later.
 
 cpuTopBars was called upMonitor; release 1.0 on GitHub is that old app. A copy you built from source under the old name keeps its own settings and its own login item, which still opens that copy at login: turn Launch at login off in the old copy, or delete it, then set your settings and Launch at login again in cpuTopBars, which starts with the default settings.
 
-The version you build from this repository runs outside the App Sandbox. It ranks every user's processes (WindowServer, kernel_task, system daemons) in the list; it gives the inspector lsof, nm and sample tabs and a Kill button for your own processes, and shows the Neural Engine's busy share and the GPU's power in watts. The App Store versions are sandboxed: the sandbox gives an app no CPU figures for other users' processes and does not let it run those tools or signal other processes, and the counters behind the Neural Engine's share and the GPU's watts are left out of those versions. So they list your own processes, count the others in one row, show no extra inspector tabs and no Kill button, and show the Neural Engine as on or off. The Neural Engine's share and the GPU's watts come from counters Apple does not document; they were checked on one Mac (an M3), and where they cannot be read the Neural Engine shows on or off and the GPU shows its use alone.
+The version you build from this repository runs outside the App Sandbox. It ranks every user's processes (WindowServer, kernel_task, system daemons) in the list; it gives the inspector lsof, nm and sample tabs and a Kill button for your own processes, and shows the Neural Engine's busy share and the GPU's power in watts. The App Store versions are sandboxed: the sandbox gives an app no CPU figures for other users' processes and does not let it run those tools or signal other processes, and the counters behind the Neural Engine's share and the GPU's watts are left out of those versions. So they list your own processes, count the others in one row, show no extra inspector tabs and no Kill button that signals the process from the app (devTopBars, the paid App Store app below, runs a Shortcut you add once instead), and show the Neural Engine as on or off. The Neural Engine's share and the GPU's watts come from counters Apple does not document; they were checked on one Mac (an M3), and where they cannot be read the Neural Engine shows on or off and the GPU shows its use alone.
+
+## 🛍 App Store Versions
+
+Two apps are coming to the Mac App Store: **cpuTopBars**, free, and **devTopBars**, a paid app built on cpuTopBars with more features. Both run in the App Sandbox, and devTopBars adds features of its own; the table shows how they differ from the version you build from this repository:
+
+| | Built from this repository | cpuTopBars (App Store, free) | devTopBars (App Store, paid) |
+|---|---|---|---|
+| **Source** | open, MIT, this repository | this repository's code, built in the App Sandbox | closed, built on this repository's code |
+| **App Sandbox** | no | yes | yes |
+| **Process list** | "TOP PROCESSES BY CPU": every user's processes, among them system daemons and WindowServer | "YOUR TOP PROCESSES BY CPU": your own processes, the others counted in one row | as in cpuTopBars from the App Store |
+| **Inspector tabs** | man page, arguments and environment, lsof, nm, sample | man page, arguments and environment | man page, arguments and environment |
+| **Ending a process** | a Kill button for your own processes | none | Kill through a Shortcut you add once, or copy the process's name and open Activity Monitor |
+| **Neural Engine** | its busy share, where it can be read | on or off | on or off |
+| **GPU** | its use, and its power in watts where it can be read | its use | its use |
+| **Usage bars for an AI coding plan** | — | — | the plan's 5-hour and weekly limits, and one bar per live session, fed by a free open-source plugin |
+| **IP addresses** | the Wi-Fi address and router, in the Wi-Fi bar's hover label | the same | the same, plus LAN, WAN and VPN rows in the menu; the WAN address is looked up only when you click its row |
+| **Keep Mac awake** | — | — | while a chosen process runs, from the inspector |
+| **Network use** | none | none | the WAN lookup when you click its row, and one check at launch for a newer plugin version, which you can turn off |
 
 ## ⚙️ Configuration
 
