@@ -16,7 +16,7 @@ A lightweight CPU monitoring tool designed specifically for the macOS menu bar. 
 
 `cpuTopBars` provides real-time insights into your system's CPU usage with a focus on aesthetics and customization.
 
-* **Real-time Menu Bar Visualization:** View your CPU activity at a glance with a live-updating graph right in your macOS menu bar, beside small bars, in this order, for the battery (on a Mac with one: a bar filled to its charge, red on battery, green while it charges and white (black on a light menu bar) while plugged in and not charging, with the charge in percent written down it below 100%), the Wi-Fi signal (five segments), disk and memory use, then after a small gap the Neural Engine (its busy share in the version built from this repository, whether it is powered on in the App Store versions), GPU use and overall CPU use, then bars for the efficiency cores' and the performance cores' use, each of these two heading its own cores' bars when the graph shows each core and the Mac lists its efficiency cores first, and under each of these bars its letter: B battery, W Wi-Fi, D disk, R memory, N Neural Engine, G GPU, C CPU, E and P the efficiency and performance cores (switchable in Settings, the battery and Wi-Fi bars and the letters each with a switch of their own).
+* **Real-time Menu Bar Visualization:** View your CPU activity at a glance with a live-updating graph right in your macOS menu bar, beside small bars, in this order, for the battery (on a Mac with one: a bar filled to its charge, red on battery, green while it charges and white (black on a light menu bar) while plugged in and not charging, with the charge in percent written down it below 100%), the Wi-Fi signal (five segments), disk and memory use, then after a small gap the Neural Engine (its busy share in the version built from this repository, whether it is powered on in the App Store versions), GPU use and overall CPU use, then bars for the efficiency cores' and the performance cores' use, each of these two heading its own cores' bars when the graph shows each core and the Mac lists its efficiency cores first, and under each of these bars its letter: B battery, W Wi-Fi, D disk, M memory, N Neural Engine, G GPU, C CPU, E and P the efficiency and performance cores (switchable in Settings, the battery and Wi-Fi bars and the letters each with a switch of their own).
 * **Top Process Tracking:** Quickly identify which of your processes are consuming the most CPU with a ranked list of processes, titled "TOP PROCESSES BY CPU" in the version built from this repository and "YOUR TOP PROCESSES BY CPU" in the App Store versions, each with its CPU share and its memory (physical footprint, in GB); in the version built from this repository the list ranks other users' processes too, among them macOS's system daemons and WindowServer, while it is sorted by CPU; sorted by memory, and in the App Store versions, they are counted in one row below it.
 * **System readings:** when the menu opens, a panel beside it shows uptime, the battery's charge and whether it is charging, Wi-Fi's signal while connected (else whether it is on), then startup-volume, memory and overall CPU usage as percentages with their sizes, the disk and memory with their free and used space, memory with its swap in use and CPU with its efficiency and performance cores' use, GPU use (with its power in watts in the version built from this repository) and the Neural Engine's busy share (in the App Store versions, whether it is powered on), all read on the Mac; nothing is sent over the network.
 * **Hover labels:** rest the pointer on a bar for a second to see its value below the menu bar; on the core bars it lists each core's load, and on the Wi-Fi bar, while connected, the details the macOS Wi-Fi menu shows with the Option key held (IP address, router, MAC address, security, channel, noise, transmit rate and PHY mode; not the network's name, so no Location Services permission is asked).
@@ -34,7 +34,13 @@ A lightweight CPU monitoring tool designed specifically for the macOS menu bar. 
 
 Rest the pointer on a bar for a second and its reading shows below the menu bar.
 
-* **Wi-Fi:** while connected, the signal, then the IP address, router, MAC address, security, channel, noise, transmit rate and PHY mode; else whether Wi-Fi is off or not connected.
+* **Battery:** the battery's charge, and whether it is charging, not charging, charged, or on battery, with the time left when macOS gives one.
+
+<img src="screenshots/hover-battery.png" width="298" alt="Battery label">
+
+* **Wi-Fi:** while connected, the signal, then the IP address, router, MAC address, security, channel, noise, transmit rate and PHY mode; else whether Wi-Fi is off or not connected. In the picture the addresses are blacked out.
+
+<img src="screenshots/hover-wifi.png" width="264" alt="Wi-Fi label, addresses blacked out">
 
 * **Disk:** the startup volume's use, with its free and used space.
 
@@ -50,19 +56,19 @@ Rest the pointer on a bar for a second and its reading shows below the menu bar.
 
 * **GPU:** the GPU's use.
 
-<img src="screenshots/hover-gpu.png" width="153" alt="GPU label">
+<img src="screenshots/hover-gpu.png" width="175" alt="GPU label">
 
 * **Neural Engine:** the Neural Engine's busy share (in the App Store versions, whether it is powered on).
 
-<img src="screenshots/hover-neural-engine.png" width="174" alt="Neural Engine label">
+<img src="screenshots/hover-neural-engine.png" width="195" alt="Neural Engine label">
 
 * **Efficiency cores:** their use, then each efficiency core's load; › marks the core under the pointer.
 
-<img src="screenshots/hover-e-cores.png" width="195" alt="Efficiency cores label">
+<img src="screenshots/hover-e-cores.png" width="204" alt="Efficiency cores label">
 
 * **Performance cores:** the same for the performance cores.
 
-<img src="screenshots/hover-p-cores.png" width="218" alt="Performance cores label">
+<img src="screenshots/hover-p-cores.png" width="240" alt="Performance cores label">
 
 ## 🛠 Installation
 
