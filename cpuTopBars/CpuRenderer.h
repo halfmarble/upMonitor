@@ -83,6 +83,18 @@ enum Theme
 // CoreText), so the digits are 5 pt tall and 3 pt wide ("1" 2 pt)
 #define CPU_RENDER_BATTERY_FONT "Micro5-Regular"
 #define CPU_RENDER_BATTERY_FONT_SIZE (11.0)
+// the battery bar's styles (CpuReadings batteryStyle), each over the bar's whole height in bar style, its fill on a device
+// pixel; an unknown style draws as CPU_RENDER_BATTERY_LIGHT_TINT, the default, which a zeroed struct draws.
+// LIGHT_TINT: the fill's colour mixed 55% toward white, opaque (on the adapter the bars' grey at 0.55 opacity); the digits
+// cut out, so the menu bar shows through them, except on a light menu bar with a coloured fill (charging or on battery),
+// where they are black at 0.9 opacity.
+// GREY and LIGHT_GREY: the bars' grey at 0.60 and 0.75 opacity; the digits cut out.
+// TINT: the fill's colour at 0.38 opacity (0.3 on the adapter); the digits cut out of the fill, and above it in the fill's
+// colour mixed 60% toward white (45% toward black on a light menu bar), on the adapter the text colour at 0.9 opacity
+#define CPU_RENDER_BATTERY_LIGHT_TINT (0)
+#define CPU_RENDER_BATTERY_GREY (1)
+#define CPU_RENDER_BATTERY_LIGHT_GREY (2)
+#define CPU_RENDER_BATTERY_TINT (3)
 // the band under the bars that holds the block's letters (CpuReadings letters): the letters, 5 x 5-pt pixel bitmaps in
 // the style of CPU_RENDER_BATTERY_FONT, and a 3-pt gap above them, up to the bars' foot (in the dashed style the bars' clear 2-pt foot
 // is taken off, so the gap stays 3 pt); the image is then taller (CpuRenderImageHeight) by the band and by
@@ -158,9 +170,10 @@ struct CpuReadings
   // dashes: on, solid; off, only the bars' background. In Dot style a dot: on, filled; off, a 1-pt ring at the bars'
   // background opacity. Drawn only with gpuShown, never in the ramp's colours
   int neuralEngine;
-  // true: neuralEngineBusy, not neuralEngine, sets the Neural Engine's bar: its background, and over it a fill
-  // neuralEngineBusy (0..1) of its height, in the same colour, whole, without the dashes; in Dot style a dot filled while
-  // the share is 0.005 or more, else the ring. false is the default, so a zeroed struct draws neuralEngine as before
+  // true: neuralEngineBusy, not neuralEngine, sets the Neural Engine's reading, drawn as the GPU's is: a wide bar filled
+  // to neuralEngineBusy (0..1; below 0, not read: only the bar's background, and in Dot style nothing), dashed in the
+  // dashed style and in the ramp's colours with colour, or a dot. false is the default, so a zeroed struct draws
+  // neuralEngine as before
   bool neuralEngineByShare;
   double neuralEngineBusy;
   // true: the Neural Engine's bar and the GPU's are drawn after the gap that follows memory, before CPU; false is the
@@ -169,12 +182,11 @@ struct CpuReadings
   // true: the battery's reading, a bar as wide as the readings' with its charge written over it, is drawn first, left of
   // everything; false is the default. Ignored when the block is not drawn
   bool batteryShown;
-  // the battery's charge, 0..1 (above 1 as 1); below 0, not read: the bar's background only, no number, and in Dot style
-  // nothing. In bar style the bar is the Neural Engine's by-share bar: its background and a fill of that share of its
-  // height, whole, without the dashes, and over it the charge in whole percent in CPU_RENDER_BATTERY_FONT (none at 100),
-  // its digits upright and stacked from the top on device pixels, cut out of the fill so that the menu bar shows through
-  // them, and in the menu bar's text colour at 0.9 opacity over the rest of the bar; in Dot style a dot filled while the charge is 0.005 or more, with
-  // no number. Drawn only with batteryShown
+  // the battery's charge, 0..1 (above 1 as 1); below 0, not read: the bars' background only, no number, and in Dot style
+  // nothing. In bar style a wide bar, whole, without the dashes: its background in batteryStyle and a fill of that share
+  // of its height, its top on a device pixel, and over it the charge in whole percent in CPU_RENDER_BATTERY_FONT (none at
+  // 100), its digits upright and stacked from the top on device pixels, drawn as batteryStyle says; in Dot style a dot
+  // filled while the charge is 0.005 or more, with no number. Drawn only with batteryShown
   double battery;
   // the power state, which colours the fill, or in Dot style the dot: charging, systemGreen at full opacity; else on the
   // adapter (batteryOnAC: charged, or held below full, and not charging), the menu bar's text colour at 0.9 opacity, white
@@ -182,6 +194,8 @@ struct CpuReadings
   // Drawn only with batteryShown
   bool batteryCharging;
   bool batteryOnAC;
+  // the battery bar's style in bar style, a CPU_RENDER_BATTERY_* value; Dot style does not change
+  int batteryStyle;
   // true: Wi-Fi's reading, a bar as wide as the readings' (a dot in Dot style), is drawn after the battery's, before disk;
   // false is the default. Ignored when the block is not drawn
   bool wifiShown;

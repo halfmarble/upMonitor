@@ -574,18 +574,6 @@ static void _render_colored(CGContextRef ctx, CGFloat x, CGFloat width, CGFloat 
   }
 }
 
-// a share bar over its background, in its readings slot at x and width wide, drawn whole from bottom, without the dashes: the
-// background, then a fill of share (0..1, above 1 as 1) of the height in fill at alpha; below 0, the background alone
-static void _render_share_bar(CGContextRef ctx, CGFloat x, CGFloat width, double share, rgb fill, CGFloat alpha, CGFloat color, bool light, CGFloat bottom)
-{
-  _render_background(ctx, x, width, color, light, bottom);
-  if (share > 0.0)
-  {
-    CGContextSetRGBFillColor(ctx, fill.r, fill.g, fill.b, alpha);
-    CGContextFillRect(ctx, CGRectMake(x, bottom, width, fmin(share, 1.0)*(16-bottom)));
-  }
-}
-
 // a reading's dot in its readings slot at x: filled in fill (full opacity) when on; else, when ring, a 1-pt ring at the bars'
 // background opacity, and when not, nothing
 static void _render_dot(CGContextRef ctx, CGFloat x, bool on, bool ring, rgb fill, CGFloat color, CGFloat tickWidth, bool light)
@@ -619,29 +607,17 @@ static rgb _text_color(bool light)
 // the readings' are, drawn whole from bottom, without the dashes: on (above 0), filled solid in the menu bar's text
 // colour at 0.9 opacity, the brightness of the system's Wi-Fi icon and clock over the dark menu bar (232-233 of 255
 // over its 32, measured on screen; the battery's body reads 243); off (0), only the bars' background. In Dot style the readings' dot, where theirs is drawn: on,
-// filled in that colour; off, a 1-pt ring at the bars' background opacity
-// share, 0..1, when byShare: the share of time busy sets the fill (CpuReadings neuralEngineByShare); else state, ON/OFF
-static void _render_neural_engine(CGContextRef ctx, CGFloat x, int state, bool byShare, double share, CGFloat color, bool bar, CGFloat tickWidth, bool light, CGFloat bottom)
+// filled in that colour; off, a 1-pt ring at the bars' background opacity. By its share of time busy (CpuReadings
+// neuralEngineByShare) it is not drawn here but as the GPU's bar is, among the block's readings
+static void _render_neural_engine(CGContextRef ctx, CGFloat x, int state, CGFloat color, bool bar, CGFloat tickWidth, bool light, CGFloat bottom)
 {
-  if (byShare)
-  {
-    if (share < 0.0)
-    {
-      return;
-    }
-    state = (share >= 0.005) ? 1 : 0;
-  }
   if (state < 0)
   {
     return;
   }
   if (bar)
   {
-    if (byShare)
-    {
-      _render_share_bar(ctx, x, 2.0*tickWidth, share, _text_color(light), 0.9, color, light, bottom);
-    }
-    else if (state > 0)
+    if (state > 0)
     {
       CGContextSetGrayFillColor(ctx, light ? 0.0 : 1.0, 0.9);
       CGContextFillRect(ctx, CGRectMake(x, bottom, 2.0*tickWidth, 16-bottom));
@@ -714,21 +690,59 @@ static CTFontRef _battery_font(void)
   return font;
 }
 
-// the battery's number over its bar at x, width wide: the charge in whole percent, 0 to 99, its digits upright and stacked
-// from the top, 5 pt tall, 1 pt apart, each centred across the bar on whole points and the stack 1 pt above the image's
-// centre, on device pixels, so the digits' own edges are sharp (the fill's top is not snapped, as no share bar's is, so where a
-// digit crosses it one row blends). A full bar (100) has no number: stacked, it would be 17 pt, taller than the dashed
-// style's 14-pt bar. Where the digits cross the fill (the
-// charge's share of the bar's height from bottom) they are cut out of it, so the menu bar shows through; elsewhere they
-// are in the menu bar's text colour at 0.9 opacity. Nothing without the font
-static void _render_battery_number(CGContextRef ctx, CGFloat x, CGFloat width, double charge, CGFloat bottom, bool light)
+// c mixed t (0..1) of the way toward to
+static rgb _mix(rgb c, rgb to, double t)
 {
+  rgb m = {c.r + ((to.r - c.r)*t), c.g + ((to.g - c.g)*t), c.b + ((to.b - c.b)*t)};
+  return m;
+}
+
+// the battery's bar at x, width wide, in style (CPU_RENDER_BATTERY_*; an unknown one as CPU_RENDER_BATTERY_LIGHT_TINT): its
+// background over the whole bar from bottom, then the fill in fill (at 0.9 opacity when neutral, on the adapter and not
+// charging), the charge's share of the height, its top on a device pixel, and over them the number: the charge in whole
+// percent, 0 to 99, its digits upright and stacked from the top, 5 pt tall, 1 pt apart, each centred across the bar on
+// whole points and the stack 1 pt above the image's centre, on device pixels, so the digits' edges are sharp. A full bar
+// (100) has no number: stacked, it would be 17 pt, taller than the dashed style's 14-pt bar. Each style's colours are
+// CPU_RENDER_BATTERY_*'s in CpuRenderer.h; a digit cut out lets the menu bar show through it. No number without the font
+static void _render_battery_bar(CGContextRef ctx, CGFloat x, CGFloat width, double charge, rgb fill, bool neutral, int style, CGFloat color, bool light, CGFloat bottom)
+{
+  const double share = fmin(fmax(charge, 0.0), 1.0);
+  const CGFloat scale = _device_scale(ctx);
+  const rgb white = {1.0, 1.0, 1.0};
+  const rgb black = {0.0, 0.0, 0.0};
+  switch (style)
+  {
+    case CPU_RENDER_BATTERY_GREY:
+      CGContextSetGrayFillColor(ctx, color, 0.60);
+      break;
+    case CPU_RENDER_BATTERY_LIGHT_GREY:
+      CGContextSetGrayFillColor(ctx, color, 0.75);
+      break;
+    case CPU_RENDER_BATTERY_TINT:
+      CGContextSetRGBFillColor(ctx, fill.r, fill.g, fill.b, neutral ? 0.3 : 0.38);
+      break;
+    default:
+      style = CPU_RENDER_BATTERY_LIGHT_TINT;
+      if (neutral)
+      {
+        CGContextSetGrayFillColor(ctx, color, 0.55);
+      }
+      else
+      {
+        const rgb tint = _mix(fill, white, 0.55);
+        CGContextSetRGBFillColor(ctx, tint.r, tint.g, tint.b, 1.0);
+      }
+      break;
+  }
+  CGContextFillRect(ctx, CGRectMake(x, bottom, width, 16.0-bottom));
+  const CGRect filled = CGRectMake(x, bottom, width, _snap(share*(16.0-bottom), scale));
+  CGContextSetRGBFillColor(ctx, fill.r, fill.g, fill.b, neutral ? 0.9 : 1.0);
+  CGContextFillRect(ctx, filled);
   CTFontRef font = _battery_font();
   if (font == NULL)
   {
     return;
   }
-  const double share = fmin(fmax(charge, 0.0), 1.0);
   const long percent = lround(share*100.0);
   if (percent >= 100)
   {
@@ -740,7 +754,6 @@ static void _render_battery_number(CGContextRef ctx, CGFloat x, CGFloat width, d
   {
     return;
   }
-  const CGFloat scale = _device_scale(ctx);
   const CGFloat digit = 5.0;
   const CGFloat step = digit + 1.0; // a digit and the gap after it
   const CGFloat lowest = _snap((16.0 - ((count*digit) + ((count-1)*(step - digit))))/2.0, scale) + 1.0; // the last digit's bottom
@@ -764,30 +777,52 @@ static void _render_battery_number(CGContextRef ctx, CGFloat x, CGFloat width, d
     CGPathAddPath(digits, &place, path);
     CGPathRelease(path);
   }
-  const CGRect fill = CGRectMake(x, bottom, width, share*(16.0-bottom));
   CGContextSaveGState(ctx);
-  CGContextClipToRect(ctx, fill);
-  CGContextSetBlendMode(ctx, kCGBlendModeClear);
+  if ((style == CPU_RENDER_BATTERY_LIGHT_TINT) && light && !neutral)
+  {
+    // black on the light tint and on the fill: cut out, they would be as light as the tint
+    CGContextSetGrayFillColor(ctx, 0.0, 0.9);
+  }
+  else
+  {
+    // cut out: everywhere, or in the tint style only where they cross the fill
+    if (style == CPU_RENDER_BATTERY_TINT)
+    {
+      CGContextClipToRect(ctx, filled);
+    }
+    CGContextSetBlendMode(ctx, kCGBlendModeClear);
+  }
   CGContextAddPath(ctx, digits);
   CGContextFillPath(ctx);
   CGContextRestoreGState(ctx);
-  CGContextSaveGState(ctx);
-  CGContextAddRect(ctx, CGRectMake(x, 0.0, width, 16.0));
-  CGContextAddRect(ctx, fill);
-  CGContextEOClip(ctx);
-  CGContextSetGrayFillColor(ctx, light ? 0.0 : 1.0, 0.9);
-  CGContextAddPath(ctx, digits);
-  CGContextFillPath(ctx);
-  CGContextRestoreGState(ctx);
+  if (style == CPU_RENDER_BATTERY_TINT)
+  {
+    // above the fill, the fill's colour lighter (darker on a light menu bar), or on the adapter the text colour
+    CGContextSaveGState(ctx);
+    CGContextAddRect(ctx, CGRectMake(x, 0.0, width, 16.0));
+    CGContextAddRect(ctx, filled);
+    CGContextEOClip(ctx);
+    if (neutral)
+    {
+      CGContextSetGrayFillColor(ctx, light ? 0.0 : 1.0, 0.9);
+    }
+    else
+    {
+      const rgb above = light ? _mix(fill, black, 0.45) : _mix(fill, white, 0.6);
+      CGContextSetRGBFillColor(ctx, above.r, above.g, above.b, 1.0);
+    }
+    CGContextAddPath(ctx, digits);
+    CGContextFillPath(ctx);
+    CGContextRestoreGState(ctx);
+  }
   CGPathRelease(digits);
 }
 
-// the battery's reading in its slot at x: not read (charge below 0), the bar's background alone in bar style, nothing in Dot
-// style. Else a wide bar as the Neural Engine's by-share bar is (whole, without the dashes), its fill the charge, coloured by
-// the power state: charging, systemGreen; on the adapter and not charging (onAC), the text colour at 0.9 opacity; on
-// battery, systemRed; and over it the number (_render_battery_number). In Dot style the readings' dot, in the same colour,
-// filled while the charge is 0.005 or more, with no number
-static void _render_battery(CGContextRef ctx, CGFloat x, double charge, bool charging, bool onAC, CGFloat color, bool bar, CGFloat tickWidth, bool light, CGFloat bottom)
+// the battery's reading in its slot at x: not read (charge below 0), the bars' background alone in bar style, nothing in Dot
+// style. Else a wide bar, whole, without the dashes, in style (_render_battery_bar), its fill the charge, coloured by the
+// power state: charging, systemGreen; on the adapter and not charging (onAC), the text colour at 0.9 opacity; on battery,
+// systemRed. In Dot style the readings' dot, in the same colour, filled while the charge is 0.005 or more, with no number
+static void _render_battery(CGContextRef ctx, CGFloat x, double charge, bool charging, bool onAC, int style, CGFloat color, bool bar, CGFloat tickWidth, bool light, CGFloat bottom)
 {
   const CGFloat width = 2.0*tickWidth;
   if (!(charge >= 0.0))
@@ -802,8 +837,7 @@ static void _render_battery(CGContextRef ctx, CGFloat x, double charge, bool cha
   const rgb fill = charging ? _charging_color(light) : (onAC ? _text_color(light) : _discharging_color(light));
   if (bar)
   {
-    _render_share_bar(ctx, x, width, charge, fill, neutral ? 0.9 : 1.0, color, light, bottom);
-    _render_battery_number(ctx, x, width, charge, bottom, light);
+    _render_battery_bar(ctx, x, width, charge, fill, neutral, style, color, light, bottom);
   }
   else
   {
@@ -952,7 +986,8 @@ void CpuRender(CpuSummaryInfo* cpu_info, CGContextRef ctx, bool light, int granu
     const int count = base + extraCount;
     // the battery's, Wi-Fi's, disk, memory, (the Neural Engine's, the GPU's,) CPU, the E-cores', the P-cores' from the left,
     // then the extra readings; a value below 0 or NaN is not read and draws only the bar's background, one above 1 draws as
-    // 1. The battery's, Wi-Fi's and the Neural Engine's are drawn last, apart (-1 here)
+    // 1. The battery's, Wi-Fi's and the Neural Engine's ON/OFF are drawn last, apart (-1 here); the Neural Engine's share
+    // is drawn here, as the GPU's
     double block_values[CPU_RENDER_READINGS_MAX];
     for (int i=0; i<base; i++)
     {
@@ -963,6 +998,9 @@ void CpuRender(CpuSummaryInfo* cpu_info, CGContextRef ctx, bool light, int granu
           break;
         case CPU_RENDER_KIND_MEMORY:
           block_values[i] = readings->memory;
+          break;
+        case CPU_RENDER_KIND_NEURAL_ENGINE:
+          block_values[i] = readings->neuralEngineByShare ? readings->neuralEngineBusy : -1.0;
           break;
         case CPU_RENDER_KIND_GPU:
           block_values[i] = readings->gpu;
@@ -984,7 +1022,8 @@ void CpuRender(CpuSummaryInfo* cpu_info, CGContextRef ctx, bool light, int granu
     for (int i=block ? 0 : base; i<count; i++)
     {
       const int kind = (i < base) ? CpuRenderReadingKind(shown, i) : -1;
-      if ((kind == CPU_RENDER_KIND_BATTERY) || (kind == CPU_RENDER_KIND_WIFI) || (kind == CPU_RENDER_KIND_NEURAL_ENGINE))
+      if ((kind == CPU_RENDER_KIND_BATTERY) || (kind == CPU_RENDER_KIND_WIFI) ||
+          ((kind == CPU_RENDER_KIND_NEURAL_ENGINE) && !readings->neuralEngineByShare))
       {
         continue;
       }
@@ -1092,16 +1131,16 @@ void CpuRender(CpuSummaryInfo* cpu_info, CGContextRef ctx, bool light, int granu
     }
   }
 
-  // the Neural Engine's, the battery's and Wi-Fi's, drawn last so that the dashes do not cut them
-  if (gpu)
+  // the Neural Engine's ON/OFF, the battery's and Wi-Fi's, drawn last so that the dashes do not cut them
+  if (gpu && !readings->neuralEngineByShare)
   {
     _render_neural_engine(ctx, CpuRenderReadingX(bar, tickWidth, tickTotalWidth, shown, imageWidth, split, cores, extraCount, extra, CpuRenderReadingIndex(shown, CPU_RENDER_KIND_NEURAL_ENGINE)),
-                          readings->neuralEngine, readings->neuralEngineByShare, readings->neuralEngineBusy, color, bar, tickWidth, light, bottom);
+                          readings->neuralEngine, color, bar, tickWidth, light, bottom);
   }
   if ((shown & CPU_RENDER_SHOWN_BATTERY) != 0)
   {
     _render_battery(ctx, CpuRenderReadingX(bar, tickWidth, tickTotalWidth, shown, imageWidth, split, cores, extraCount, extra, CpuRenderReadingIndex(shown, CPU_RENDER_KIND_BATTERY)),
-                    readings->battery, readings->batteryCharging, readings->batteryOnAC, color, bar, tickWidth, light, bottom);
+                    readings->battery, readings->batteryCharging, readings->batteryOnAC, readings->batteryStyle, color, bar, tickWidth, light, bottom);
   }
   if ((shown & CPU_RENDER_SHOWN_WIFI) != 0)
   {
